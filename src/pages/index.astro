@@ -84,13 +84,30 @@ import LogoGrid from "../components/LogoGrid.astro";
         </p>
       </div>
 
-      <div class="mb-12 rounded-3xl overflow-hidden shadow-xl border border-brand-200 max-h-[320px] sm:max-h-[420px]">
-        <img
-          src="/assets/secciones/inicio/hero-instalacion.jpg"
-          alt="Instalación de gases medicinales en institución de salud"
-          class="w-full h-full object-cover object-center"
-          loading="lazy"
-        />
+      <div class="mb-12 grid lg:grid-cols-[1fr_auto] gap-8 lg:gap-12 items-center rounded-3xl bg-brand-50 border border-brand-200 p-6 sm:p-8 lg:p-10 shadow-lg">
+        <div class="text-center lg:text-left order-2 lg:order-1">
+          <p class="text-gasonor-accent text-sm font-bold uppercase tracking-wider mb-2">Instituciones de salud</p>
+          <h3 class="text-2xl sm:text-3xl font-extrabold text-gasonor-primary mb-3">
+            Instalación de gases medicinales
+          </h3>
+          <p class="text-body leading-relaxed max-w-xl mx-auto lg:mx-0">
+            Manifolds, cilindros y conexiones para gasoterapia hospitalaria con el respaldo de la
+            única droguería habilitada ANMAT en Rosario.
+          </p>
+          <a href="/sanatorios" class="inline-flex items-center gap-2 mt-5 text-gasonor-primary font-bold hover:text-gasonor-accent transition-colors">
+            Ver servicios para sanatorios →
+          </a>
+        </div>
+        <figure class="order-1 lg:order-2 shrink-0 mx-auto lg:mx-0 lg:mr-4">
+          <img
+            src="/assets/secciones/inicio/hero-instalacion.jpg"
+            alt="Instalación de gases medicinales en institución de salud"
+            class="w-auto max-w-[240px] sm:max-w-[280px] lg:max-w-[320px] h-auto rounded-2xl shadow-md ring-1 ring-brand-200"
+            width="320"
+            height="480"
+            loading="lazy"
+          />
+        </figure>
       </div>
 
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 mb-10">
