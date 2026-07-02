@@ -1,0 +1,283 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site, whatsappLink } from "../data/site";
+
+const requisitos = [
+  {
+    icon: "💬",
+    title: "Pedidos por WhatsApp",
+    text: `Los pedidos medicinales se inician y atienden a través de WhatsApp ${site.whatsappDisplay}. Es nuestro canal principal de gestión.`,
+  },
+  {
+    icon: "📋",
+    title: "Receta médica obligatoria",
+    text: "Es obligatorio contar con receta médica para contratar cualquier servicio de alquiler, exceptuando la venta de equipos.",
+    highlight: true,
+  },
+  {
+    icon: "🪪",
+    title: "DNI del responsable",
+    text: "Foto del DNI por delante y por detrás de la persona responsable que se hará cargo del alquiler. No es necesario que sea el paciente.",
+  },
+  {
+    icon: "💰",
+    title: "Depósito en garantía",
+    text: "Para cualquier alquiler se deberá abonar un depósito en garantía al momento de contratar el servicio.",
+  },
+  {
+    icon: "🚚",
+    title: "Servicio a domicilio",
+    text: "Se aplicará el costo correspondiente por impuesto o servicio de entrega al domicilio donde deban instalarse los equipos.",
+  },
+];
+
+const equipos = [
+  {
+    id: "concentradores",
+    tag: "Oxígeno permanente",
+    title: "Concentradores de oxígeno",
+    text: "Máquinas conectadas a la corriente eléctrica que producen oxígeno las 24 horas del día. Recetados para oxigenoterapia permanente o alto consumo, son la opción más práctica cuando el paciente necesita oxigenarse muchas horas seguidas sin depender de recargas de cilindros.",
+    bullets: [
+      "Funcionamiento continuo conectado a la red",
+      "Ideal para oxigenoterapia permanente",
+      "Alto consumo diario sin recambio de envases",
+      "Disponibles para alquiler y compra",
+    ],
+    image: "/assets/secciones/oxigenoterapia/concentradores.jpg",
+    alt: "Concentrador de oxígeno domiciliario",
+  },
+  {
+    id: "tubos",
+    tag: "Según indicación médica",
+    title: "Tubo y regulador",
+    text: "Disponemos de un parque de tubos con regulador en envases de 1, 3 y 6 metros cúbicos, con el regulador pertinente para cada caso. La medida y el equipo se definen según la gravedad, intensidad y necesidad de uso que indique el médico.",
+    bullets: [
+      "Envases de 1, 3 y 6 m³",
+      "Regulador adecuado a cada prescripción",
+      "Explicación del modo y método de uso al paciente",
+      "Alquiler y venta disponibles",
+    ],
+    image: "/assets/secciones/oxigenoterapia/alquiler-tubo-con-regulador.jpg",
+    alt: "Tubos de oxígeno con regulador",
+    reverse: true,
+  },
+  {
+    id: "mochilas",
+    tag: "Movilidad y traslados",
+    title: "Envases ultralivianos (mochila)",
+    text: "Tubos chicos de aluminio ultraliviano, diseñados para el transporte de personas. Llevan un regulador especial y una mochila a medida para que el traslado sea más cómodo y llevadero que un tubo tradicional. Tienen una autonomía limitada de alrededor de 30 minutos en intensidad media.",
+    bullets: [
+      "Cilindros ultralivianos de aluminio",
+      "Mochila ergonómica a medida",
+      "Regulador especial para traslados",
+      "~30 min de autonomía en uso medio",
+    ],
+    image: "/assets/secciones/oxigenoterapia/envase-ultraliviano-mochila.jpeg",
+    alt: "Equipo portátil ultraliviano con mochila",
+  },
+];
+---
+
+<Layout
+  title="Oxigenoterapia & Homecare"
+  description="Alquiler y venta de concentradores, tubos y mochilas de oxígeno en Rosario. Receta médica, entrega a domicilio y recarga en planta. Gasonor S.R.L."
+  whatsappMessage="Hola Gasonor, consulto por oxigenoterapia / alquiler de equipo."
+>
+
+  <!-- HERO -->
+  <section class="hero-medical-photo min-h-[400px] sm:min-h-[460px] flex items-center">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_55%)]"></div>
+    <div class="relative max-w-7xl mx-auto section-pad w-full">
+      <div class="max-w-2xl">
+        <span class="inline-block px-3 py-1 rounded-full bg-white/20 text-white text-sm font-bold mb-4">
+          Línea medicinal · Homecare
+        </span>
+        <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight mb-5 !text-white">
+          Oxigenoterapia domiciliaria
+        </h1>
+        <p class="text-white/90 text-lg leading-relaxed mb-8">
+          Tratamiento con oxígeno mediante inhalación para pacientes cuyos médicos así lo requieran.
+          Equipos de alquiler y venta, entrega a domicilio y asesoramiento personalizado en Rosario.
+        </p>
+        <a
+          href={whatsappLink("Hola Gasonor, consulto por oxigenoterapia domiciliaria.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-primary !bg-white !text-gasonor-primary hover:!bg-gasonor-nav"
+        >
+          Iniciar pedido por WhatsApp
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- AVISO IMPORTANTE -->
+  <section id="requisitos" class="section-pad bg-white -mt-4 relative z-10">
+    <div class="max-w-7xl mx-auto">
+      <div class="rounded-3xl border-2 border-amber-400 bg-amber-50 shadow-lg overflow-hidden">
+        <div class="bg-amber-400 px-6 py-4 flex flex-wrap items-center gap-3">
+          <span class="text-2xl" aria-hidden="true">⚠️</span>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-gasonor-ink">
+            Importante: leer antes de alquilar
+          </h2>
+        </div>
+        <div class="p-6 sm:p-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {
+            requisitos.map((item) => (
+              <div
+                class:list={[
+                  "p-5 rounded-2xl border bg-white",
+                  item.highlight ? "border-gasonor-primary ring-2 ring-gasonor-primary/20" : "border-amber-200",
+                ]}
+              >
+                <div class="flex items-start gap-3">
+                  <span class="text-2xl shrink-0" aria-hidden="true">{item.icon}</span>
+                  <div>
+                    <h3 class="font-extrabold text-gasonor-primary mb-2">{item.title}</h3>
+                    <p class="text-body text-sm leading-relaxed">{item.text}</p>
+                  </div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+        <div class="px-6 sm:px-8 pb-6 sm:pb-8">
+          <a
+            href={whatsappLink("Hola Gasonor, quiero iniciar un pedido medicinal de oxigenoterapia.")}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-primary w-full sm:w-auto justify-center gap-2"
+          >
+            WhatsApp {site.whatsappDisplay}
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUÉ ES -->
+  <section class="section-pad bg-brand-50">
+    <div class="max-w-3xl mx-auto text-center">
+      <h2 class="text-3xl sm:text-4xl font-extrabold mb-6">¿Qué es la oxigenoterapia?</h2>
+      <p class="text-body text-lg leading-relaxed mb-4">
+        La oxigenoterapia consiste en el tratamiento con oxígeno mediante la inhalación, indicado
+        por un médico cuando el paciente lo requiere. Existen varios tipos de equipos según la
+        gravedad, la intensidad del tratamiento y las horas de uso diario.
+      </p>
+      <p class="text-body leading-relaxed">
+        En Gasonor disponemos de equipos diferentes para <strong class="text-gasonor-primary">alquiler y compra</strong>,
+        y nuestro equipo le asesora para elegir la solución adecuada a cada caso clínico.
+      </p>
+    </div>
+  </section>
+
+  <!-- EQUIPOS -->
+  {
+    equipos.map((equipo, i) => (
+      <section id={equipo.id} class:list={["section-pad", i % 2 === 0 ? "bg-white" : "bg-brand-50"]}>
+        <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+          <div class:list={[equipo.reverse ? "order-1 lg:order-2" : "order-1 lg:order-1"]}>
+            <span class="text-gasonor-accent text-sm font-bold uppercase tracking-wider">{equipo.tag}</span>
+            <h2 class="text-3xl sm:text-4xl font-extrabold mt-2 mb-5">{equipo.title}</h2>
+            <p class="text-body text-lg leading-relaxed mb-6">{equipo.text}</p>
+            <ul class="space-y-3">
+              {equipo.bullets.map((b) => (
+                <li class="flex gap-3 text-gasonor-ink/90">
+                  <span class="text-gasonor-accent font-bold shrink-0">✓</span>
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div class:list={[equipo.reverse ? "order-2 lg:order-1" : "order-2 lg:order-2"]}>
+            <img
+              src={equipo.image}
+              alt={equipo.alt}
+              class="rounded-3xl shadow-2xl w-full max-h-[440px] object-cover"
+              loading="lazy"
+            />
+          </div>
+        </div>
+      </section>
+    ))
+  }
+
+  <!-- VENTA -->
+  <section id="venta" class="section-pad bg-gasonor-primary text-white">
+    <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+      <div>
+        <span class="inline-block px-3 py-1 rounded-full bg-white/15 text-gasonor-nav text-sm font-bold mb-4">
+          Compra directa
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-5 !text-white">
+          Venta de equipos
+        </h2>
+        <p class="text-white/90 text-lg leading-relaxed mb-6">
+          Ofrecemos venta de equipos de oxigenoterapia para quienes prefieren no depender de un
+          alquiler. Consulte disponibilidad y modelos según la indicación médica de su familiar o paciente.
+        </p>
+        <p class="text-white/80 text-sm">
+          La venta no requiere receta para consultar, pero el uso medicinal siempre debe estar
+          indicado por un profesional de la salud.
+        </p>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <img src="/assets/secciones/oxigenoterapia/venta-de-equipo.jpg" alt="Venta de equipos de oxigenoterapia" class="rounded-2xl shadow-xl w-full h-52 sm:h-64 object-cover" loading="lazy" />
+        <img src="/assets/secciones/oxigenoterapia/alquiler-tubo-con-regulador.jpg" alt="Tubos y reguladores de oxígeno" class="rounded-2xl shadow-xl w-full h-52 sm:h-64 object-cover mt-6" loading="lazy" />
+      </div>
+    </div>
+  </section>
+
+  <!-- RECARGA + DOMICILIO -->
+  <section class="section-pad bg-white">
+    <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-8">
+      <div id="recarga" class="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200 card-hover">
+        <div class="text-4xl mb-4" aria-hidden="true">⚡</div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold mb-4">Recarga en planta</h2>
+        <p class="text-body leading-relaxed mb-4">
+          Recarga rápida en nuestra planta: en aproximadamente <strong class="text-gasonor-primary">5 minutos</strong> puede
+          recargar sus envases las veces que necesite, sin largas esperas.
+        </p>
+        <p class="text-sm text-gasonor-accent font-bold">
+          Dr. Riva 1215, Matheu — Rosario
+        </p>
+      </div>
+      <div id="domicilio" class="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200 card-hover">
+        <div class="text-4xl mb-4" aria-hidden="true">🏠</div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold mb-4">Servicio a domicilio (Homecare)</h2>
+        <p class="text-body leading-relaxed mb-4">
+          Llevamos y retiramos envases y equipos, dejándolos en puerta. Realizamos recambios y
+          recargas en el domicilio del paciente para que no tenga que trasladarse.
+        </p>
+        <p class="text-sm text-body">
+          Aplica costo de servicio según la zona de entrega. Consulte por WhatsApp antes de contratar.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ANMAT + CTA -->
+  <section class="section-pad bg-brand-50">
+    <div class="max-w-7xl mx-auto text-center">
+      <img src="/assets/brand/anmat.png" alt="Habilitados ANMAT" class="h-14 mx-auto mb-6 opacity-90" loading="lazy" />
+      <h2 class="text-3xl font-extrabold mb-4">Droguería habilitada ANMAT</h2>
+      <p class="text-body max-w-xl mx-auto mb-8">
+        Gases medicinales con trazabilidad, respaldo técnico y atención humana en {site.coverage}.
+      </p>
+      <div class="flex flex-wrap justify-center gap-4">
+        <a
+          href={whatsappLink("Hola Gasonor, quiero alquilar equipo de oxigenoterapia. Tengo receta médica.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-primary gap-2"
+        >
+          Pedir por WhatsApp
+        </a>
+        <a href="/sanatorios" class="inline-flex items-center justify-center px-6 py-3 rounded-full border-2 border-gasonor-primary text-gasonor-primary font-bold hover:bg-gasonor-primary hover:text-white transition-all">
+          Servicios para sanatorios →
+        </a>
+      </div>
+    </div>
+  </section>
+
+</Layout>

@@ -1,0 +1,334 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site, whatsappLink } from "../data/site";
+
+const gasesVenta = [
+  "Oxígeno",
+  "CO₂",
+  "Argón",
+  "Athal (Argón + CO₂)",
+  "Acetileno",
+  "Nitrógeno",
+  "Aire comprimido",
+  "Óxido nitroso",
+  "Mezclas especiales",
+];
+
+const capacidades = [
+  { size: "Chicos", desc: "Uso portátil y equipos compactos" },
+  { size: "Medianos", desc: "Talleres y comercios" },
+  { size: "Grandes", desc: "Industria y alto consumo" },
+];
+
+const gasesDetalle = [
+  {
+    id: "co2",
+    name: "CO₂",
+    tag: "Soldadura económica",
+    text: "Destacado para soldadura cuando no se requieren uniones de alta precisión. Trabaja a baja presión: alrededor de los 50 bar se vuelve líquido, lo que extiende el mantenimiento y la durabilidad del envase.",
+    extra: "Muy usado en automotor, aire acondicionado y soldadura MIG/MAG por su excelente relación costo-beneficio.",
+    accent: "border-l-emerald-600",
+  },
+  {
+    id: "athal",
+    name: "Athal",
+    tag: "Mezcla Argón + CO₂",
+    text: "Gas mezcla para soldadura de precisión media, mucho más limpio que el CO₂ solo. Se compone de aproximadamente 70% Argón y 30% CO₂: mejor calidad de soldadura y más económico que el Argón puro.",
+    extra: "Admite reconversión desde otros gases en tubo. Ideal cuando buscás un punto intermedio entre economía y acabado.",
+    accent: "border-l-teal-600",
+  },
+  {
+    id: "argon",
+    name: "Argón",
+    tag: "Soldadura de excelencia",
+    text: "Uno de los gases por excelencia para una soldadura perfecta. Más costoso que el CO₂, a cambio de resultados superiores. Su complejidad está en el envasado: el tubo debe estar en perfectas condiciones para evitar contaminación del gas.",
+    extra: "Transformar un tubo desde otro gas (O₂, CO₂, Athal) a Argón requiere un proceso de descontaminación que demora alrededor de un mes. También ofrecemos ese servicio.",
+    accent: "border-l-blue-600",
+  },
+  {
+    id: "acetileno",
+    name: "Acetileno",
+    tag: "Alta temperatura",
+    text: "Muy usado en automoción y por soldadores tradicionales por su alto nivel de temperatura. Se fabrica con carburo; si posee un tubo propio y desea cargarlo, debe enviarse a planta y el proceso dura alrededor de un mes.",
+    extra: "Gasonor posee un parque propio de acetileno para trabajar por recambio, mientras su tubo vuelve cargado desde planta.",
+    accent: "border-l-orange-600",
+  },
+  {
+    id: "oxigeno",
+    name: "Oxígeno",
+    tag: "Alto consumo industrial",
+    text: "Usado para soldadura y oxicorte, siendo uno de los gases de mayor consumo en todas las industrias. En Gasonor realizamos la carga en el momento para que no detengas tu producción.",
+    extra: "Proveemos especialmente a rubros automotor, aire acondicionado y soldadura con respuesta ágil.",
+    accent: "border-l-gasonor-primary",
+  },
+];
+---
+
+<Layout
+  title="Gases Industriales & Soldadura"
+  description="Gases industriales, carga a domicilio, mantenimiento de envases, CO₂, Argón, Athal, Acetileno y venta de cilindros en Rosario. Gasonor S.R.L."
+  whatsappMessage="Hola Gasonor, consulto por gases industriales / soldadura."
+>
+
+  <!-- HERO -->
+  <section class="hero-industrial">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(200,230,160,0.15),transparent_55%)]"></div>
+    <div class="relative max-w-7xl mx-auto section-pad">
+      <div class="max-w-2xl">
+        <span class="inline-block px-3 py-1 rounded-full bg-gasonor-nav/20 text-gasonor-nav text-sm font-bold mb-4">
+          Línea industrial
+        </span>
+        <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight mb-5 !text-white">
+          Gases industriales y soldadura
+        </h1>
+        <p class="text-white/85 text-lg leading-relaxed mb-8">
+          Carga a domicilio de un día para el otro, mantenimiento de envases y gases para
+          automotor, aire acondicionado y soldadura en {site.coverage}.
+        </p>
+        <a
+          href={whatsappLink("Hola, consulto por gases industriales o soldadura.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-primary !bg-gasonor-nav !text-gasonor-primary hover:!bg-white"
+        >
+          Pedir presupuesto
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICIOS -->
+  <section id="servicios" class="section-pad bg-white">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center max-w-2xl mx-auto mb-12">
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-4">Servicios que ofrecemos</h2>
+        <p class="text-body text-lg">
+          Rapidez, trato humano y foco en las urgencias de la industria que no puede detenerse.
+        </p>
+      </div>
+      <div class="grid lg:grid-cols-2 gap-8">
+        <div class="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200 card-hover">
+          <div class="text-4xl mb-4" aria-hidden="true">🚚</div>
+          <h3 class="text-2xl font-extrabold mb-4">Carga en el domicilio</h3>
+          <p class="text-body leading-relaxed mb-4">
+            Carga en el domicilio para que no te quedes sin oxígeno ni gases de trabajo.
+            <strong class="text-gasonor-primary">Pedidos de un día para el otro</strong> — una de
+            nuestras mayores diferencias frente a la competencia, donde las grandes corporaciones
+            pueden demorar semanas en traerte un pedido.
+          </p>
+          <p class="text-body leading-relaxed">
+            En Gasonor, nosotros y nuestro trato humano hacemos que las urgencias de las industrias
+            que necesitan seguir produciendo sean nuestro foco principal.
+          </p>
+        </div>
+        <div class="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200 card-hover">
+          <div class="text-4xl mb-4" aria-hidden="true">🔧</div>
+          <h3 class="text-2xl font-extrabold mb-4">Mantenimiento de envases</h3>
+          <p class="text-body leading-relaxed mb-4">
+            Servicio de mantenimiento de envases con prueba hidráulica y adecuamiento para el uso
+            de tubos mediante un proceso de llenado de agua a presión.
+          </p>
+          <p class="text-body leading-relaxed">
+            Corroboramos que el envase no haya tenido pérdida de material y que continúe siendo
+            resistente ante presiones extremas, garantizando seguridad en cada recarga.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GASES INDUSTRIALES INTRO -->
+  <section id="gases" class="section-pad bg-gasonor-ink text-white">
+    <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+      <div>
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-5 !text-white">Gases industriales</h2>
+        <p class="text-white/85 text-lg leading-relaxed mb-6">
+          Nos ocupamos de mantener provistos especialmente a rubros de <strong class="text-gasonor-nav">automotor</strong>,
+          <strong class="text-gasonor-nav">aires acondicionados</strong> y <strong class="text-gasonor-nav">soldadura</strong>,
+          con todos los gases correspondientes a cada aplicación.
+        </p>
+        <p class="text-white/75 leading-relaxed">
+          Asesoramiento permanente para elegir el gas correcto según precisión, costo y tipo de trabajo.
+          Envases con trazabilidad y respaldo técnico de droguería habilitada.
+        </p>
+      </div>
+      <img
+        src="/assets/secciones/gases-industriales/gases-industriales.jpg"
+        alt="Envases de gases industriales"
+        class="rounded-3xl shadow-2xl w-full max-h-[420px] object-cover ring-4 ring-white/10"
+        loading="lazy"
+      />
+    </div>
+  </section>
+
+  <!-- DETALLE POR GAS -->
+  <section class="section-pad bg-white">
+    <div class="max-w-7xl mx-auto space-y-6">
+      <div class="text-center max-w-2xl mx-auto mb-10">
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-4">Gases para soldadura e industria</h2>
+        <p class="text-body">Conocé las características de cada gas y el servicio que ofrecemos para cada caso.</p>
+      </div>
+      {
+        gasesDetalle.map((gas, i) => (
+          <article
+            id={gas.id}
+            class:list={[
+              "grid lg:grid-cols-[minmax(0,220px)_1fr] gap-6 p-6 sm:p-8 rounded-3xl border border-brand-200 bg-brand-50 card-hover border-l-4",
+              gas.accent,
+              i % 2 === 1 ? "lg:grid-cols-[1fr_minmax(0,220px)]" : "",
+            ]}
+          >
+            <div class:list={[i % 2 === 1 ? "lg:order-2 lg:text-right" : ""]}>
+              <span class="text-xs font-bold uppercase tracking-wider text-gasonor-accent">{gas.tag}</span>
+              <h3 class="text-3xl font-extrabold text-gasonor-primary mt-1">{gas.name}</h3>
+            </div>
+            <div class:list={[i % 2 === 1 ? "lg:order-1" : ""]}>
+              <p class="text-body leading-relaxed mb-3">{gas.text}</p>
+              <p class="text-body text-sm leading-relaxed text-gasonor-ink/80">{gas.extra}</p>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- REGULADORES + SOLDADURA -->
+  <section id="soldadura" class="section-pad bg-brand-50">
+    <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+      <img
+        src="/assets/productos/reguladores.jpeg"
+        alt="Reguladores de gases industriales"
+        class="rounded-3xl shadow-xl w-full max-h-[400px] object-cover"
+        loading="lazy"
+      />
+      <div>
+        <h2 class="text-3xl font-extrabold mb-4">Reguladores y elementos de soldadura</h2>
+        <p class="text-body leading-relaxed mb-6">
+          Válvulas reguladoras para oxígeno, CO₂, argón y demás gases. La mayor variedad de
+          elementos de soldadura para complementar tu provisión de gases.
+        </p>
+        <div class="grid sm:grid-cols-2 gap-3">
+          {
+            [
+              "Reguladores con flujómetro y manómetros",
+              "Sopletes autógenos y cortadores",
+              "Alambre MIG/MAG",
+              "Varillas y electrodos",
+              "Discos de corte y desbaste",
+            ].map((item) => (
+              <div class="flex gap-2 p-3 rounded-xl bg-white border border-brand-200 text-sm font-medium text-gasonor-ink/85">
+                <span class="text-gasonor-accent font-bold shrink-0">✓</span>
+                {item}
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADVERTENCIA -->
+  <section id="requisitos-envases" class="section-pad bg-white">
+    <div class="max-w-7xl mx-auto">
+      <div class="rounded-3xl border-2 border-red-400 bg-red-50 shadow-lg overflow-hidden">
+        <div class="bg-red-500 px-6 py-4 flex flex-wrap items-center gap-3">
+          <span class="text-2xl" aria-hidden="true">⚠️</span>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-white">
+            Condiciones obligatorias para la carga de envases
+          </h2>
+        </div>
+        <div class="p-6 sm:p-8 space-y-4 text-body leading-relaxed">
+          <p>
+            <strong class="text-gasonor-primary">Todos los envases</strong> que deseen ser cargados
+            por los clientes deberán estar en condiciones, contar con válvula de seguridad (en el
+            caso del CO₂), robinete en buenas condiciones y <strong>prueba hidráulica vigente y al día</strong>.
+          </p>
+          <p>
+            En caso de encontrar tubos propiedad de nuestros clientes y/o de Gasonor que hayan sido
+            robados para ser cargados, la empresa se reserva el derecho a retenerlos hasta que se
+            pruebe la procedencia del mismo.
+          </p>
+          <p>
+            Si no cuenta con PH vigente, se negará la carga y se ofrecerá el servicio de mantenimiento
+            del envase para su prueba. Esta puede resultar negativa en el peor de los casos, y en
+            ese supuesto <strong>no se cargará el cilindro por riesgo de explosión</strong>.
+          </p>
+        </div>
+        <div class="px-6 sm:px-8 pb-6 sm:pb-8">
+          <a
+            href={whatsappLink("Hola Gasonor, consulto por mantenimiento y prueba hidráulica de envase.")}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-primary"
+          >
+            Consultar mantenimiento de envase
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VENTA DE CILINDROS -->
+  <section id="cilindros" class="section-pad bg-gasonor-primary text-white">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center max-w-2xl mx-auto mb-12">
+        <span class="inline-block px-3 py-1 rounded-full bg-white/15 text-gasonor-nav text-sm font-bold mb-4">
+          Equipamiento propio
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-4 !text-white">Venta de cilindros</h2>
+        <p class="text-white/85 text-lg">
+          Cilindros de diferentes medidas y gases, nuevos y reacondicionados, con prueba hidráulica
+          y color reglamentario. Consulte disponibilidad según el gas que necesite.
+        </p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-10 items-center mb-12">
+        <img
+          src="/assets/secciones/gases-industriales/venta-de-cilindros.jpeg"
+          alt="Cilindros de gases a la venta"
+          class="rounded-3xl shadow-2xl w-full max-h-[360px] object-cover ring-4 ring-white/20"
+          loading="lazy"
+        />
+        <div class="grid sm:grid-cols-3 gap-4">
+          {
+            capacidades.map((cap) => (
+              <div class="p-5 rounded-2xl bg-white/10 border border-white/20 text-center backdrop-blur-sm">
+                <div class="text-2xl font-extrabold text-gasonor-nav mb-2">{cap.size}</div>
+                <p class="text-sm text-white/80">{cap.desc}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+
+      <div class="rounded-3xl bg-white/10 border border-white/20 p-6 sm:p-8 backdrop-blur-sm">
+        <h3 class="text-xl font-extrabold mb-5 text-center !text-white">Gases disponibles en cilindro</h3>
+        <div class="flex flex-wrap justify-center gap-2 sm:gap-3">
+          {
+            gasesVenta.map((gas) => (
+              <span class="px-4 py-2.5 rounded-full bg-white text-gasonor-primary font-bold text-sm shadow-md">
+                {gas}
+              </span>
+            ))
+          }
+        </div>
+        <p class="text-center text-white/75 text-sm mt-6 max-w-xl mx-auto">
+          Todos los envases incluyen verificación de capacidad, reacondicionamiento cuando corresponde
+          y asesoramiento para la normativa de su rubro.
+        </p>
+      </div>
+
+      <div class="text-center mt-10">
+        <a
+          href={whatsappLink("Hola, consulto por venta de cilindros industriales.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-primary !bg-gasonor-nav !text-gasonor-primary hover:!bg-white"
+        >
+          Consultar precios y medidas por WhatsApp
+        </a>
+      </div>
+    </div>
+  </section>
+
+</Layout>

@@ -1,0 +1,32 @@
+---
+interface Props {
+  class?: string;
+  variant?: "header" | "footer";
+}
+
+const { class: className = "", variant = "header" } = Astro.props;
+---
+
+{
+  variant === "header" ? (
+    <img
+      src="/assets/brand/logo-header.png"
+      alt="Gasonor S.R.L. — Droguería de Gases Medicinales"
+      class:list={["h-9 sm:h-10 lg:h-11 w-auto max-w-[min(100vw-8rem,15rem)] sm:max-w-[18rem] object-contain object-left", className]}
+      width="420"
+      height="80"
+      loading="eager"
+    />
+  ) : (
+    <div class:list={["inline-block rounded-xl bg-gasonor-nav px-3 py-2", className]}>
+      <img
+        src="/assets/brand/logo-limpio.png"
+        alt="Gasonor S.R.L."
+        class="h-10 sm:h-11 w-auto object-contain"
+        width="280"
+        height="64"
+        loading="lazy"
+      />
+    </div>
+  )
+}

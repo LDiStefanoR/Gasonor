@@ -1,0 +1,146 @@
+---
+import Logo from "./Logo.astro";
+import { site, whatsappLink } from "../data/site";
+
+const nav = [
+  { href: "/sanatorios", label: "Sanatorios", shortLabel: "Sanatorios" },
+  { href: "/oxigenoterapia", label: "Oxigenoterapia", shortLabel: "Oxigenoterapia" },
+  { href: "/gases-industriales", label: "Gases & Soldadura", shortLabel: "Industriales" },
+  { href: "/helio", label: "Helio", shortLabel: "Helio" },
+  { href: "/contacto", label: "Contacto", shortLabel: "Contacto" },
+];
+
+const normalizePath = (path: string) => {
+  const clean = path.replace(/\/$/, "");
+  return clean || "/";
+};
+
+const currentPath = normalizePath(Astro.url.pathname);
+
+const isActive = (href: string) => {
+  if (href === "/") return currentPath === "/";
+  return currentPath === href || currentPath.startsWith(`${href}/`);
+};
+---
+
+<header class="fixed top-0 inset-x-0 z-50 bg-nav border-b border-gasonor-primary/10 shadow-sm">
+  <div class="max-w-7xl mx-auto flex items-center gap-3 sm:gap-4 px-4 sm:px-6 lg:px-8 h-16 lg:h-[4.5rem]">
+    <a href="/" class="flex items-center shrink-0 min-w-0" aria-label="Gasonor inicio">
+      <Logo variant="header" class="transition-opacity hover:opacity-90" />
+    </a>
+
+    <nav class="hidden md:flex flex-1 items-center justify-center gap-0.5 min-w-0" aria-label="Principal">
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            class:list={[
+              "px-2 lg:px-3 xl:px-4 py-2 rounded-full text-xs lg:text-sm font-bold transition-colors whitespace-nowrap",
+              isActive(item.href)
+                ? "bg-gasonor-primary text-white shadow-md"
+                : "text-gasonor-primary hover:bg-white/45",
+            ]}
+          >
+            <span class="lg:hidden">{item.shortLabel}</span>
+            <span class="hidden lg:inline">{item.label}</span>
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="flex items-center gap-2 shrink-0 ml-auto md:ml-0">
+      <a
+        href={`tel:${site.phones[0].replace(/\D/g, "")}`}
+        class="hidden xl:inline-flex items-center gap-2 text-sm font-bold text-gasonor-primary hover:text-gasonor-accent transition-colors whitespace-nowrap"
+      >
+        <svg class="w-4 h-4 text-gasonor-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+        </svg>
+        {site.phones[0]}
+      </a>
+      <a
+        href={whatsappLink("Hola Gasonor, quisiera consultar.")}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="btn-primary !px-3 sm:!px-5 !py-2.5 text-sm whitespace-nowrap"
+      >
+        <span class="hidden sm:inline">WhatsApp</span>
+        <span class="sm:hidden">Consultar</span>
+      </a>
+      <button
+        type="button"
+        id="menu-toggle"
+        class="md:hidden p-2 rounded-xl text-gasonor-primary hover:bg-white/40 transition-colors"
+        aria-label="Abrir menú"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+      >
+        <svg id="menu-icon-open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+        <svg id="menu-icon-close" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <nav
+    id="mobile-menu"
+    class="md:hidden hidden border-t border-gasonor-primary/15 bg-nav shadow-lg"
+    aria-label="Móvil"
+  >
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1">
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            data-mobile-link
+            class:list={[
+              "px-4 py-3 rounded-xl text-base font-bold",
+              isActive(item.href)
+                ? "bg-gasonor-primary text-white"
+                : "text-gasonor-primary hover:bg-white/40",
+            ]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <a
+        href={`tel:${site.phones[0].replace(/\D/g, "")}`}
+        class="px-4 py-3 text-gasonor-accent font-bold border-t border-gasonor-primary/10 mt-1"
+      >
+        {site.phones[0]}
+      </a>
+    </div>
+  </nav>
+</header>
+
+<script>
+  const toggle = document.getElementById("menu-toggle");
+  const menu = document.getElementById("mobile-menu");
+  const iconOpen = document.getElementById("menu-icon-open");
+  const iconClose = document.getElementById("menu-icon-close");
+
+  const setMenuOpen = (open: boolean) => {
+    menu?.classList.toggle("hidden", !open);
+    toggle?.setAttribute("aria-expanded", String(open));
+    toggle?.setAttribute("aria-label", open ? "Cerrar menú" : "Abrir menú");
+    iconOpen?.classList.toggle("hidden", open);
+    iconClose?.classList.toggle("hidden", !open);
+  };
+
+  toggle?.addEventListener("click", () => {
+    const open = menu?.classList.contains("hidden") ?? true;
+    setMenuOpen(open);
+  });
+
+  menu?.querySelectorAll("[data-mobile-link]").forEach((link) => {
+    link.addEventListener("click", () => setMenuOpen(false));
+  });
+
+  window.matchMedia("(min-width: 768px)").addEventListener("change", (event) => {
+    if (event.matches) setMenuOpen(false);
+  });
+</script>

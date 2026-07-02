@@ -1,0 +1,89 @@
+---
+import Logo from "./Logo.astro";
+import { site } from "../data/site";
+---
+
+<footer class="bg-gasonor-primary text-white">
+  <div class="max-w-7xl mx-auto section-pad pb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">
+      <div class="lg:col-span-1">
+        <Logo variant="footer" class="mb-5" />
+        <p class="text-sm leading-relaxed text-white/80 mb-4">
+          {site.subtitle}. {site.tagline}. Más de 60 años en {site.coverage}.
+        </p>
+        <img
+          src="/assets/brand/anmat.png"
+          alt="Habilitados ANMAT"
+          class="h-10 w-auto brightness-0 invert opacity-80"
+          loading="lazy"
+        />
+      </div>
+
+      <div>
+        <h3 class="text-white font-bold mb-4">Sanatorios</h3>
+        <ul class="space-y-2 text-sm text-white/85">
+          <li><a href="/sanatorios#control-carga" class="hover:text-gasonor-nav transition-colors">Control de carga</a></li>
+          <li><a href="/sanatorios#alquiler" class="hover:text-gasonor-nav transition-colors">Alquiler tubos ANMAT</a></li>
+          <li><a href="/sanatorios#atencion" class="hover:text-gasonor-nav transition-colors">Atención 24 hs</a></li>
+          <li><a href="/sanatorios#drogueria" class="hover:text-gasonor-nav transition-colors">Droguería habilitada</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 class="text-white font-bold mb-4">Oxigenoterapia</h3>
+        <ul class="space-y-2 text-sm text-white/85">
+          <li><a href="/oxigenoterapia#concentradores" class="hover:text-gasonor-nav transition-colors">Concentradores</a></li>
+          <li><a href="/oxigenoterapia#tubos" class="hover:text-gasonor-nav transition-colors">Tubos y mochilas</a></li>
+          <li><a href="/oxigenoterapia#gases" class="hover:text-gasonor-nav transition-colors">Gases medicinales</a></li>
+          <li><a href="/oxigenoterapia#instalaciones" class="hover:text-gasonor-nav transition-colors">Instalación gasoterapia</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 class="text-white font-bold mb-4">Gases & Industria</h3>
+        <ul class="space-y-2 text-sm text-white/85">
+          <li><a href="/gases-industriales#gases" class="hover:text-gasonor-nav transition-colors">Gases industriales</a></li>
+          <li><a href="/gases-industriales#soldadura" class="hover:text-gasonor-nav transition-colors">Soldadura</a></li>
+          <li><a href="/gases-industriales#cilindros" class="hover:text-gasonor-nav transition-colors">Venta de cilindros</a></li>
+          <li><a href="/helio" class="hover:text-gasonor-nav transition-colors">Helio para eventos</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 class="text-white font-bold mb-4">Contacto</h3>
+        <ul class="space-y-3 text-sm text-white/85">
+          <li class="flex gap-2">
+            <span class="text-gasonor-nav shrink-0">📍</span>
+            <span>{site.address}</span>
+          </li>
+          {
+            site.phones.map((phone) => (
+              <li>
+                <a href={`tel:${phone.replace(/\D/g, "")}`} class="flex gap-2 hover:text-gasonor-nav transition-colors">
+                  <span class="text-gasonor-nav shrink-0">📞</span>
+                  {phone}
+                </a>
+              </li>
+            ))
+          }
+          <li>
+            <a href={`mailto:${site.email}`} class="flex gap-2 hover:text-gasonor-nav transition-colors">
+              <span class="text-gasonor-nav shrink-0">✉️</span>
+              {site.email}
+            </a>
+          </li>
+          <li class="text-white/70">{site.hours.weekdays}</li>
+          <li class="text-white/70">{site.hours.saturday}</li>
+          <li class="text-white/70">{site.hours.sunday}</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-12 pt-8 border-t border-white/20 flex flex-col sm:flex-row justify-between gap-4 text-xs text-white/60">
+      <p>© {new Date().getFullYear()} {site.name} — Todos los derechos reservados.</p>
+      <a href={site.facebook} target="_blank" rel="noopener noreferrer" class="hover:text-gasonor-nav transition-colors">
+        Seguinos en Facebook
+      </a>
+    </div>
+  </div>
+</footer>

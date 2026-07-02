@@ -1,0 +1,147 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site, whatsappLink } from "../data/site";
+---
+
+<Layout
+  title="Contacto"
+  description="Contactá a Gasonor S.R.L. en Rosario. Dr. Riva 1215. Teléfono, WhatsApp y formulario."
+  whatsappMessage="Hola Gasonor, quisiera hacer una consulta."
+>
+
+  <section class="section-pad bg-brand-50">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center mb-12">
+        <h1 class="text-4xl sm:text-5xl font-extrabold mb-4">Contactanos</h1>
+        <p class="text-body text-lg">Respondemos tu consulta a la brevedad. {site.coverage}.</p>
+      </div>
+
+      <div class="grid lg:grid-cols-5 gap-8 lg:gap-12">
+        <!-- Info -->
+        <div class="lg:col-span-2 space-y-6">
+          <div class="p-6 rounded-2xl bg-white border border-brand-200 shadow-sm">
+            <h2 class="font-bold text-gasonor-primary mb-4">Datos de contacto</h2>
+            <ul class="space-y-4 text-body">
+              <li class="flex gap-3">
+                <span class="text-gasonor-accent text-lg">📍</span>
+                <div>
+                  <div class="font-semibold text-gasonor-ink">Dirección</div>
+                  {site.address}
+                </div>
+              </li>
+              {
+                site.phones.map((phone) => (
+                  <li class="flex gap-3">
+                    <span class="text-gasonor-accent text-lg">📞</span>
+                    <div>
+                      <div class="font-semibold text-gasonor-ink">Teléfono</div>
+                      <a href={`tel:${phone.replace(/\D/g, "")}`} class="text-gasonor-accent hover:text-gasonor-primary transition-colors font-semibold">{phone}</a>
+                    </div>
+                  </li>
+                ))
+              }
+              <li class="flex gap-3">
+                <span class="text-lg">💬</span>
+                <div>
+                  <div class="font-semibold text-gasonor-ink">WhatsApp</div>
+                  <a href={whatsappLink()} target="_blank" rel="noopener noreferrer" class="text-[#25D366] font-semibold hover:underline">
+                    {site.whatsappDisplay}
+                  </a>
+                </div>
+              </li>
+              <li class="flex gap-3">
+                <span class="text-gasonor-accent text-lg">✉️</span>
+                <div>
+                  <div class="font-semibold text-gasonor-ink">Email</div>
+                  <a href={`mailto:${site.email}`} class="text-gasonor-accent hover:text-gasonor-primary transition-colors font-semibold">{site.email}</a>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-gasonor-nav/40 border border-brand-200">
+            <h2 class="font-bold text-gasonor-primary mb-3">Horarios</h2>
+            <p class="text-gasonor-ink/85">{site.hours.weekdays}</p>
+            <p class="text-gasonor-ink/85">{site.hours.saturday}</p>
+            <p class="text-gasonor-ink/85">{site.hours.sunday}</p>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white border border-brand-200 shadow-sm">
+            <h2 class="font-bold text-gasonor-primary mb-3">Medios de pago</h2>
+            <p class="text-body text-sm">Contado, transferencia, cuotas, Ahora 12 y Ahora 24.</p>
+          </div>
+        </div>
+
+        <!-- Formulario -->
+        <div class="lg:col-span-3">
+          <form
+            class="p-8 sm:p-10 rounded-3xl bg-white border border-brand-200 shadow-xl shadow-gasonor-primary/5"
+            action={`mailto:${site.email}`}
+            method="GET"
+            enctype="text/plain"
+          >
+            <h2 class="text-xl font-bold text-gasonor-primary mb-6">Envianos tu consulta</h2>
+            <div class="grid sm:grid-cols-2 gap-5 mb-5">
+              <div>
+                <label for="nombre" class="block text-sm font-semibold text-gasonor-ink mb-1.5">Nombre</label>
+                <input type="text" id="nombre" name="nombre" required class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all" />
+              </div>
+              <div>
+                <label for="apellido" class="block text-sm font-semibold text-slate-700 mb-1.5">Apellido</label>
+                <input type="text" id="apellido" name="apellido" required class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all" />
+              </div>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-5 mb-5">
+              <div>
+                <label for="localidad" class="block text-sm font-semibold text-slate-700 mb-1.5">Localidad</label>
+                <input type="text" id="localidad" name="localidad" required class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all" />
+              </div>
+              <div>
+                <label for="telefono" class="block text-sm font-semibold text-slate-700 mb-1.5">Teléfono</label>
+                <input type="tel" id="telefono" name="telefono" required class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all" />
+              </div>
+            </div>
+            <div class="mb-5">
+              <label for="tipo" class="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de consulta</label>
+              <select id="tipo" name="tipo" class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all bg-white">
+                <option value="oxigenoterapia">Oxigenoterapia / Homecare</option>
+                <option value="gases-medicinales">Gases medicinales</option>
+                <option value="institucion">Sanatorio / Hospital</option>
+                <option value="gases-industriales">Gases industriales</option>
+                <option value="soldadura">Soldadura</option>
+                <option value="helio">Helio para eventos</option>
+                <option value="cilindros">Venta de cilindros</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="mb-6">
+              <label for="consulta" class="block text-sm font-semibold text-slate-700 mb-1.5">Consulta</label>
+              <textarea id="consulta" name="body" rows="5" required class="w-full px-4 py-3 rounded-xl border border-brand-200 focus:border-gasonor-accent focus:ring-2 focus:ring-brand-100 outline-none transition-all resize-y"></textarea>
+            </div>
+            <button type="submit" class="btn-primary w-full sm:w-auto">
+              Enviar consulta
+            </button>
+            <p class="mt-4 text-xs text-slate-400">
+              También podés escribirnos directo por
+              <a href={whatsappLink()} target="_blank" rel="noopener noreferrer" class="text-[#25D366] font-semibold hover:underline">WhatsApp</a>.
+            </p>
+          </form>
+        </div>
+      </div>
+
+      <!-- Mapa -->
+      <div class="mt-12 rounded-3xl overflow-hidden shadow-xl border border-slate-200 h-80 sm:h-96">
+        <iframe
+          title="Ubicación Gasonor"
+          src="https://maps.google.com/maps?q=Riva+1215,+Matheu,+Rosario,+Santa+Fe&t=&z=16&ie=UTF8&iwloc=&output=embed"
+          width="100%"
+          height="100%"
+          style="border:0;"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+      </div>
+    </div>
+  </section>
+
+</Layout>

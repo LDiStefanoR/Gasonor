@@ -1,0 +1,337 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site, whatsappLink } from "../data/site";
+import { partners, clients } from "../data/partners";
+import LogoGrid from "../components/LogoGrid.astro";
+---
+
+<Layout whatsappMessage="Hola Gasonor, quisiera consultar sobre oxigenoterapia o gases.">
+
+  <!-- HERO + PRESENTACIÓN -->
+  <section class="hero-medical-photo">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.1),transparent_55%)]"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-gasonor-primary/40 via-transparent to-gasonor-primary/80"></div>
+
+    <div class="relative max-w-7xl mx-auto section-pad pt-16 sm:pt-20 lg:pt-24 pb-20 sm:pb-28">
+      <div class="grid lg:grid-cols-[1fr_minmax(280px,360px)] gap-10 lg:gap-14 items-start">
+        <div>
+          <div class="flex flex-wrap items-center gap-3 mb-6">
+            <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/20 border border-white/30 text-white text-sm font-bold">
+              <span class="w-2 h-2 rounded-full bg-gasonor-nav animate-pulse"></span>
+              Única droguería habilitada ANMAT en Rosario
+            </span>
+            <img src="/assets/brand/anmat.png" alt="ANMAT" class="h-8 w-auto brightness-0 invert opacity-90 hidden sm:block" loading="eager" />
+          </div>
+          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight mb-6 text-white">
+            Más de 60 años acompañando a
+            <span class="text-gasonor-nav">Rosario, su industria y sus clínicas</span>
+          </h1>
+          <p class="text-lg sm:text-xl text-white/90 leading-relaxed mb-8 max-w-2xl">
+            Gases medicinales e industriales con respaldo técnico, trato humano y la movilidad
+            de llevar la carga hasta su domicilio o empresa — sin trasladar envases al cargador más cercano.
+          </p>
+          <div class="flex flex-wrap gap-4 mb-10">
+            <a href={whatsappLink("Hola Gasonor, quisiera consultar.")} target="_blank" rel="noopener noreferrer" class="btn-primary !bg-white !text-gasonor-primary hover:!bg-gasonor-nav gap-2">
+              WhatsApp {site.whatsappDisplay}
+            </a>
+            <a href="/contacto" class="btn-outline-light">Ver contacto</a>
+          </div>
+          <p class="text-white/75 text-sm max-w-xl">
+            Atendemos urgencias de envasados y pedidos especiales con la cercanía que nos distingue
+            frente a las grandes corporaciones.
+          </p>
+        </div>
+
+        <aside class="rounded-3xl bg-white/95 backdrop-blur-md border border-white/40 shadow-2xl p-6 sm:p-8 text-gasonor-ink">
+          <div class="flex items-center gap-3 mb-6 pb-5 border-b border-brand-200">
+            <div class="w-12 h-12 rounded-2xl bg-gasonor-nav flex items-center justify-center text-2xl" aria-hidden="true">🕐</div>
+            <div>
+              <h2 class="text-xl font-extrabold text-gasonor-primary">Horarios de atención</h2>
+              <p class="text-sm text-body">Dr. Riva 1215, Matheu</p>
+            </div>
+          </div>
+          <ul class="space-y-4">
+            <li class="p-4 rounded-2xl bg-brand-50 border border-brand-200">
+              <p class="text-xs font-bold uppercase tracking-wider text-gasonor-accent mb-1">Lunes a viernes</p>
+              <p class="text-2xl font-extrabold text-gasonor-primary">9:15 — 17:00 hs</p>
+            </li>
+            <li class="p-4 rounded-2xl bg-brand-50 border border-brand-200">
+              <p class="text-xs font-bold uppercase tracking-wider text-gasonor-accent mb-1">Sábados</p>
+              <p class="text-lg font-extrabold text-gasonor-primary leading-snug">9:00 — 12:00 hs</p>
+              <p class="text-sm text-body mt-1">Guardia ambulancias y atención general</p>
+            </li>
+            <li class="p-4 rounded-2xl bg-black/5 border border-black/10">
+              <p class="text-xs font-bold uppercase tracking-wider text-gasonor-ink/60 mb-1">Domingos</p>
+              <p class="text-lg font-bold text-gasonor-ink/70">Cerrado</p>
+            </li>
+          </ul>
+          <a href={`tel:${site.phones[0].replace(/\D/g, "")}`} class="mt-6 flex items-center justify-center gap-2 w-full py-3 rounded-full bg-gasonor-primary text-white font-bold hover:bg-brand-700 transition-colors">
+            📞 {site.phones[0]}
+          </a>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICIOS GASONOR -->
+  <section class="section-pad bg-white -mt-6 relative z-10">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center max-w-3xl mx-auto mb-12">
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-4">Todo lo que hacemos por vos</h2>
+        <p class="text-body text-lg">
+          Desde el mantenimiento del cilindro hasta la recarga en tu puerta: servicio integral
+          para industria, sanatorios y particulares en {site.coverage}.
+        </p>
+      </div>
+
+      <div class="mb-12 rounded-3xl overflow-hidden shadow-xl border border-brand-200 max-h-[320px] sm:max-h-[420px]">
+        <img
+          src="/assets/secciones/inicio/hero-instalacion.jpg"
+          alt="Instalación de gases medicinales en institución de salud"
+          class="w-full h-full object-cover object-center"
+          loading="lazy"
+        />
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 mb-10">
+        {
+          [
+            { icon: "🔧", title: "Mantenimiento de cilindros", text: "Servicio técnico completo para que sus envases operen con seguridad." },
+            { icon: "💧", title: "Pruebas hidráulicas", text: "Verificación de resistencia y aptitud legal de cada tubo." },
+            { icon: "🔄", title: "Readecuación a otros gases", text: "Conversión y descontaminación para cambiar el gas del envase." },
+            { icon: "⛽", title: "Recarga particulares", text: "Recarga de cilindros de clientes con control de condiciones." },
+            { icon: "🚚", title: "Carga en domicilio", text: "Nos movemos hasta su empresa o casa. Sin llevar el envase al cargador." },
+            { icon: "⚡", title: "Urgencias y pedidos especiales", text: "Respuesta ágil en envasados críticos, con trato humano real." },
+            { icon: "🆕", title: "Venta de envases nuevos", text: "Cilindros nuevos para distintos gases y capacidades." },
+            { icon: "♻️", title: "Tubos reacondicionados", text: "O₂, CO₂, Athal, helio, acetileno, argón y nitrógeno." },
+            { icon: "🔩", title: "Mantenimiento de válvulas", text: "Robinets y válvulas de seguridad en óptimas condiciones." },
+            { icon: "🎛️", title: "Reguladores", text: "Para industria, hospitales y frío — todos los gases." },
+          ].map((item) => (
+            <div class="p-5 sm:p-6 rounded-2xl bg-brand-50 border border-brand-200 card-hover">
+              <div class="text-2xl mb-3" aria-hidden="true">{item.icon}</div>
+              <h3 class="font-extrabold text-gasonor-primary mb-2">{item.title}</h3>
+              <p class="text-body text-sm leading-relaxed">{item.text}</p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="flex flex-wrap justify-center gap-2 sm:gap-3">
+        {
+          ["O₂", "CO₂", "Athal", "Helio", "Acetileno", "Argón", "Nitrógeno", "Aire", "Mezclas"].map((gas) => (
+            <span class="px-4 py-2 rounded-full bg-gasonor-primary text-white text-sm font-bold">{gas}</span>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- DOS LÍNEAS -->
+  <section class="section-pad bg-brand-50 relative z-10">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center max-w-2xl mx-auto mb-14">
+        <h2 class="text-3xl sm:text-4xl font-extrabold mb-4">Dos especialidades, un solo respaldo</h2>
+        <p class="text-body text-lg">
+          Elegí el camino según tu necesidad. Atención personalizada y entrega en {site.coverage}.
+        </p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-6 lg:gap-8">
+        <!-- Medicinal -->
+        <a href="/oxigenoterapia" class="group card-medical card-hover overflow-hidden">
+          <div class="h-1.5 bg-gradient-to-r from-gasonor-primary to-gasonor-accent"></div>
+          <div class="p-8 sm:p-10">
+            <div class="w-14 h-14 rounded-2xl bg-brand-100 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+              <svg class="w-7 h-7 text-gasonor-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+              </svg>
+            </div>
+            <span class="text-gasonor-accent text-sm font-bold uppercase tracking-wider">Línea medicinal</span>
+            <h3 class="text-2xl sm:text-3xl font-extrabold mt-2 mb-4 !text-gasonor-ink">Oxigenoterapia & Homecare</h3>
+            <p class="text-body leading-relaxed mb-6">
+              Para sanatorios, hospitales y pacientes particulares. Concentradores de oxígeno,
+              tubos portátiles, gases medicinales e instalación de gasoterapia.
+            </p>
+            <ul class="space-y-2 text-sm text-gasonor-ink/80 mb-8">
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Habilitados ANMAT</li>
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Entrega a domicilio</li>
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Asesoramiento técnico</li>
+            </ul>
+            <div class="relative h-48 sm:h-56 rounded-2xl overflow-hidden">
+              <img src="/assets/secciones/inicio/oxigenoterapia.jpg" alt="Oxigenoterapia domiciliaria" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+              <div class="absolute inset-0 bg-gradient-to-t from-gasonor-primary/50 to-transparent"></div>
+            </div>
+            <span class="inline-flex items-center gap-2 mt-6 text-gasonor-primary font-bold group-hover:gap-3 transition-all">
+              Ver oxigenoterapia →
+            </span>
+          </div>
+        </a>
+
+        <!-- Industrial -->
+        <a href="/gases-industriales" class="group card-industrial card-hover overflow-hidden">
+          <div class="h-1.5 bg-gradient-to-r from-gasonor-ink to-gasonor-accent"></div>
+          <div class="p-8 sm:p-10">
+            <div class="w-14 h-14 rounded-2xl bg-black/5 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+              <svg class="w-7 h-7 text-gasonor-ink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+              </svg>
+            </div>
+            <span class="text-gasonor-ink text-sm font-bold uppercase tracking-wider">Línea industrial</span>
+            <h3 class="text-2xl sm:text-3xl font-extrabold mt-2 mb-4 !text-gasonor-ink">Gases, Soldadura & Helio</h3>
+            <p class="text-body leading-relaxed mb-6">
+              Para talleres, industria y eventos. Gases comprimidos, reguladores, alambre,
+              elementos de soldadura, cilindros y helio para globos.
+            </p>
+            <ul class="space-y-2 text-sm text-gasonor-ink/80 mb-8">
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Envases certificados</li>
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Prueba hidráulica</li>
+              <li class="flex items-center gap-2"><span class="text-gasonor-accent font-bold">✓</span> Asesoramiento permanente</li>
+            </ul>
+            <div class="relative h-48 sm:h-56 rounded-2xl overflow-hidden">
+              <img src="/assets/secciones/inicio/gases-soldadura.jpg" alt="Gases industriales y soldadura" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+              <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+            </div>
+            <span class="inline-flex items-center gap-2 mt-6 text-gasonor-primary font-bold group-hover:gap-3 transition-all">
+              Ver gases e industria →
+            </span>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ATENCIÓN HUMANA -->
+  <section class="section-pad bg-brand-50">
+    <div class="max-w-7xl mx-auto">
+      <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <div>
+          <span class="inline-block px-3 py-1 rounded-full bg-gasonor-primary text-white text-xs font-bold uppercase tracking-wider mb-4">
+            Humanización y urgencias
+          </span>
+          <h2 class="text-3xl sm:text-4xl font-extrabold mb-6 leading-tight">
+            Atención humana ante la urgencia: más que un proveedor, un aliado.
+          </h2>
+          <p class="text-body text-lg leading-relaxed mb-8">
+            Sabemos que en el ámbito de la medicina, el tiempo y la empatía son factores críticos.
+            Por eso, en Gasonor nos diferenciamos por ofrecer un trato humano real: entendemos que
+            frente a una emergencia médica, la burocracia no debe ser un obstáculo. Hemos simplificado
+            nuestra gestión para que el contacto sea directo: ponemos a disposición un canal de
+            WhatsApp atendido por personas, no por máquinas. Desde sanatorios que requieren respuesta
+            inmediata hasta pacientes particulares que necesitan contención y asistencia, nuestro
+            equipo humano está listo para escucharlos, asesorarlos y gestionar sus pedidos con la
+            celeridad y sensibilidad que cada situación exige.
+          </p>
+          <a
+            href={whatsappLink("Hola Gasonor, necesito asistencia urgente / consulta médica.")}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-primary gap-2"
+          >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            Hablar con nuestro equipo — {site.whatsappDisplay}
+          </a>
+        </div>
+
+        <div class="space-y-4">
+          {
+            [
+              {
+                icon: "🤝",
+                title: "Trato humano real",
+                text: "Personas que escuchan, entienden la urgencia y acompañan cada consulta con empatía.",
+              },
+              {
+                icon: "⚡",
+                title: "Respuesta inmediata",
+                text: "Canal directo para sanatorios, hospitales y pacientes que no pueden esperar.",
+              },
+              {
+                icon: "💬",
+                title: "WhatsApp con personas",
+                text: "Sin bots ni burocracia: hablás con nuestro equipo para resolver tu pedido al toque.",
+              },
+              {
+                icon: "🏥",
+                title: "Aliado de confianza",
+                text: "Más de 60 años, habilitación ANMAT y respaldo técnico cuando más lo necesitás.",
+              },
+            ].map((item) => (
+              <div class="flex gap-4 p-5 sm:p-6 rounded-2xl bg-white border border-brand-200 shadow-sm card-hover">
+                <div class="text-3xl shrink-0" aria-hidden="true">{item.icon}</div>
+                <div>
+                  <h3 class="text-lg font-extrabold text-gasonor-primary mb-1">{item.title}</h3>
+                  <p class="text-body text-sm leading-relaxed">{item.text}</p>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICIOS -->
+  <section class="section-pad bg-gasonor-primary text-white">
+    <div class="max-w-7xl mx-auto text-center">
+      <h2 class="text-3xl sm:text-4xl font-extrabold mb-4 !text-white">¿Qué necesitás?</h2>
+      <p class="text-white/75 mb-10 max-w-xl mx-auto">Contactanos por WhatsApp o teléfono. Respondemos a la brevedad.</p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {
+          [
+            { href: "/oxigenoterapia", label: "Concentrador de O₂", icon: "💨" },
+            { href: "/oxigenoterapia#tubos", label: "Tubos homecare", icon: "🎒" },
+            { href: "/gases-industriales", label: "Gases industriales", icon: "⚙️" },
+            { href: "/helio", label: "Helio para eventos", icon: "🎈" },
+          ].map((item) => (
+            <a href={item.href} class="p-6 rounded-2xl bg-white/10 border border-white/15 hover:bg-gasonor-nav hover:text-gasonor-primary hover:border-gasonor-nav transition-all card-hover">
+              <div class="text-3xl mb-3">{item.icon}</div>
+              <div class="font-bold">{item.label}</div>
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <LogoGrid
+    variant="clients"
+    title="Clientes destacados"
+    description="Instituciones de salud y organizaciones de Rosario y la región que confían en nuestro respaldo técnico y provisión de gases."
+    items={clients}
+  />
+
+  <LogoGrid
+    variant="partners"
+    title="Partners & aliados"
+    description="Trabajamos junto a empresas e instituciones que complementan nuestros servicios en la región."
+    items={partners}
+  />
+
+  <!-- CTA -->
+  <section class="section-pad bg-gradient-to-br from-gasonor-nav via-brand-100 to-white">
+    <div class="max-w-4xl mx-auto text-center">
+      <h2 class="text-3xl sm:text-4xl font-extrabold mb-4">
+        Trabajamos con sanatorios, hospitales y pacientes de Rosario
+      </h2>
+      <p class="text-body text-lg mb-8">
+        Pedí presupuesto sin compromiso. Envío a domicilio. Contado, transferencia y cuotas.
+      </p>
+      <div class="flex flex-wrap justify-center gap-4">
+        <a
+          href={whatsappLink("Hola Gasonor, quisiera pedir un presupuesto.")}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-primary gap-2"
+        >
+          WhatsApp {site.whatsappDisplay}
+        </a>
+        <a href="/contacto" class="inline-flex items-center gap-2 px-8 py-3 rounded-full border-2 border-gasonor-primary text-gasonor-primary font-bold hover:bg-gasonor-primary hover:text-white transition-all">
+          Formulario de contacto
+        </a>
+      </div>
+    </div>
+  </section>
+
+</Layout>

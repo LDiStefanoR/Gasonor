@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* Paleta oficial Gasonor */
+  --color-gasonor-nav: #c8e6a0;
+  --color-gasonor-primary: #006030;
+  --color-gasonor-accent: #397f34;
+  --color-gasonor-ink: #000000;
+
+  /* Alias brand para utilidades Tailwind */
+  --color-brand-50: #f4faf0;
+  --color-brand-100: #e8f5dc;
+  --color-brand-200: #c8e6a0;
+  --color-brand-300: #8fbc6e;
+  --color-brand-400: #397f34;
+  --color-brand-500: #006030;
+  --color-brand-600: #006030;
+  --color-brand-700: #004d26;
+  --color-brand-800: #003d1f;
+  --color-brand-900: #002e17;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply font-sans text-gasonor-ink antialiased bg-white;
+  }
+
+  h1, h2, h3 {
+    @apply text-gasonor-primary;
+  }
+
+  a:not([class]) {
+    @apply text-gasonor-accent hover:text-gasonor-primary transition-colors;
+  }
+
+  ::selection {
+    @apply bg-gasonor-nav text-gasonor-primary;
+  }
+}
+
+@layer utilities {
+  .bg-nav {
+    background-color: #c8e6a0;
+  }
+
+  .text-body {
+    @apply text-black/75;
+  }
+
+  .text-link {
+    color: #397f34;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-full bg-gasonor-primary text-white font-bold shadow-lg shadow-gasonor-primary/20 hover:bg-brand-700 transition-all;
+  }
+
+  .btn-outline-light {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-full border-2 border-white/50 text-white font-bold hover:bg-white/10 transition-all;
+  }
+
+  .hero-medical {
+    @apply relative overflow-hidden text-white;
+    background: linear-gradient(145deg, #006030 0%, #397f34 42%, #5a9e4a 68%, #c8e6a0 100%);
+  }
+
+  .hero-medical-photo {
+    @apply relative overflow-hidden text-white;
+    background-color: #006030;
+    background-image:
+      linear-gradient(
+        105deg,
+        rgba(0, 96, 48, 0.92) 0%,
+        rgba(0, 96, 48, 0.78) 38%,
+        rgba(57, 127, 52, 0.55) 68%,
+        rgba(0, 0, 0, 0.35) 100%
+      ),
+      url("/assets/hero/intro.png");
+    background-size: cover;
+    background-position: center;
+  }
+
+  .hero-industrial {
+    @apply relative overflow-hidden text-white;
+    background: linear-gradient(145deg, #0a120c 0%, #1a2e22 35%, #006030 72%, #397f34 100%);
+  }
+
+  .section-pad {
+    @apply px-5 sm:px-8 lg:px-12 py-16 sm:py-20 lg:py-24;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-gasonor-primary/10;
+  }
+
+  .card-medical {
+    @apply rounded-3xl bg-white border border-brand-200 shadow-lg shadow-gasonor-primary/5;
+  }
+
+  .card-industrial {
+    @apply rounded-3xl bg-white border border-black/10 shadow-lg shadow-black/5;
+  }
+}
