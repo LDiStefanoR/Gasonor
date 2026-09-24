@@ -1,0 +1,49 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+export const prerender = true;
+---
+
+<Layout title="Ingreso" description="Gasonor S.R.L." robots="noindex,nofollow">
+  <section class="section-pad bg-brand-50 min-h-[70vh] flex items-center">
+    <div class="max-w-md mx-auto w-full">
+      <form id="form-acceso" class="bg-white rounded-3xl border border-brand-200 shadow-xl p-8 space-y-5">
+        <img src="/assets/brand/logo-header.png" alt="Gasonor" class="h-12 w-auto mx-auto" />
+        <h1 class="text-2xl font-extrabold text-center text-gasonor-primary">Ingreso</h1>
+        <p class="text-sm text-center text-body">Usuario y clave del personal.</p>
+        <label class="block text-sm font-bold text-gasonor-primary">Usuario
+          <input name="usuario" required autocomplete="username" class="mt-1 w-full rounded-xl border border-brand-200 px-4 py-3 font-medium" />
+        </label>
+        <label class="block text-sm font-bold text-gasonor-primary">Contraseña
+          <input name="clave" type="password" required autocomplete="current-password" class="mt-1 w-full rounded-xl border border-brand-200 px-4 py-3" />
+        </label>
+        <p id="acceso-error" class="text-red-700 text-sm hidden"></p>
+        <button class="btn-primary w-full justify-center" type="submit">Continuar</button>
+        <p class="text-center text-xs text-body/70"><a href="/" class="hover:text-gasonor-primary">Volver al sitio</a></p>
+      </form>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  const form = document.getElementById("form-acceso") as HTMLFormElement;
+  const err = document.getElementById("acceso-error") as HTMLParagraphElement;
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.classList.add("hidden");
+    const fd = new FormData(form);
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ usuario: fd.get("usuario"), clave: fd.get("clave") }),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: "Error de red" }));
+    if (!res.ok || !data.ok) {
+      err.textContent = data.error || "No se pudo ingresar.";
+      err.classList.remove("hidden");
+      return;
+    }
+    location.href = "/app/";
+  });
+</script>

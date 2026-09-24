@@ -25,8 +25,8 @@ const isActive = (href: string) => {
 
 <header class="fixed top-0 inset-x-0 z-50 bg-nav border-b border-gasonor-primary/10 shadow-sm">
   <div class="max-w-7xl mx-auto flex items-center gap-3 sm:gap-4 px-4 sm:px-6 lg:px-8 min-h-[4.5rem] lg:min-h-[5rem] py-2">
-    <a href="/" class="flex items-center shrink-0 min-w-0" aria-label="Gasonor inicio">
-      <Logo variant="header" class="transition-opacity hover:opacity-90" />
+    <a href="/" id="brand-acceso" class="flex items-center shrink-0 min-w-0 select-none" aria-label="Gasonor inicio">
+      <Logo variant="header" class="transition-opacity hover:opacity-90 pointer-events-none" />
     </a>
 
     <nav class="hidden md:flex flex-1 items-center justify-center gap-0.5 min-w-0" aria-label="Principal">
@@ -142,5 +142,47 @@ const isActive = (href: string) => {
 
   window.matchMedia("(min-width: 768px)").addEventListener("change", (event) => {
     if (event.matches) setMenuOpen(false);
+  });
+
+  // Entrada camuflada para personal: mantener el logo ~2s o tocarlo 5 veces rápido
+  const brand = document.getElementById("brand-acceso");
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  let taps = 0;
+  let tapTimer: ReturnType<typeof setTimeout> | null = null;
+  const irAcceso = () => {
+    location.href = "/acceso";
+  };
+  const clearHold = () => {
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = null;
+  };
+  brand?.addEventListener("pointerdown", (e) => {
+    if (e.button && e.button !== 0) return;
+    clearHold();
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      irAcceso();
+    }, 1800);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => {
+    brand?.addEventListener(ev, clearHold);
+  });
+  brand?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!holdTimer && taps === 0) {
+      // si soltó antes de 1.8s, cuenta toques
+    }
+    taps += 1;
+    if (tapTimer) clearTimeout(tapTimer);
+    if (taps >= 5) {
+      taps = 0;
+      irAcceso();
+      return;
+    }
+    tapTimer = setTimeout(() => {
+      const n = taps;
+      taps = 0;
+      if (n === 1) location.href = "/";
+    }, 400);
   });
 </script>

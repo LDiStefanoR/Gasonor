@@ -6,14 +6,22 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "astro dev",
+    "dev": "astro dev --host",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "migrate": "node scripts/migrate-sqlite.mjs"
   },
   "dependencies": {
+    "@astrojs/vercel": "^10.0.8",
+    "@libsql/client": "^0.18.0",
     "@tailwindcss/vite": "^4.3.1",
     "astro": "^6.4.7",
+    "bcryptjs": "^3.0.3",
     "tailwindcss": "^4.3.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@vitejs/plugin-basic-ssl": "^2.3.0"
   }
 }

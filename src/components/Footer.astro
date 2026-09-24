@@ -80,10 +80,23 @@ import { site } from "../data/site";
     </div>
 
     <div class="mt-12 pt-8 border-t border-white/20 flex flex-col sm:flex-row justify-between gap-4 text-xs text-white/60">
-      <p>© {new Date().getFullYear()} {site.name} — Todos los derechos reservados.</p>
-      <a href={site.facebook} target="_blank" rel="noopener noreferrer" class="hover:text-gasonor-nav transition-colors">
-        Seguinos en Facebook
-      </a>
+      <p>
+        ©{" "}
+        <a
+          href="/acceso"
+          id="acceso-camuflado"
+          class="text-inherit no-underline hover:text-inherit focus:outline-none cursor-text"
+          aria-label=""
+          title=""
+        >{new Date().getFullYear()}</a
+        >
+        {" "}{site.name} — Todos los derechos reservados.
+      </p>
+      <div class="flex gap-4">
+        <a href={site.facebook} target="_blank" rel="noopener noreferrer" class="hover:text-gasonor-nav transition-colors">
+          Seguinos en Facebook
+        </a>
+      </div>
     </div>
   </div>
 </footer>

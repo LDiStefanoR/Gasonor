@@ -9,12 +9,14 @@ interface Props {
   title?: string;
   description?: string;
   whatsappMessage?: string;
+  robots?: string;
 }
 
 const {
   title = site.name,
   description = site.description,
   whatsappMessage,
+  robots,
 } = Astro.props;
 
 const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
@@ -26,6 +28,7 @@ const pageTitle = title === site.name ? title : `${title} | ${site.name}`;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
+    {robots && <meta name="robots" content={robots} />}
     <meta name="theme-color" content="#C8E6A0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -1,0 +1,96 @@
+﻿---
+export const prerender = true;
+---
+
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Gasonor SRL Ã¢Â€Â” Trazabilidad de tubos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/interno/css/app.css?v=49" />
+    <link rel="icon" href="/interno/img/logo.png?v=30" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/interno/img/logo.png?v=30" alt="Gasonor SRL" />
+        <div>
+          <strong id="brand-name">Gasonor SRL</strong>
+          <small>Trazabilidad de tubos</small>
+        </div>
+      </div>
+      <nav>
+        <a href="#/inicio" data-nav="inicio">Inicio</a>
+
+        <div class="nav-group" data-nav-group>
+          <span class="nav-label">CatÃƒÂ¡logo</span>
+          <a href="#/proveedores" data-nav="proveedores" data-roles="admin">Proveedores</a>
+          <a href="#/clientes" data-nav="clientes" data-roles="admin">Clientes</a>
+          <a href="#/catalogo" data-nav="catalogo" data-roles="admin">Tubos y artÃƒÂ­culos</a>
+        </div>
+
+        <div class="nav-group" data-nav-group>
+          <span class="nav-label">EnvÃƒÂ­os y recepciones</span>
+          <a href="#/envios/planta" data-nav="envios" data-roles="admin,despacho">Planta</a>
+          <a href="#/envios/cliente" data-nav="envios" data-roles="admin,reparto">Cliente</a>
+          <a href="#/planta/completar" data-nav="planta" data-roles="admin">Completar recepciones</a>
+          <a href="#/operaciones" data-nav="operaciones" data-roles="admin">Ciclo de despacho</a>
+        </div>
+
+        <div class="nav-group" data-nav-group>
+          <span class="nav-label">Caja</span>
+          <a href="#/cobrar" data-nav="cobrar" data-roles="cobrador,admin">Cobrar</a>
+          <a href="#/facturacion" data-nav="facturacion" data-roles="admin">FacturaciÃƒÂ³n</a>
+        </div>
+
+        <div class="nav-group" data-nav-group>
+          <span class="nav-label">LogÃƒÂ­stica</span>
+          <a href="#/reparto" data-nav="reparto" data-roles="admin,reparto">Reparto</a>
+        </div>
+
+        <div class="nav-group" data-nav-group>
+          <span class="nav-label">AdministraciÃƒÂ³n</span>
+          <a href="#/usuarios" data-nav="usuarios" data-roles="admin">Usuarios</a>
+          <a href="#/informe" data-nav="informe" data-roles="admin">Informe de expediciÃƒÂ³n</a>
+          <a href="#/movimientos" data-nav="movimientos" data-roles="admin">Historial</a>
+          <a href="#/config" data-nav="config" data-roles="admin">Empresa</a>
+        </div>
+      </nav>
+      <p class="sidebar-foot">Ciclo: vacÃƒÂ­o Ã¢Â†Â’ cargado Ã¢Â†Â’ cliente Ã¢Â†Â’ vacÃƒÂ­o</p>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="MenÃƒÂº">Ã¢Â˜Â°</button>
+        <form id="busqueda-global" class="search">
+          <input id="q-global" type="search" placeholder="Buscar nÃƒÂºmero de tubo, lote o clienteÃ¢Â€Â¦" autocomplete="off" />
+          <button type="submit">Buscar</button>
+        </form>
+        <div class="topbar-meta">
+          <span id="quien"></span>
+          <span id="reloj"></span>
+          <button type="button" class="btn ghost" id="btn-salir">Salir</button>
+        </div>
+      </header>
+      <div id="toast" hidden></div>
+      <section id="app" class="page"></section>
+    </main>
+
+    <div id="login-screen" class="login-screen" hidden>
+      <form id="form-login" class="card login-card">
+        <img src="/interno/img/logo.png?v=30" alt="Gasonor SRL" />
+        <h1>Ingresar</h1>
+        <div class="field"><label>Usuario</label><input name="usuario" required autocomplete="username" /></div>
+        <div class="field"><label>ContraseÃƒÂ±a</label><input name="clave" type="password" required autocomplete="current-password" /></div>
+        <button class="btn copper" type="submit">Entrar</button>
+      </form>
+    </div>
+    <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script is:inline src="/interno/js/scan.js?v=30"></script>
+    <script is:inline src="/interno/js/app.js?v=49"></script>
+  </body>
+</html>
