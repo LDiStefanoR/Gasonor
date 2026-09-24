@@ -500,6 +500,28 @@ async function handleApiInner(ctx: APIContext) {
     return json({ ok: true, cliente: await one("SELECT * FROM clientes WHERE id=?", [cid]) });
   }
 
+  if (method === "DELETE" && cliPut) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const cid = Number(cliPut[1]);
+    const row = await one("SELECT * FROM clientes WHERE id=?", [cid]);
+    if (!row) return err("Cliente no encontrado.", 404);
+    const tubosRow = await one(
+      "SELECT COUNT(*) AS n FROM tubos WHERE cliente_id=? AND estado='en_cliente' AND activo=1",
+      [cid],
+    );
+    const enCliente = Number(tubosRow?.n || 0);
+    // Baja lógica: el cliente deja de aparecer. Si tiene tubos, se permite igual
+    // (p. ej. duplicados en reparto); los tubos siguen con ese cliente_id.
+    await run("UPDATE clientes SET activo=0 WHERE id=?", [cid]);
+    return json({
+      ok: true,
+      tubos_en_cliente: enCliente,
+      aviso: enCliente
+        ? `Cliente dado de baja. Quedan ${enCliente} tubo(s) marcados en ese cliente; revisalos si hace falta.`
+        : undefined,
+    });
+  }
+
   if (key === "GET /api/catalogo") {
     const tipo = q.get("tipo") || "";
     const qq = (q.get("q") || "").trim();

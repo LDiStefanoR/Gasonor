@@ -1630,10 +1630,12 @@ async function vistaClientes(params) {
   app().querySelectorAll("[data-del-cli]").forEach((btn) => {
     btn.onclick = async () => {
       const c = data.clientes.find((x) => String(x.id) === btn.dataset.delCli);
-      if (!confirm(`¿Dar de baja a ${c?.nombre || "este cliente"}?`)) return;
+      if (!confirm(`¿Dar de baja a ${c?.nombre || "este cliente"}?\nDejará de aparecer en la lista (sirve para borrar duplicados).`)) return;
       try {
-        await api("/api/clientes/" + btn.dataset.delCli, { method: "DELETE" });
-        toast("Cliente dado de baja"); await cargarCatalogos(); route();
+        const r = await api("/api/clientes/" + btn.dataset.delCli, { method: "DELETE" });
+        toast(r.aviso || "Cliente dado de baja");
+        await cargarCatalogos();
+        route();
       } catch (err) { toast(err.message, true); }
     };
   });
