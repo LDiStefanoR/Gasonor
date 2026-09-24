@@ -581,7 +581,7 @@ function modalEditarCatalogoItem(it, onSaved) {
     <h2>Editar ${esGen ? "artículo" : "tubo"}</h2>
     <p class="lead">${esGen
       ? `Código <span class="mono">${esc(it.codigo || "")}</span>`
-      : `Nº <span class="mono">${esc(it.numero || "")}</span> · ${esc(it.articulo_codigo || "")} · Estado actual: <strong>${esc(ESTADOS[it.estado] || it.estado || "—")}</strong>`}
+      : `Nº <span class="mono">${esc(it.numero || "")}</span> · ${esc(it.articulo_codigo || "")} · Estado actual: <strong>${esc(ESTADOS[it.estado] || it.estado || "—")}</strong>${it.proveedor_nombre ? ` · Planta: <strong>${esc(it.proveedor_nombre)}</strong>` : ""}`}
       · Últ. mov.: ${esc((() => {
         const c = it.ultimo_movimiento || it.actualizado_en || "";
         if (!c) return "—";
@@ -601,11 +601,18 @@ function modalEditarCatalogoItem(it, onSaved) {
             ${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${it.estado === k ? "selected" : ""}>${v}</option>`).join("")}
           </select>
         </div>
+        <div class="field full" id="edit-wrap-planta" ${it.estado === "en_planta" ? "" : "hidden"}>
+          <label>Planta / proveedor</label>
+          <select name="proveedor_id" id="edit-proveedor">
+            <option value="">Cargando plantas…</option>
+          </select>
+          <small class="hint">Obligatorio si el estado es “En planta”: el tubo queda a cargo de ese proveedor.</small>
+        </div>
         <div class="field"><label>Código artículo</label><input name="articulo_codigo" value="${esc(it.articulo_codigo || "")}"></div>
         <div class="field"><label>Cód. proveedor</label><input name="codigo_proveedor" value="${esc(it.codigo_proveedor || it.articulo_codigo_proveedor || "")}"></div>
         <div class="field"><label>Descripción / gas</label><input name="descripcion" value="${esc(it.articulo_descripcion || it.grupo || "")}"></div>
         <div class="field"><label>Capacidad</label><input name="capacidad" value="${esc(it.capacidad || "")}"></div>
-        <div class="field"><label>Lote / trazabilidad</label><input name="lote" value="${esc(it.lote || "")}" placeholder="Nº de lote de carga"></div>
+        <div class="field"><label>Número de lote</label><input name="lote" value="${esc(it.lote || "")}" placeholder="Lote de carga / gas"></div>
         <div class="field"><label>Propiedad</label>
           <select name="propiedad">
             <option value="empresa" ${it.propiedad !== "cliente" ? "selected" : ""}>GN (Gasonor)</option>
@@ -621,22 +628,49 @@ function modalEditarCatalogoItem(it, onSaved) {
         ${!esGen ? `<a class="btn ghost" href="#/tubo/${it.id}">Ver ficha completa</a>` : ""}
       </div>
     </form>
-    <div id="aviso-salida-planta" class="aviso-salida-planta" hidden></div>`);
+    <div id="aviso-cambio-estado" class="aviso-salida-planta" hidden></div>`);
+
+  let listaProveedores = [];
+  const syncPlanta = () => {
+    const wrap = $("#edit-wrap-planta");
+    if (!wrap) return;
+    // El selector del form solo se muestra si YA estaba en planta (cambio de planta).
+    // Si entra a planta desde otro estado, la advertencia pide el proveedor.
+    const estadoSel = $("#edit-estado")?.value || "";
+    wrap.hidden = !(estadoSel === "en_planta" && it.estado === "en_planta");
+  };
+  const pintarOptsProv = (sel, selected) => {
+    if (!sel) return;
+    sel.innerHTML = `<option value="">Elegí la planta…</option>${optsProveedores(listaProveedores, selected || "")}`;
+  };
+  if (!esGen) {
+    $("#edit-estado").onchange = syncPlanta;
+    syncPlanta();
+    api("/api/proveedores").then((data) => {
+      listaProveedores = data.proveedores || [];
+      pintarOptsProv($("#edit-proveedor"), it.proveedor_id);
+    }).catch((err) => toast(err.message, true));
+  }
 
   const guardarTubo = async (fd) => {
-    await api("/api/tubos/" + it.id, {
-      method: "PUT",
-      body: {
-        numero: fd.numero,
-        codigo_proveedor: fd.codigo_proveedor || "",
-        propiedad: fd.propiedad || "empresa",
-        fecha_vto: fd.fecha_vto || "",
-        lote: fd.lote || "",
-        estado: fd.estado || it.estado,
-        retener: fd.retener === "1" ? 1 : 0,
-        articulo_id: it.articulo_id,
-      },
-    });
+    const body = {
+      numero: fd.numero,
+      codigo_proveedor: fd.codigo_proveedor || "",
+      propiedad: fd.propiedad || "empresa",
+      fecha_vto: fd.fecha_vto || "",
+      lote: fd.lote || "",
+      estado: fd.estado || it.estado,
+      retener: fd.retener === "1" ? 1 : 0,
+      articulo_id: it.articulo_id,
+    };
+    if (body.estado === "en_planta") {
+      const pid = Number(fd.proveedor_id);
+      if (!pid) throw new Error("Elegí la planta / proveedor");
+      body.proveedor_id = pid;
+    } else {
+      body.proveedor_id = null;
+    }
+    await api("/api/tubos/" + it.id, { method: "PUT", body });
     if (it.articulo_id) {
       await api("/api/articulos/" + it.articulo_id, {
         method: "PUT",
@@ -657,6 +691,15 @@ function modalEditarCatalogoItem(it, onSaved) {
       ? `Guardado · estado ${ESTADOS[it.estado] || it.estado} → ${ESTADOS[fd.estado] || fd.estado}`
       : "Guardado");
     if (onSaved) await onSaved();
+  };
+
+  const mostrarAviso = (html) => {
+    const box = $("#aviso-cambio-estado");
+    if (!box) return null;
+    box.hidden = false;
+    box.innerHTML = html;
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return box;
   };
 
   $("#form-edit-item").onsubmit = async (e) => {
@@ -684,20 +727,68 @@ function modalEditarCatalogoItem(it, onSaved) {
         return;
       }
       if (!fd.numero) return toast("El número de tubo es obligatorio", true);
+
+      const entraAPlanta = fd.estado === "en_planta" && it.estado !== "en_planta";
+      if (entraAPlanta) {
+        const box = mostrarAviso(`
+          <div class="alerta-reparto" role="alert">
+            <strong>Advertencia:</strong> estás pasando el tubo de
+            <strong>${esc(ESTADOS[it.estado] || it.estado || "—")}</strong> a
+            <strong>En planta</strong>. Tenés que indicar a qué planta / proveedor se asigna:
+            el tubo queda a cargo de ese proveedor (como en un despacho).
+          </div>
+          <div class="grid form" style="margin-top:10px">
+            <div class="field full"><label>Planta / proveedor</label>
+              <select id="aviso-proveedor">
+                <option value="">Elegí la planta…</option>
+                ${optsProveedores(listaProveedores, fd.proveedor_id || it.proveedor_id || "")}
+              </select>
+            </div>
+          </div>
+          <div class="toolbar" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+            <button type="button" class="btn copper" id="btn-confirmar-planta">Asignar planta y guardar</button>
+            <button type="button" class="btn ghost" id="btn-cancel-aviso">Cancelar</button>
+          </div>`);
+        if (!box) return;
+        if (!listaProveedores.length) {
+          api("/api/proveedores").then((data) => {
+            listaProveedores = data.proveedores || [];
+            pintarOptsProv($("#aviso-proveedor"), fd.proveedor_id || it.proveedor_id);
+          }).catch((err) => toast(err.message, true));
+        }
+        $("#btn-cancel-aviso").onclick = () => { box.hidden = true; box.innerHTML = ""; };
+        $("#btn-confirmar-planta").onclick = async () => {
+          const pid = ($("#aviso-proveedor")?.value || "").trim();
+          if (!pid) return toast("Elegí a qué planta asignar el tubo", true);
+          fd.proveedor_id = pid;
+          try { await guardarTubo(fd); } catch (err) { toast(err.message, true); }
+        };
+        $("#aviso-proveedor")?.focus();
+        return;
+      }
+
+      if (fd.estado === "en_planta" && !fd.proveedor_id) {
+        syncPlanta();
+        $("#edit-proveedor")?.focus();
+        return toast("Elegí a qué planta va el tubo", true);
+      }
+
       const saleDePlanta = it.estado === "en_planta" && fd.estado && fd.estado !== "en_planta";
       if (saleDePlanta) {
-        const box = $("#aviso-salida-planta");
-        if (!box) return;
-        box.hidden = false;
-        box.innerHTML = `
+        const box = mostrarAviso(`
           <div class="alerta-reparto" role="alert">
             <strong>Advertencia:</strong> este tubo está en planta. Si cambiás el estado a
             <strong>${esc(ESTADOS[fd.estado] || fd.estado)}</strong> no va a quedar la trazabilidad de recepción
-            (nº de lote / fecha de vto.) a menos que la completes ahora.
+            a menos que completes ahora el <b>nº de lote</b> y el <b>nº de trazabilidad</b>.
           </div>
           <div class="grid form" style="margin-top:10px">
-            <div class="field"><label>Nº de lote / trazabilidad</label>
-              <input id="salida-lote" value="${esc(fd.lote || "")}" placeholder="Ej: C012-943">
+            <div class="field"><label>Número de lote</label>
+              <input id="salida-lote" value="${esc(fd.lote || "")}" placeholder="Ej: C012-943" autocomplete="off">
+              <small class="hint">Lote de la carga / gas.</small>
+            </div>
+            <div class="field"><label>Número de trazabilidad</label>
+              <input id="salida-trazabilidad" value="${esc(fd.numero || it.numero || "")}" placeholder="Nº de trazabilidad del tubo" autocomplete="off">
+              <small class="hint">Número de trazabilidad del cilindro (obligatorio).</small>
             </div>
             <div class="field"><label>Fecha vto. (opcional)</label>
               <input id="salida-vto" type="date" value="${esc(fd.fecha_vto || "")}">
@@ -706,19 +797,21 @@ function modalEditarCatalogoItem(it, onSaved) {
           <div class="toolbar" style="margin-top:10px;flex-wrap:wrap;gap:8px">
             <button type="button" class="btn copper" id="btn-completar-salida">Completar y confirmar cambio</button>
             <button type="button" class="btn secondary" id="btn-sin-datos-salida">Modificar sin esos datos</button>
-            <button type="button" class="btn ghost" id="btn-cancel-salida">Cancelar</button>
-          </div>`;
-        $("#btn-cancel-salida").onclick = () => { box.hidden = true; box.innerHTML = ""; };
+            <button type="button" class="btn ghost" id="btn-cancel-aviso">Cancelar</button>
+          </div>`);
+        if (!box) return;
+        $("#btn-cancel-aviso").onclick = () => { box.hidden = true; box.innerHTML = ""; };
         $("#btn-completar-salida").onclick = async () => {
           fd.lote = ($("#salida-lote")?.value || "").trim();
+          fd.numero = ($("#salida-trazabilidad")?.value || "").trim();
           fd.fecha_vto = ($("#salida-vto")?.value || "").trim();
-          if (!fd.lote) return toast("Ingresá el nº de lote / trazabilidad, o elegí “Modificar sin esos datos”", true);
+          if (!fd.lote) return toast("Ingresá el número de lote, o elegí “Modificar sin esos datos”", true);
+          if (!fd.numero) return toast("Ingresá el número de trazabilidad, o elegí “Modificar sin esos datos”", true);
           try { await guardarTubo(fd); } catch (err) { toast(err.message, true); }
         };
         $("#btn-sin-datos-salida").onclick = async () => {
           try { await guardarTubo(fd); } catch (err) { toast(err.message, true); }
         };
-        box.scrollIntoView({ behavior: "smooth", block: "nearest" });
         return;
       }
       await guardarTubo(fd);
@@ -1180,16 +1273,28 @@ async function vistaTubo(id) {
         </table>
       </div>
     </div>`;
-  $("#btn-editar").onclick = () => {
+  $("#btn-editar").onclick = async () => {
+    let provs = [];
+    try {
+      provs = (await api("/api/proveedores")).proveedores || [];
+    } catch (_) { /* ok */ }
     abrirModal(`
       <h2>Editar tubo ${esc(t.numero)}</h2>
       <form id="form-edit" class="grid form">
         <div class="field"><label>Artículo</label><select name="articulo_id">${optsArticulos(t.articulo_id)}</select></div>
         <div class="field"><label>Número</label><input name="numero" value="${esc(t.numero)}" required></div>
         <div class="field"><label>Estado</label>
-          <select name="estado">
+          <select name="estado" id="ficha-estado">
             ${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${t.estado === k ? "selected" : ""}>${v}</option>`).join("")}
           </select>
+        </div>
+        <div class="field full" id="ficha-wrap-planta" ${t.estado === "en_planta" ? "" : "hidden"}>
+          <label>Planta / proveedor</label>
+          <select name="proveedor_id" id="ficha-proveedor">
+            <option value="">Elegí la planta…</option>
+            ${optsProveedores(provs, t.proveedor_id)}
+          </select>
+          <small class="hint">Si ya está en planta, podés cambiar de proveedor acá.</small>
         </div>
         <div class="field"><label>Lote</label><input name="lote" value="${esc(t.lote || "")}"></div>
         <div class="field"><label>Vencimiento</label><input name="fecha_vto" type="date" value="${esc(t.fecha_vto || "")}"></div>
@@ -1201,17 +1306,66 @@ async function vistaTubo(id) {
         </div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1" ${Number(t.retener) ? "checked" : ""}> Retener (nuestro / robado)</label></div>
         <div class="field full"><label>Notas</label><textarea name="notas" rows="2">${esc(t.notas || "")}</textarea></div>
-        <div class="field full"><small class="hint">Podés corregir el estado (vacío / en planta / cargado / en cliente) para despachar o arreglar errores. Queda en el historial.</small></div>
+        <div class="field full"><small class="hint">Si pasás a “En planta” desde otro estado, te va a pedir la planta en una advertencia.</small></div>
         <div class="field full"><button class="btn" type="submit">Guardar</button></div>
-      </form>`);
+      </form>
+      <div id="aviso-ficha-estado" class="aviso-salida-planta" hidden></div>`);
+    const sync = () => {
+      const wrap = $("#ficha-wrap-planta");
+      if (!wrap) return;
+      const estadoSel = $("#ficha-estado")?.value || "";
+      wrap.hidden = !(estadoSel === "en_planta" && t.estado === "en_planta");
+    };
+    $("#ficha-estado").onchange = sync;
+    sync();
     $("#form-edit").onsubmit = async (e) => {
       e.preventDefault();
       const body = Object.fromEntries(new FormData(e.target).entries());
       body.retener = e.target.retener?.checked ? 1 : 0;
-      try {
-        await api("/api/tubos/" + t.id, { method: "PUT", body });
-        cerrarModal(); toast("Tubo actualizado"); route();
-      } catch (err) { toast(err.message, true); }
+      const guardar = async () => {
+        if (body.estado === "en_planta") {
+          if (!body.proveedor_id) return toast("Elegí a qué planta va el tubo", true);
+          body.proveedor_id = Number(body.proveedor_id);
+        } else {
+          body.proveedor_id = null;
+        }
+        try {
+          await api("/api/tubos/" + t.id, { method: "PUT", body });
+          cerrarModal(); toast("Tubo actualizado"); route();
+        } catch (err) { toast(err.message, true); }
+      };
+      if (body.estado === "en_planta" && t.estado !== "en_planta") {
+        const box = $("#aviso-ficha-estado");
+        if (!box) return;
+        box.hidden = false;
+        box.innerHTML = `
+          <div class="alerta-reparto" role="alert">
+            <strong>Advertencia:</strong> estás pasando el tubo a <strong>En planta</strong>.
+            Indicá a qué planta / proveedor se asigna.
+          </div>
+          <div class="grid form" style="margin-top:10px">
+            <div class="field full"><label>Planta / proveedor</label>
+              <select id="aviso-ficha-prov">
+                <option value="">Elegí la planta…</option>
+                ${optsProveedores(provs, body.proveedor_id || t.proveedor_id || "")}
+              </select>
+            </div>
+          </div>
+          <div class="toolbar" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn copper" id="btn-ficha-planta">Asignar planta y guardar</button>
+            <button type="button" class="btn ghost" id="btn-ficha-cancel">Cancelar</button>
+          </div>`;
+        box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        $("#btn-ficha-cancel").onclick = () => { box.hidden = true; box.innerHTML = ""; };
+        $("#btn-ficha-planta").onclick = () => {
+          const pid = ($("#aviso-ficha-prov")?.value || "").trim();
+          if (!pid) return toast("Elegí a qué planta asignar el tubo", true);
+          body.proveedor_id = pid;
+          guardar();
+        };
+        return;
+      }
+      await guardar();
     };
   };
   const baja = $("#btn-baja");

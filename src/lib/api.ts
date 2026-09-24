@@ -899,7 +899,13 @@ async function handleApiInner(ctx: APIContext) {
       ? (data.proveedor_id ? Number(data.proveedor_id) : null)
       : (tubo.proveedor_id != null ? Number(tubo.proveedor_id) : null);
     if (estado !== "en_cliente") cliente_id = null;
-    if (estado !== "en_planta") proveedor_id = null;
+    if (estado === "en_planta") {
+      if (!proveedor_id) return err("Elegí la planta / proveedor donde está el tubo.");
+      const prov = await one("SELECT id, nombre FROM proveedores WHERE id=? AND activo=1", [proveedor_id]);
+      if (!prov) return err("Planta / proveedor inválido.");
+    } else {
+      proveedor_id = null;
+    }
     const codigo_proveedor = data.codigo_proveedor !== undefined
       ? String(data.codigo_proveedor || "").trim()
       : String(tubo.codigo_proveedor || "");
@@ -920,15 +926,27 @@ async function handleApiInner(ctx: APIContext) {
         observaciones: "Baja de circulación",
       });
     } else if (estado !== estadoAntes) {
+      const tipoMov =
+        estado === "en_planta" && estadoAntes !== "en_planta"
+          ? "PLANSALI"
+          : estadoAntes === "en_planta" && estado === "cargado"
+            ? "PLANENTR"
+            : "EDICION";
+      const obs =
+        tipoMov === "PLANSALI"
+          ? `Asignado a planta (corrección manual)`
+          : tipoMov === "PLANENTR"
+            ? `Retorno de planta (corrección manual)`
+            : `Corrección de estado: ${estadoAntes || "—"} → ${estado}`;
       await registrarMovimiento(
-        { ...tubo, lote, fecha_vto, numero, articulo_id, estado, cliente_id },
-        "EDICION",
+        { ...tubo, lote, fecha_vto, numero, articulo_id, estado, cliente_id, proveedor_id },
+        tipoMov,
         estadoAntes,
         estado,
         hoy(),
         {
           cliente_id,
-          observaciones: `Corrección de estado: ${estadoAntes || "—"} → ${estado}`,
+          observaciones: obs,
         },
       );
     }

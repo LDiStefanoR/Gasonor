@@ -144,6 +144,7 @@ h1 { margin: 8px 0 4px; font-size: 1.7rem; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; align-items: end; }
 .toolbar .field { min-width: 180px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
+.field[hidden] { display: none !important; }
 .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
 .field.full { grid-column: 1 / -1; }
 
