@@ -3665,12 +3665,11 @@ function htmlMedioPago() {
   if (c.modo === "salida") return "";
   const medios = [
     ["efectivo", "Efectivo"],
-    ["transferencia", "Transferencia"],
+    ["transferencia", "Transfer."],
     ["tarjeta", "Tarjeta"],
   ];
   return `
-    <p class="caja-label">Cómo paga</p>
-    <div class="cant-rapida">
+    <div class="caja-medios-inline">
       ${medios.map(([id, nom]) => `
         <button type="button" class="btn big-soft ${c.medioPago === id ? "on" : ""}" data-act="medio" data-medio="${id}">${nom}</button>
       `).join("")}
@@ -3760,13 +3759,11 @@ function htmlCantidad(esGas) {
   const rapidos = esGas ? CANT_GAS_RAPIDA : [1, 2, 3];
   const step = esGas ? 0.5 : 1;
   const sufijo = unidad ? ` ${unidad}` : "";
-  const titulo = !esGas ? "Cantidad" : (unidad === "kg" ? "Kilos" : "Metros cúbicos");
   return `
-    <p class="caja-label">${titulo}</p>
-    <div class="cant-rapida">
-      ${rapidos.map((q) => `<button type="button" class="btn big-soft ${n === q ? "on" : ""}" data-act="setcant" data-n="${q}">${fmtCantCaja(q)}${sufijo}</button>`).join("")}
+    <div class="cant-rapida cant-rapida-compact">
+      ${rapidos.map((q) => `<button type="button" class="btn big-soft ${n === q ? "on" : ""}" data-act="setcant" data-n="${q}">${fmtCantCaja(q)}</button>`).join("")}
     </div>
-    <div class="metro-box">
+    <div class="metro-box metro-box-compact">
       <button type="button" class="btn big-soft" data-act="cant" data-d="${-step}" aria-label="Menos">−</button>
       <div class="n">${fmtCantCaja(n)}${unidad ? `<small>${sufijo}</small>` : ""}</div>
       <button type="button" class="btn big-soft" data-act="cant" data-d="${step}" aria-label="Más">+</button>
@@ -3803,9 +3800,8 @@ function htmlFacturarCaja() {
   return `
     <div class="facturar-mini-wrap">
       <button type="button" class="btn btn-fact-mini ${on ? "on" : ""}" data-act="facturar">
-        ${on ? "✓ Va con factura" : "Facturar esta venta"}
+        ${on ? "✓ Con factura" : "Facturar"}
       </button>
-      <small class="hint">Opcional — la mayoría se graba sin facturar.</small>
     </div>
     ${on ? htmlCliente() : ""}`;
 }
@@ -3816,54 +3812,71 @@ function htmlPad() {
     const label = k === "b" ? "⌫" : k === "," ? "," : k;
     return `<button type="button" data-act="dig" data-k="${k}">${label}</button>`;
   }).join("")}</div>
-  <button type="button" class="btn ghost" data-act="dig" data-k="c" style="width:100%;margin-top:8px">Borrar importe</button>`;
+  <button type="button" class="btn ghost" data-act="dig" data-k="c" style="width:100%;margin-top:6px">Borrar importe</button>`;
 }
 
-function htmlPanelCaja() {
+function htmlAccionCobrar() {
   const c = state.caja;
   if (c.modo === "gas" || c.modo === "regulador") {
-    const p = precioCaja(c.modo, c.gas);
+    if (!c.gas) return "";
     const lista = totalListaCaja();
     const total = totalCaja();
     const totalTxt = String(total).replace(".", ",");
     const ajustado = Math.abs(total - lista) > 0.009;
     return `
-      ${htmlGases(c.modo)}
-      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead">Elegí el gas. El precio está en cada botón.</p>`}
-      ${c.gas && p ? `
-        <p class="caja-label">Total a cobrar ${ajustado ? `<small>(lista ${money(lista)})</small>` : ""}</p>
-        <div class="field total-edit-wrap">
+      <div class="caja-accion-bar">
+        <div class="caja-accion-total">
+          <label for="caja-total">Total ${ajustado ? `<small>(lista ${money(lista)})</small>` : ""}</label>
           <input id="caja-total" class="total-edit-input" inputmode="decimal" value="${esc(totalTxt)}" aria-label="Total a cobrar">
+          ${ajustado ? `<button type="button" class="btn ghost btn-reset-total" data-act="reset-total">Volver a lista</button>` : ""}
         </div>
-        ${ajustado ? `<button type="button" class="btn ghost" data-act="reset-total" style="width:100%;margin-bottom:8px">Volver al precio de lista</button>` : `<p class="lead" style="margin-top:0">Podés subir o bajar el total si cobrás distinto al precio de lista.</p>`}
-      ` : ""}
-      ${htmlFacturarCaja()}
-      ${htmlMedioPago()}
-      <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>`;
+        ${htmlMedioPago()}
+        ${htmlFacturarCaja()}
+        <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>
+      </div>`;
+  }
+  if (c.modo === "general") {
+    return `
+      <div class="caja-accion-bar">
+        ${htmlMedioPago()}
+        ${htmlFacturarCaja()}
+        <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>
+      </div>`;
+  }
+  return `
+    <div class="caja-accion-bar">
+      <button type="button" class="btn btn-grabar" style="background:#9b2c2c" data-act="grabar">Grabar salida</button>
+    </div>`;
+}
+
+function htmlPanelCaja() {
+  const c = state.caja;
+  if (c.modo === "gas" || c.modo === "regulador") {
+    return `
+      ${htmlGases(c.modo)}
+      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas</p>`}
+      ${htmlAccionCobrar()}`;
   }
   if (c.modo === "general") {
     return `
       <div class="field"><label>Qué se vendió</label>
-        <textarea id="caja-desc" rows="3" style="font-size:1.25rem">${esc(c.descripcion)}</textarea>
+        <textarea id="caja-desc" rows="2" style="font-size:1.1rem">${esc(c.descripcion)}</textarea>
       </div>
       <p class="caja-label">Precio ${c.monto ? money(totalCaja()) : ""}</p>
       ${htmlPad()}
-      ${htmlFacturarCaja()}
-      ${htmlMedioPago()}
-      <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>`;
+      ${htmlAccionCobrar()}`;
   }
   const presets = ["Combustible", "Peaje", "Comida", "Varios"];
   return `
-    <p class="caja-label">Motivo</p>
-    <div class="cant-rapida">
+    <div class="cant-rapida cant-rapida-compact">
       ${presets.map((t) => `<button type="button" class="btn big-soft ${c.descripcion === t ? "on" : ""}" data-act="preset" data-txt="${esc(t)}">${esc(t)}</button>`).join("")}
     </div>
     <div class="field"><label>Otro motivo</label>
-      <input id="caja-desc" value="${esc(c.descripcion)}" style="font-size:1.2rem">
+      <input id="caja-desc" value="${esc(c.descripcion)}" style="font-size:1.1rem">
     </div>
-    <p class="caja-label">Importe que sale ${c.monto ? money(totalCaja()) : ""}</p>
+    <p class="caja-label">Importe ${c.monto ? money(totalCaja()) : ""}</p>
     ${htmlPad()}
-    <button type="button" class="btn btn-grabar" style="background:#9b2c2c" data-act="grabar">Grabar salida</button>`;
+    ${htmlAccionCobrar()}`;
 }
 
 function etiquetaMov(v) {
@@ -3878,62 +3891,68 @@ function pintarCobrar() {
   const modos = [
     ["gas", "Gas"],
     ["regulador", "Regulador"],
-    ["general", "Otra venta"],
-    ["salida", "Salida de efectivo"],
+    ["general", "Otra"],
+    ["salida", "Salida"],
   ];
   const todas = c.ventas || [];
   const pendientes = todas.filter((v) => v.estado_factura === "pendiente");
   const lista = c.filtroHoy === "pendiente" ? pendientes : todas;
   const ultimaId = c.ultimaId || (todas[0] && todas[0].id);
   app().innerHTML = `
-    <h1>Caja</h1>
-    ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
-    <div class="caja-modos" id="caja-root-modos">
-      ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
-    </div>
-    <div class="card caja-venta" id="caja-root">
-      ${htmlPanelCaja()}
-    </div>
-    <div class="card caja-historial" style="margin-top:14px">
-      <div class="caja-hist-head">
-        <h3>Ventas de hoy</h3>
-        <div class="cant-rapida filtro-hoy">
-          <button type="button" class="btn secondary ${!c.filtroHoy ? "on" : ""}" data-act="filtro-hoy" data-filtro="">Todas (${todas.length})</button>
-          <button type="button" class="btn secondary ${c.filtroHoy === "pendiente" ? "on" : ""}" data-act="filtro-hoy" data-filtro="pendiente">A facturar (${pendientes.length})</button>
+    <div class="caja-screen">
+      <div class="caja-cobro">
+        <div class="caja-cobro-head">
+          <h1 class="caja-title">Cobrar</h1>
+          <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Facturación</a>
+        </div>
+        ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
+        <div class="caja-modos" id="caja-root-modos">
+          ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
+        </div>
+        <div class="card caja-venta" id="caja-root">
+          ${htmlPanelCaja()}
         </div>
       </div>
-      ${rolActual() === "admin" ? `<p class="lead" style="margin-top:0">El resumen del día está en <a href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Facturación</a>.</p>` : ""}
-      <ul class="lista-dia">
-        ${lista.map((v) => {
-          const esUltima = Number(v.id) === Number(ultimaId);
-          const esPend = v.estado_factura === "pendiente";
-          const clases = [
-            "venta-dia",
-            esUltima ? "ultima" : "",
-            esPend ? "para-facturar" : "",
-            v.tipo === "salida" ? "es-salida" : "",
-          ].filter(Boolean).join(" ");
-          return `<li class="${clases}" data-vid="${v.id}">
-            <div class="venta-dia-main">
-              <div>
-                ${esUltima ? `<span class="badge badge-ultima">Última</span> ` : ""}
-                <strong>${esc(v.hora)}</strong> · ${esc(v.descripcion)}
-                ${v.cliente_nombre ? `<br><small>${esc(v.cliente_nombre)}</small>` : ""}
-                ${v.tipo !== "salida" ? `<br><small>${esc(etiquetaMedio(v.medio_pago))}</small>` : ""}
+      <div class="card caja-historial">
+        <div class="caja-hist-head">
+          <h3>Historial del día</h3>
+          <div class="cant-rapida filtro-hoy">
+            <button type="button" class="btn secondary ${!c.filtroHoy ? "on" : ""}" data-act="filtro-hoy" data-filtro="">Todas (${todas.length})</button>
+            <button type="button" class="btn secondary ${c.filtroHoy === "pendiente" ? "on" : ""}" data-act="filtro-hoy" data-filtro="pendiente">A facturar (${pendientes.length})</button>
+          </div>
+        </div>
+        <ul class="lista-dia">
+          ${lista.map((v) => {
+            const esUltima = Number(v.id) === Number(ultimaId);
+            const esPend = v.estado_factura === "pendiente";
+            const clases = [
+              "venta-dia",
+              esUltima ? "ultima" : "",
+              esPend ? "para-facturar" : "",
+              v.tipo === "salida" ? "es-salida" : "",
+            ].filter(Boolean).join(" ");
+            return `<li class="${clases}" data-vid="${v.id}">
+              <div class="venta-dia-main">
+                <div>
+                  ${esUltima ? `<span class="badge badge-ultima">Última</span> ` : ""}
+                  <strong>${esc(v.hora)}</strong> · ${esc(v.descripcion)}
+                  ${v.cliente_nombre ? `<br><small>${esc(v.cliente_nombre)}</small>` : ""}
+                  ${v.tipo !== "salida" ? `<br><small>${esc(etiquetaMedio(v.medio_pago))}</small>` : ""}
+                </div>
+                <div class="venta-dia-monto">
+                  ${etiquetaMov(v)}
+                  <strong>${v.tipo === "salida" ? "−" : ""}${money(v.total)}</strong>
+                </div>
               </div>
-              <div class="venta-dia-monto">
-                ${etiquetaMov(v)}
-                <strong>${v.tipo === "salida" ? "−" : ""}${money(v.total)}</strong>
+              <div class="venta-dia-acciones">
+                <button type="button" class="btn ghost" data-act="ed-v" data-id="${v.id}">Editar</button>
+                ${esPend ? `<button type="button" class="btn secondary" data-act="quit-fact" data-id="${v.id}">Quitar de facturar</button>` : ""}
+                <button type="button" class="btn ghost" data-act="del-v" data-id="${v.id}" style="color:#9b2c2c">Borrar</button>
               </div>
-            </div>
-            <div class="venta-dia-acciones">
-              <button type="button" class="btn ghost" data-act="ed-v" data-id="${v.id}">Editar</button>
-              ${esPend ? `<button type="button" class="btn secondary" data-act="quit-fact" data-id="${v.id}">Quitar de facturar</button>` : ""}
-              <button type="button" class="btn ghost" data-act="del-v" data-id="${v.id}" style="color:#9b2c2c">Borrar</button>
-            </div>
-          </li>`;
-        }).join("") || `<li class="empty">Todavía no hay movimientos hoy.</li>`}
-      </ul>
+            </li>`;
+          }).join("") || `<li class="empty">Todavía no hay movimientos hoy.</li>`}
+        </ul>
+      </div>
     </div>`;
   const root = app();
   root.onclick = onCajaClick;
@@ -4136,6 +4155,7 @@ function claseFilaVenta(v) {
 
 async function vistaFacturacion(params) {
   setNav("facturacion");
+  const esAdmin = rolActual() === "admin";
   const desde = params.get("desde") || hoyInput();
   const hasta = params.get("hasta") || desde;
   const estado = params.get("estado") || "";
@@ -4156,7 +4176,7 @@ async function vistaFacturacion(params) {
   ];
   app().innerHTML = `
     <h1>Facturación</h1>
-    <p class="lead">Resumen y control de lo vendido. Acá ves las estadísticas del día; en Caja solo se cobra.</p>
+    <p class="lead">Resumen de lo cobrado. Para cobrar usá <a href="#/cobrar">Cobrar</a>.</p>
     ${r.pendientes_total ? `<a class="banner-fact" href="#/facturacion?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${r.pendientes_total} remito${r.pendientes_total === 1 ? "" : "s"} para facturar · ${money(r.pendientes_importe)}</a>` : ""}
     <div class="resumen-caja resumen-fact">
       <div class="card resumen-titulo"><small>${esHoy ? "Hoy" : "Período"}</small><div class="n">${esc(fmtFecha(desde))}${desde !== hasta ? " – " + esc(fmtFecha(hasta)) : ""}</div><small>${nVentas} venta${nVentas === 1 ? "" : "s"}</small></div>
@@ -4172,8 +4192,8 @@ async function vistaFacturacion(params) {
       <div class="field"><label>Hasta</label><input type="date" name="hasta" value="${esc(hasta)}"></div>
       <button class="btn" type="submit">Ver</button>
       <a class="btn ghost" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Hoy</a>
-      <a class="btn secondary" href="/api/caja/ventas.csv?desde=${esc(desde)}&hasta=${esc(hasta)}">Exportar CSV</a>
-      <a class="btn copper" href="#/cobrar">Ir a caja</a>
+      ${esAdmin ? `<a class="btn secondary" href="/api/caja/ventas.csv?desde=${esc(desde)}&hasta=${esc(hasta)}">Exportar CSV</a>` : ""}
+      <a class="btn copper" href="#/cobrar">Ir a cobrar</a>
     </form>
     <div class="tabs">
       ${filtros.map(([id, nom]) => `<a class="btn ${estado === id ? "" : "secondary"}" href="#/facturacion?desde=${esc(desde)}&hasta=${esc(hasta)}${id ? "&estado=" + id : ""}">${nom}</a>`).join("")}
@@ -4192,13 +4212,14 @@ async function vistaFacturacion(params) {
               <td>${etiquetaMov(v)}</td>
               <td>
                 <button type="button" class="btn ghost" data-edit-v="${v.id}">Editar</button>
-                <button type="button" class="btn secondary" data-tot-v="${v.id}">Ajustar $</button>
-                ${v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
+                ${esAdmin ? `<button type="button" class="btn secondary" data-tot-v="${v.id}">Ajustar $</button>` : ""}
+                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
               </td>
             </tr>`).join("") || `<tr><td colspan="7" class="empty">No hay movimientos en este período.</td></tr>`}
         </tbody>
       </table>
     </div>
+    ${esAdmin ? `
     <div class="card" style="margin-top:14px">
       <h3>Precios que ve el cobrador</h3>
       <p class="lead">Gases por m³ (0,5 · 1 · 2 · 3 · 4 · 6 · 10). El CO2 se cobra por kilo; podés cambiarlo a m³ si hace falta. Regulador por unidad.</p>
@@ -4222,27 +4243,29 @@ async function vistaFacturacion(params) {
         }).join("")}
         <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
       </form>
-    </div>`;
+    </div>` : ""}`;
   $("#form-fechas").onsubmit = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     location.hash = `#/facturacion?desde=${fd.get("desde")}&hasta=${fd.get("hasta")}${estado ? "&estado=" + estado : ""}`;
   };
-  $("#form-precios").onsubmit = async (e) => {
-    e.preventDefault();
-    const raw = Object.fromEntries(new FormData(e.target).entries());
-    const preciosBody = {};
-    const unidades = {};
-    Object.entries(raw).forEach(([k, v]) => {
-      if (k.startsWith("unidad:")) unidades[k.slice(7)] = v;
-      else preciosBody[k] = v;
-    });
-    try {
-      await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades } });
-      toast("Precios guardados");
-      route();
-    } catch (err) { toast(err.message, true); }
-  };
+  if (esAdmin) {
+    $("#form-precios").onsubmit = async (e) => {
+      e.preventDefault();
+      const raw = Object.fromEntries(new FormData(e.target).entries());
+      const preciosBody = {};
+      const unidades = {};
+      Object.entries(raw).forEach(([k, v]) => {
+        if (k.startsWith("unidad:")) unidades[k.slice(7)] = v;
+        else preciosBody[k] = v;
+      });
+      try {
+        await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades } });
+        toast("Precios guardados");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  }
   const porId = Object.fromEntries((data.ventas || []).map((v) => [v.id, v]));
   document.querySelectorAll("[data-edit-v]").forEach((b) => {
     b.onclick = () => abrirEdicionVenta(porId[b.dataset.editV]);
@@ -4420,7 +4443,7 @@ async function route() {
     const { path, params } = parseHash();
     const parts = path.split("/").filter(Boolean);
     const seccion = parts[0] || "inicio";
-    if (rolActual() === "cobrador" && seccion !== "cobrar") {
+    if (rolActual() === "cobrador" && seccion !== "cobrar" && seccion !== "facturacion") {
       location.hash = "#/cobrar";
       return;
     }
@@ -4437,7 +4460,7 @@ async function route() {
       return vistaCobrar();
     }
     if (seccion === "facturacion") {
-      if (rolActual() !== "admin") return vistaInicio();
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
       return vistaFacturacion(params);
     }
     if (seccion === "inicio") return vistaInicio();

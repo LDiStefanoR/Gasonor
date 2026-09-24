@@ -1,4 +1,4 @@
-﻿---
+---
 export const prerender = true;
 ---
 
@@ -7,11 +7,11 @@ export const prerender = true;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>Gasonor SRL â Trazabilidad de tubos</title>
+    <title>Gasonor SRL — Trazabilidad de tubos</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/interno/css/app.css?v=51" />
+    <link rel="stylesheet" href="/interno/css/app.css?v=52" />
     <link rel="icon" href="/interno/img/logo.png?v=30" />
   </head>
   <body>
@@ -27,14 +27,14 @@ export const prerender = true;
         <a href="#/inicio" data-nav="inicio">Inicio</a>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">CatÃ¡logo</span>
+          <span class="nav-label">Catálogo</span>
           <a href="#/proveedores" data-nav="proveedores" data-roles="admin">Proveedores</a>
           <a href="#/clientes" data-nav="clientes" data-roles="admin">Clientes</a>
-          <a href="#/catalogo" data-nav="catalogo" data-roles="admin">Tubos y artÃ­culos</a>
+          <a href="#/catalogo" data-nav="catalogo" data-roles="admin">Tubos y artículos</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">EnvÃ­os y recepciones</span>
+          <span class="nav-label">Envíos y recepciones</span>
           <a href="#/envios/planta" data-nav="envios" data-roles="admin,despacho">Planta</a>
           <a href="#/envios/cliente" data-nav="envios" data-roles="admin,reparto">Cliente</a>
           <a href="#/planta/completar" data-nav="planta" data-roles="admin">Completar recepciones</a>
@@ -44,30 +44,30 @@ export const prerender = true;
         <div class="nav-group" data-nav-group>
           <span class="nav-label">Caja</span>
           <a href="#/cobrar" data-nav="cobrar" data-roles="cobrador,admin">Cobrar</a>
-          <a href="#/facturacion" data-nav="facturacion" data-roles="admin">FacturaciÃ³n</a>
+          <a href="#/facturacion" data-nav="facturacion" data-roles="cobrador,admin">Facturación</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">LogÃ­stica</span>
+          <span class="nav-label">Logística</span>
           <a href="#/reparto" data-nav="reparto" data-roles="admin,reparto">Reparto</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">AdministraciÃ³n</span>
+          <span class="nav-label">Administración</span>
           <a href="#/usuarios" data-nav="usuarios" data-roles="admin">Usuarios</a>
-          <a href="#/informe" data-nav="informe" data-roles="admin">Informe de expediciÃ³n</a>
+          <a href="#/informe" data-nav="informe" data-roles="admin">Informe de expedición</a>
           <a href="#/movimientos" data-nav="movimientos" data-roles="admin">Historial</a>
           <a href="#/config" data-nav="config" data-roles="admin">Empresa</a>
         </div>
       </nav>
-      <p class="sidebar-foot">Ciclo: vacÃ­o â cargado â cliente â vacÃ­o</p>
+      <p class="sidebar-foot">Ciclo: vacío → cargado → cliente → vacío</p>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <button type="button" class="btn-menu" id="btn-menu" aria-label="MenÃº">â°</button>
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="Menú">☰</button>
         <form id="busqueda-global" class="search" autocomplete="off">
-          <input id="q-global" type="search" placeholder="Buscar nÃºmero de tubo, lote o clienteâ¦" autocomplete="off" />
+          <input id="q-global" type="search" placeholder="Buscar número de tubo, lote o cliente…" autocomplete="off" />
           <button type="submit">Buscar</button>
         </form>
         <div class="topbar-meta">
@@ -91,6 +91,6 @@ export const prerender = true;
     </div>
     <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script is:inline src="/interno/js/scan.js?v=30"></script>
-    <script is:inline src="/interno/js/app.js?v=51"></script>
+    <script is:inline src="/interno/js/app.js?v=52"></script>
   </body>
 </html>

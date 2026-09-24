@@ -210,15 +210,9 @@ export async function handleCaja(
 
   if (key === "GET /api/caja/ventas") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
-    let desde: string;
-    let hasta: string;
-    if (String(u.rol) === "cobrador") {
-      desde = hasta = hoy();
-    } else {
-      desde = parseFecha(q.get("desde") || q.get("fecha") || hoy());
-      hasta = parseFecha(q.get("hasta") || q.get("fecha") || desde);
-      if (hasta < desde) [desde, hasta] = [hasta, desde];
-    }
+    let desde = parseFecha(q.get("desde") || q.get("fecha") || hoy());
+    let hasta = parseFecha(q.get("hasta") || q.get("fecha") || desde);
+    if (hasta < desde) [desde, hasta] = [hasta, desde];
     const estado = String(q.get("estado") || "").trim();
     let sql = `SELECT v.*, u.nombre AS usuario_nombre
       FROM ventas_caja v LEFT JOIN usuarios u ON u.id=v.usuario_id
