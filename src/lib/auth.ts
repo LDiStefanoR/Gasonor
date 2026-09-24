@@ -32,29 +32,36 @@ export function hashPassword(password: string) {
 
 export function verifyPassword(stored: string, password: string) {
   if (!stored) return false;
-  if (stored.startsWith("$2")) return compareSync(password, stored);
-  if (stored.startsWith("scrypt:")) {
-    const [meta, salt, hex] = stored.split("$");
-    const [, n, r, p] = meta.split(":");
-    const derived = scryptSync(password, salt, hex.length / 2, {
-      N: Number(n),
-      r: Number(r),
-      p: Number(p),
-    });
-    try {
-      return timingSafeEqual(Buffer.from(hex, "hex"), derived);
-    } catch {
-      return false;
+  try {
+    if (stored.startsWith("$2")) return compareSync(password, stored);
+    if (stored.startsWith("scrypt:")) {
+      const [meta, salt, hex] = stored.split("$");
+      const [, n, r, p] = meta.split(":");
+      const N = Number(n);
+      const rNum = Number(r);
+      const pNum = Number(p);
+      // Werkzeug/Python puede usar N alto; en Vercel el default maxmem (32MB) no alcanza.
+      const maxmem = Math.max(64 * 1024 * 1024, 128 * N * rNum * 2);
+      const derived = scryptSync(password, salt, hex.length / 2, {
+        N,
+        r: rNum,
+        p: pNum,
+        maxmem,
+      });
+      const expected = Buffer.from(hex, "hex");
+      return expected.length === derived.length && timingSafeEqual(expected, derived);
     }
-  }
-  if (stored.startsWith("pbkdf2:")) {
-    const [meta, salt, hex] = stored.split("$");
-    const parts = meta.split(":");
-    const iters = Number(parts[2] || 600000);
-    const digest = parts[1] || "sha256";
-    const derived = pbkdf2Sync(password, salt, iters, hex.length / 2, digest);
-    const expected = Buffer.from(hex, "hex");
-    return derived.length === expected.length && timingSafeEqual(derived, expected);
+    if (stored.startsWith("pbkdf2:")) {
+      const [meta, salt, hex] = stored.split("$");
+      const parts = meta.split(":");
+      const iters = Number(parts[2] || 600000);
+      const digest = parts[1] || "sha256";
+      const derived = pbkdf2Sync(password, salt, iters, hex.length / 2, digest);
+      const expected = Buffer.from(hex, "hex");
+      return derived.length === expected.length && timingSafeEqual(derived, expected);
+    }
+  } catch {
+    return false;
   }
   return false;
 }

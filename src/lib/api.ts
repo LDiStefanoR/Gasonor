@@ -210,6 +210,14 @@ async function handleApiInner(ctx: APIContext) {
     const clave = String(data.clave || "");
     const row = await one("SELECT * FROM usuarios WHERE lower(usuario)=? AND activo=1", [user]);
     if (!row || !verifyPassword(String(row.clave), clave)) return err("Usuario o contraseña incorrectos.", 401);
+    const stored = String(row.clave || "");
+    if (stored.startsWith("scrypt:") || stored.startsWith("pbkdf2:")) {
+      try {
+        await run("UPDATE usuarios SET clave=? WHERE id=?", [hashPassword(clave), Number(row.id)]);
+      } catch {
+        /* si falla el upgrade, igual deja entrar */
+      }
+    }
     setSession(ctx, Number(row.id));
     return json({
       ok: true,
