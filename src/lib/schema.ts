@@ -177,15 +177,15 @@ export async function ensureSchema() {
     const t = ahora();
     await run(
       "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
-      ["admin", hashPassword("gasonor"), "Administrador", "admin", t],
+      ["admin", hashPassword("Gasonor#2026"), "Administrador", "admin", t],
     );
     await run(
       "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
-      ["despacho", hashPassword("despacho"), "Despacho", "despacho", t],
+      ["despacho", hashPassword("Despacho#2026"), "Despacho", "despacho", t],
     );
     await run(
       "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
-      ["reparto", hashPassword("reparto"), "Reparto", "reparto", t],
+      ["reparto", hashPassword("Reparto#2026"), "Reparto", "reparto", t],
     );
   }
   const nProv = await count("SELECT COUNT(*) AS n FROM proveedores");

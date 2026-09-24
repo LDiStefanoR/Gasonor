@@ -2123,8 +2123,8 @@ async function vistaUsuarios() {
             }).join("")}
           </select>
         </div>
-        <div class="field"><label>${editando ? "Nueva contraseña (vacío = no cambia)" : "Contraseña"}</label>
-          <input name="clave" type="password" ${editando ? "" : "required"} minlength="4" autocomplete="new-password">
+        <div class="field"><label>${editando ? "Nueva clave (vacío = no cambia)" : "Clave"}</label>
+          <input name="clave" type="password" ${editando ? "" : "required"} minlength="4" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true">
         </div>
         ${editando ? `<div class="field"><label>Estado</label>
           <select name="activo"><option value="1" ${editando.activo ? "selected" : ""}>Activo</option>
