@@ -133,6 +133,7 @@ h1 { margin: 8px 0 4px; font-size: 1.7rem; }
 .stat.en_planta { border-top: 4px solid var(--warn); }
 .stat.cargado { border-top: 4px solid var(--ok); }
 .stat.en_cliente { border-top: 4px solid var(--info); }
+.stat.cliente { border-top: 4px solid #c47a2a; }
 .stat.total { border-top: 4px solid var(--gold); }
 
 .ciclo {
