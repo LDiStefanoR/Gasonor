@@ -4,11 +4,12 @@ import { puede, type Usuario } from "./auth";
 
 const GASES: [string, string, number][] = [
   ["oxigeno", "Oxígeno", 1],
-  ["co2", "CO2", 2],
-  ["nitrogeno", "Nitrógeno", 3],
-  ["argon", "Argón", 4],
-  ["athal", "Athal", 5],
-  ["helio", "Helio", 6],
+  ["oxigeno_medicinal", "Oxígeno medicinal", 2],
+  ["co2", "CO2", 3],
+  ["nitrogeno", "Nitrógeno", 4],
+  ["argon", "Argón", 5],
+  ["athal", "Athal", 6],
+  ["helio", "Helio", 7],
 ];
 
 function ahora() {
