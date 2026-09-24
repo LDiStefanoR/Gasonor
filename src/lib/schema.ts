@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS proveedores (
   nombre TEXT NOT NULL UNIQUE,
   direccion TEXT,
   telefono TEXT,
+  cuit TEXT,
   activo INTEGER NOT NULL DEFAULT 1,
   creado_en TEXT NOT NULL
 );
@@ -158,6 +159,7 @@ export async function ensureSchema() {
     "ALTER TABLE reparto_paradas ADD COLUMN completada_en TEXT",
     "ALTER TABLE reparto_paradas ADD COLUMN completada_por INTEGER",
     "ALTER TABLE reparto_paradas ADD COLUMN comentario TEXT",
+    "ALTER TABLE proveedores ADD COLUMN cuit TEXT",
   ]) {
     try {
       await run(col);

@@ -2337,25 +2337,161 @@ function horaInput() {
 async function vistaProveedores() {
   setNav("proveedores");
   const data = await api("/api/proveedores");
+  const rows = data.proveedores || [];
   app().innerHTML = `
     <h1>Proveedores / plantas</h1>
+    <p class="lead">Cargá plantas de carga. Tocá una para ver los tubos que tiene y el historial de envíos.</p>
     <div class="card">
-      <form id="form-prov" class="toolbar">
-        <div class="field" style="flex:1"><label>Nombre</label><input name="nombre" required></div>
-        <div class="field"><label>Teléfono</label><input name="telefono"></div>
-        <button class="btn copper" type="submit">Agregar</button>
+      <h3>Nuevo proveedor</h3>
+      <form id="form-prov" class="grid form">
+        <div class="field"><label>Nombre</label><input name="nombre" required autocomplete="organization"></div>
+        <div class="field"><label>CUIT (opcional)</label><input name="cuit" inputmode="numeric" autocomplete="off" placeholder="30-…"></div>
+        <div class="field full"><label>Dirección (opcional)</label><input name="direccion" autocomplete="street-address"></div>
+        <div class="field"><label>Teléfono (opcional)</label><input name="telefono" inputmode="tel" autocomplete="tel"></div>
+        <div class="field full"><button class="btn copper" type="submit">Agregar proveedor</button></div>
       </form>
-      <table>
-        <thead><tr><th>Nombre</th><th>Teléfono</th></tr></thead>
-        <tbody>${data.proveedores.map((p) => `<tr><td>${esc(p.nombre)}</td><td>${esc(p.telefono || "—")}</td></tr>`).join("")}</tbody>
-      </table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      ${rows.length ? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>Nombre</th><th>CUIT</th><th>Dirección</th><th>Teléfono</th><th>En posesión</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map((p) => `
+            <tr>
+              <td><a href="#/proveedores/${p.id}"><strong>${esc(p.nombre)}</strong></a></td>
+              <td class="mono">${esc(p.cuit || "—")}</td>
+              <td>${esc(p.direccion || "—")}</td>
+              <td>${esc(p.telefono || "—")}</td>
+              <td class="mono">${Number(p.tubos_en_planta || 0)}</td>
+              <td><a class="btn" href="#/proveedores/${p.id}">Abrir</a></td>
+            </tr>`).join("")}
+        </tbody>
+      </table></div>` : `<p class="empty">Todavía no hay proveedores cargados.</p>`}
     </div>`;
   $("#form-prov").onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api("/api/proveedores", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
-      toast("Proveedor cargado"); route();
+      const r = await api("/api/proveedores", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
+      toast("Proveedor cargado");
+      location.hash = "#/proveedores/" + r.proveedor.id;
     } catch (err) { toast(err.message, true); }
+  };
+}
+
+async function vistaProveedorFicha(id, params) {
+  setNav("proveedores");
+  const tab = params.get("tab") || "tubos";
+  const data = await api("/api/proveedores/" + id);
+  const p = data.proveedor;
+  const r = data.resumen || {};
+  const tubos = data.tubos || [];
+  const docs = data.documentos || [];
+  const movs = data.movimientos || [];
+  app().innerHTML = `
+    <p><a href="#/proveedores">← Proveedores</a></p>
+    <h1>${esc(p.nombre)}</h1>
+    <p class="lead">
+      ${esc(p.direccion || "Sin dirección")}
+      ${p.cuit ? " · CUIT " + esc(p.cuit) : ""}
+      ${p.telefono ? " · " + esc(p.telefono) : ""}
+      ${p.activo ? "" : " · <em>Inactivo</em>"}
+    </p>
+    <div class="grid stats">
+      <div class="card stat en_planta"><div class="n">${r.en_posesion ?? tubos.length}</div><small>Tubos en posesión</small></div>
+      <div class="card stat vacio"><div class="n">${r.tubos_enviados || 0}</div><small>Tubos enviados (hist.)</small></div>
+      <div class="card stat cargado"><div class="n">${r.tubos_recibidos || 0}</div><small>Tubos recibidos (hist.)</small></div>
+      <div class="card stat total"><div class="n">${(r.documentos_despacho || 0) + (r.documentos_recepcion || 0)}</div><small>Documentos planta</small></div>
+    </div>
+    <div class="toolbar">
+      <button class="btn copper" type="button" id="btn-edit-prov">Editar datos</button>
+      <a class="btn secondary" href="#/planta/despacho/${p.id}">Despacho a esta planta</a>
+      <a class="btn secondary" href="#/planta/recepcion/${p.id}">Recepción de esta planta</a>
+    </div>
+    <div class="tabs">
+      <button data-tab="tubos" class="${tab === "tubos" ? "active" : ""}">En posesión (${tubos.length})</button>
+      <button data-tab="docs" class="${tab === "docs" ? "active" : ""}">Documentos (${docs.length})</button>
+      <button data-tab="movs" class="${tab === "movs" ? "active" : ""}">Movimientos</button>
+    </div>
+    <div id="prov-tab" class="card"></div>`;
+
+  app().querySelectorAll("[data-tab]").forEach((b) => {
+    b.onclick = () => { location.hash = "#/proveedores/" + id + "?tab=" + b.dataset.tab; };
+  });
+
+  const box = $("#prov-tab");
+  if (tab === "docs") {
+    box.innerHTML = docs.length ? `
+      <h3>Documentos de planta</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Cant.</th><th>Usuario</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${docs.map((d) => `
+            <tr>
+              <td class="mono">${fmtFecha(d.fecha)}${d.hora ? " " + esc(d.hora) : ""}</td>
+              <td>${d.tipo === "despacho" ? "Despacho" : "Recepción"}</td>
+              <td class="mono">${esc(d.remito || "—")}</td>
+              <td class="mono">${Number(d.cantidad || 0)}</td>
+              <td>${esc(d.usuario_nombre || "—")}</td>
+              <td>${esc(d.estado || "cerrado")}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : `<p class="empty">Todavía no hay documentos con esta planta.</p>`;
+  } else if (tab === "movs") {
+    box.innerHTML = movs.length ? `
+      <h3>Últimos movimientos (envío / retorno)</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Tubo</th><th>Detalle</th></tr></thead>
+        <tbody>
+          ${movs.map((m) => `
+            <tr>
+              <td class="mono">${fmtFecha(m.fecha)}</td>
+              <td>${esc(TIPOS[m.tipo] || m.tipo)}</td>
+              <td class="mono">${esc(m.tubo_numero || "—")}</td>
+              <td>${esc(m.observaciones || "—")}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : `<p class="empty">Sin movimientos registrados para esta planta.</p>`;
+  } else {
+    box.innerHTML = `
+      <h3>Tubos actualmente en esta planta</h3>
+      <p class="lead">Cilindros con estado <b>en planta</b> asignados a ${esc(p.nombre)}.</p>
+      ${tubos.length ? `
+        <p class="mono" style="font-size:1.05rem;font-weight:700;margin-bottom:10px">${tubos.map((t) => esc(t.numero)).join(" · ")}</p>
+        <table>
+          <thead><tr><th>Número</th><th>Cód. prov.</th><th>Artículo</th><th>Propiedad</th><th>Lote</th><th>Envío</th></tr></thead>
+          <tbody>
+            ${tubos.map((t) => `
+              <tr>
+                <td class="mono"><a href="#/tubo/${t.id}">${esc(t.numero)}</a></td>
+                <td class="mono">${esc(t.codigo_proveedor_mostrar || t.codigo_proveedor || "—")}</td>
+                <td>${esc(t.articulo_descripcion || t.articulo_codigo || "")}</td>
+                <td><span class="badge ${t.propiedad === "cliente" ? "cliente" : "empresa"}">${t.propiedad === "cliente" ? "Cliente" : "GN"}</span></td>
+                <td class="mono">${esc(t.lote || "—")}</td>
+                <td class="mono">${fmtFecha(t.fecha_envio_planta) || "—"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>` : `<p class="empty">No tiene tubos en posesión ahora.</p>`}`;
+  }
+
+  $("#btn-edit-prov").onclick = () => {
+    abrirModal(`
+      <h2>Editar ${esc(p.nombre)}</h2>
+      <form id="form-edit-prov" class="grid form">
+        <div class="field"><label>Nombre</label><input name="nombre" required value="${esc(p.nombre || "")}"></div>
+        <div class="field"><label>CUIT</label><input name="cuit" value="${esc(p.cuit || "")}" inputmode="numeric"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion" value="${esc(p.direccion || "")}"></div>
+        <div class="field"><label>Teléfono</label><input name="telefono" value="${esc(p.telefono || "")}"></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
+      </form>`);
+    $("#form-edit-prov").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api("/api/proveedores/" + id, { method: "PUT", body: Object.fromEntries(new FormData(e.target)) });
+        cerrarModal();
+        toast("Proveedor actualizado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
   };
 }
 
@@ -4807,6 +4943,7 @@ async function route() {
     if (seccion === "config") return vistaConfig();
     if (seccion === "proveedores") {
       if (!puede("admin")) return vistaInicio();
+      if (parts[1] && /^\d+$/.test(parts[1])) return vistaProveedorFicha(parts[1], params);
       return vistaProveedores();
     }
     if (seccion === "usuarios") {

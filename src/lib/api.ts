@@ -1196,7 +1196,14 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   if (key === "GET /api/proveedores") {
-    return json({ ok: true, proveedores: await all("SELECT * FROM proveedores WHERE activo=1 ORDER BY nombre") });
+    const rows = await all(
+      `SELECT p.*,
+        (SELECT COUNT(*) FROM tubos t WHERE t.proveedor_id=p.id AND t.activo=1 AND t.estado='en_planta') AS tubos_en_planta,
+        (SELECT COUNT(*) FROM documentos_planta d WHERE d.proveedor_id=p.id AND d.tipo='despacho') AS despachos,
+        (SELECT COUNT(*) FROM documentos_planta d WHERE d.proveedor_id=p.id AND d.tipo='recepcion' AND IFNULL(d.estado,'cerrado')!='borrador') AS recepciones
+       FROM proveedores p WHERE p.activo=1 ORDER BY p.nombre`,
+    );
+    return json({ ok: true, proveedores: rows });
   }
 
   if (key === "POST /api/proveedores") {
@@ -1206,8 +1213,14 @@ async function handleApiInner(ctx: APIContext) {
     if (!nombre) return err("El nombre del proveedor es obligatorio.");
     try {
       const r = await run(
-        "INSERT INTO proveedores (nombre, direccion, telefono, activo, creado_en) VALUES (?,?,?,1,?)",
-        [nombre, String(data.direccion || "").trim(), String(data.telefono || "").trim(), ahora()],
+        "INSERT INTO proveedores (nombre, direccion, telefono, cuit, activo, creado_en) VALUES (?,?,?,?,1,?)",
+        [
+          nombre,
+          String(data.direccion || "").trim(),
+          String(data.telefono || "").trim(),
+          String(data.cuit || "").trim(),
+          ahora(),
+        ],
       );
       return json({
         ok: true,
@@ -1219,20 +1232,92 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   const prv = path.match(/^\/api\/proveedores\/(\d+)$/);
+  if (method === "GET" && prv) {
+    const pid = Number(prv[1]);
+    const row = await one("SELECT * FROM proveedores WHERE id=?", [pid]);
+    if (!row) return err("Proveedor no encontrado.", 404);
+    const tubos = await fetchTubos(
+      "WHERE t.activo=1 AND t.estado='en_planta' AND t.proveedor_id=? AND IFNULL(a.es_tubo,1)=1 ORDER BY t.numero",
+      [pid],
+    );
+    const itemsDesp = await one(
+      `SELECT COUNT(*) AS n FROM documento_items i
+       JOIN documentos_planta d ON d.id=i.documento_id
+       WHERE d.proveedor_id=? AND d.tipo='despacho'`,
+      [pid],
+    );
+    const itemsRec = await one(
+      `SELECT COUNT(*) AS n FROM documento_items i
+       JOIN documentos_planta d ON d.id=i.documento_id
+       WHERE d.proveedor_id=? AND d.tipo='recepcion' AND IFNULL(d.estado,'cerrado')!='borrador'`,
+      [pid],
+    );
+    const docsDesp = await one(
+      "SELECT COUNT(*) AS n FROM documentos_planta WHERE proveedor_id=? AND tipo='despacho'",
+      [pid],
+    );
+    const docsRec = await one(
+      `SELECT COUNT(*) AS n FROM documentos_planta
+       WHERE proveedor_id=? AND tipo='recepcion' AND IFNULL(estado,'cerrado')!='borrador'`,
+      [pid],
+    );
+    const movEnviados = await one(
+      "SELECT COUNT(*) AS n FROM movimientos WHERE tipo='PLANSALI' AND IFNULL(observaciones,'') LIKE ?",
+      [`%${String(row.nombre || "")}%`],
+    );
+    const movRecibidos = await one(
+      "SELECT COUNT(*) AS n FROM movimientos WHERE tipo='PLANENTR' AND IFNULL(observaciones,'') LIKE ?",
+      [`%${String(row.nombre || "")}%`],
+    );
+    const documentos = await all(
+      `SELECT d.*, u.nombre AS usuario_nombre,
+              (SELECT COUNT(*) FROM documento_items i WHERE i.documento_id=d.id) AS cantidad
+       FROM documentos_planta d
+       LEFT JOIN usuarios u ON u.id=d.usuario_id
+       WHERE d.proveedor_id=?
+       ORDER BY d.id DESC LIMIT 40`,
+      [pid],
+    );
+    const movimientos = await all(
+      `SELECT m.*, t.numero AS tubo_numero, a.codigo AS articulo_codigo
+       FROM movimientos m
+       LEFT JOIN tubos t ON t.id=m.tubo_id
+       LEFT JOIN articulos a ON a.id=m.articulo_id
+       WHERE m.tipo IN ('PLANSALI','PLANENTR') AND IFNULL(m.observaciones,'') LIKE ?
+       ORDER BY m.id DESC LIMIT 50`,
+      [`%${String(row.nombre || "")}%`],
+    );
+    return json({
+      ok: true,
+      proveedor: row,
+      tubos,
+      resumen: {
+        en_posesion: tubos.length,
+        tubos_enviados: Math.max(Number(itemsDesp?.n || 0), Number(movEnviados?.n || 0)),
+        tubos_recibidos: Math.max(Number(itemsRec?.n || 0), Number(movRecibidos?.n || 0)),
+        documentos_despacho: Number(docsDesp?.n || 0),
+        documentos_recepcion: Number(docsRec?.n || 0),
+      },
+      documentos,
+      movimientos,
+    });
+  }
+
   if (method === "PUT" && prv) {
     if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
     const pid = Number(prv[1]);
     const row = await one("SELECT * FROM proveedores WHERE id=?", [pid]);
     if (!row) return err("Proveedor no encontrado.", 404);
     const data = await body(ctx);
-    await run("UPDATE proveedores SET nombre=?, direccion=?, telefono=?, activo=? WHERE id=?", [
+    await run("UPDATE proveedores SET nombre=?, direccion=?, telefono=?, cuit=?, activo=? WHERE id=?", [
       String(data.nombre ?? row.nombre).trim().toUpperCase(),
       String(data.direccion ?? row.direccion ?? "").trim(),
       String(data.telefono ?? row.telefono ?? "").trim(),
+      String(data.cuit ?? row.cuit ?? "").trim(),
       data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
       pid,
     ]);
-    return json({ ok: true });
+    return json({ ok: true, proveedor: await one("SELECT * FROM proveedores WHERE id=?", [pid]) });
   }
 
   if (key === "POST /api/planta/identificar") {
