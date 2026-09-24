@@ -204,6 +204,37 @@ function optsProveedores(provs, selected) {
     .join("");
 }
 
+function bindBusquedaClienteSimple(buscaId, idHidden, listaId) {
+  const input = $(buscaId);
+  const hidden = $(idHidden);
+  const ul = $(listaId);
+  if (!input || !hidden || !ul) return;
+  let timer;
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = input.value.trim();
+      if (q.length < 2) { ul.hidden = true; ul.innerHTML = ""; return; }
+      try {
+        const data = await api("/api/clientes?q=" + encodeURIComponent(q));
+        const rows = (data.clientes || []).slice(0, 20);
+        ul.innerHTML = rows.length
+          ? rows.map((c) => `<li data-id="${c.id}">${esc(c.nombre)}${c.direccion ? ` · <small>${esc(c.direccion)}</small>` : ""}</li>`).join("")
+          : `<li class="empty-li">Sin coincidencias</li>`;
+        ul.hidden = false;
+        ul.querySelectorAll("li[data-id]").forEach((li) => {
+          li.onclick = () => {
+            hidden.value = li.dataset.id;
+            const c = rows.find((x) => String(x.id) === li.dataset.id);
+            input.value = c?.nombre || li.textContent || "";
+            ul.hidden = true;
+          };
+        });
+      } catch (_) { /* ok */ }
+    }, 200);
+  };
+}
+
 /** Búsqueda en vivo de clientes: nombre + CUIT + dirección (destacada). */
 function htmlBusquedaCliente(pref = "bc") {
   return `
@@ -614,10 +645,19 @@ function modalEditarCatalogoItem(it, onSaved) {
         <div class="field"><label>Capacidad</label><input name="capacidad" value="${esc(it.capacidad || "")}"></div>
         <div class="field"><label>Número de lote</label><input name="lote" value="${esc(it.lote || "")}" placeholder="Lote de carga / gas"></div>
         <div class="field"><label>Propiedad</label>
-          <select name="propiedad">
+          <select name="propiedad" id="edit-propiedad">
             <option value="empresa" ${it.propiedad !== "cliente" ? "selected" : ""}>GN (Gasonor)</option>
             <option value="cliente" ${it.propiedad === "cliente" ? "selected" : ""}>Del cliente</option>
           </select>
+        </div>
+        <div class="field full" id="edit-wrap-cliente" ${it.propiedad === "cliente" ? "" : "hidden"}>
+          <label>Cliente propietario</label>
+          <div class="cli-suggest">
+            <input id="edit-cli-busca" value="${esc(it.cliente_nombre || "")}" placeholder="Escribí nombre del cliente…" autocomplete="off">
+            <input type="hidden" name="cliente_id" id="edit-cli-id" value="${it.cliente_id || ""}">
+            <ul id="edit-cli-lista" hidden></ul>
+          </div>
+          <small class="hint">Obligatorio: el tubo queda enlazado a la ficha de ese cliente (envase propio S/P).</small>
         </div>
         <div class="field"><label>Vto. hidráulica / carga</label><input name="fecha_vto" type="date" value="${esc(it.fecha_vto || "")}"></div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1" ${Number(it.retener || it.articulo_retener) ? "checked" : ""}> Retener</label></div>
@@ -634,10 +674,13 @@ function modalEditarCatalogoItem(it, onSaved) {
   const syncPlanta = () => {
     const wrap = $("#edit-wrap-planta");
     if (!wrap) return;
-    // El selector del form solo se muestra si YA estaba en planta (cambio de planta).
-    // Si entra a planta desde otro estado, la advertencia pide el proveedor.
     const estadoSel = $("#edit-estado")?.value || "";
     wrap.hidden = !(estadoSel === "en_planta" && it.estado === "en_planta");
+  };
+  const syncPropiedad = () => {
+    const wrap = $("#edit-wrap-cliente");
+    if (!wrap) return;
+    wrap.hidden = ($("#edit-propiedad")?.value || "") !== "cliente";
   };
   const pintarOptsProv = (sel, selected) => {
     if (!sel) return;
@@ -645,7 +688,10 @@ function modalEditarCatalogoItem(it, onSaved) {
   };
   if (!esGen) {
     $("#edit-estado").onchange = syncPlanta;
+    $("#edit-propiedad").onchange = syncPropiedad;
     syncPlanta();
+    syncPropiedad();
+    bindBusquedaClienteSimple("#edit-cli-busca", "#edit-cli-id", "#edit-cli-lista");
     api("/api/proveedores").then((data) => {
       listaProveedores = data.proveedores || [];
       pintarOptsProv($("#edit-proveedor"), it.proveedor_id);
@@ -663,6 +709,13 @@ function modalEditarCatalogoItem(it, onSaved) {
       retener: fd.retener === "1" ? 1 : 0,
       articulo_id: it.articulo_id,
     };
+    if (body.propiedad === "cliente") {
+      const cid = Number(fd.cliente_id || $("#edit-cli-id")?.value || 0);
+      if (!cid) throw new Error("Asigná el cliente propietario");
+      body.cliente_id = cid;
+    } else {
+      body.cliente_id = body.estado === "en_cliente" ? (fd.cliente_id || it.cliente_id || null) : null;
+    }
     if (body.estado === "en_planta") {
       const pid = Number(fd.proveedor_id);
       if (!pid) throw new Error("Elegí la planta / proveedor");
@@ -727,6 +780,14 @@ function modalEditarCatalogoItem(it, onSaved) {
         return;
       }
       if (!fd.numero) return toast("El número de tubo es obligatorio", true);
+      if (fd.propiedad === "cliente") {
+        fd.cliente_id = fd.cliente_id || $("#edit-cli-id")?.value || "";
+        if (!fd.cliente_id) {
+          syncPropiedad();
+          $("#edit-cli-busca")?.focus();
+          return toast("Elegí de qué cliente es el tubo", true);
+        }
+      }
 
       const entraAPlanta = fd.estado === "en_planta" && it.estado !== "en_planta";
       if (entraAPlanta) {
@@ -1248,7 +1309,11 @@ async function vistaTubo(id) {
     <div class="grid two">
       <div class="card">
         <p>${badge(t.estado)} ${t.cliente_nombre ? " · " + esc(t.cliente_nombre) : ""}</p>
-        <p><b>Propiedad:</b> ${t.propiedad === "cliente" ? "del cliente (S/P)" : "de la empresa (Gasonor)"}</p>
+        <p><b>Propiedad:</b> ${t.propiedad === "cliente"
+          ? (t.cliente_id
+            ? `del cliente (S/P) · <a href="#/clientes/${t.cliente_id}">${esc(t.cliente_nombre || "Ver ficha")}</a>`
+            : "del cliente (S/P) · <em>sin cliente asignado</em>")
+          : "de la empresa (Gasonor)"}</p>
         <p><b>Retener:</b> ${Number(t.retener) || Number(t.articulo_retener) ? "✓ Sí" : "No"}</p>
         <p><b>Lote:</b> <span class="mono">${esc(t.lote || "—")}</span> &nbsp; <b>Vto.:</b> <span class="mono">${fmtFecha(t.fecha_vto) || "—"}</span></p>
         <p><b>Notas:</b> ${esc(t.notas || "—")}</p>
@@ -1299,10 +1364,19 @@ async function vistaTubo(id) {
         <div class="field"><label>Lote</label><input name="lote" value="${esc(t.lote || "")}"></div>
         <div class="field"><label>Vencimiento</label><input name="fecha_vto" type="date" value="${esc(t.fecha_vto || "")}"></div>
         <div class="field"><label>Propiedad</label>
-          <select name="propiedad">
+          <select name="propiedad" id="ficha-propiedad">
             <option value="empresa" ${t.propiedad !== "cliente" ? "selected" : ""}>De la empresa</option>
             <option value="cliente" ${t.propiedad === "cliente" ? "selected" : ""}>Del cliente</option>
           </select>
+        </div>
+        <div class="field full" id="ficha-wrap-cliente" ${t.propiedad === "cliente" ? "" : "hidden"}>
+          <label>Cliente propietario</label>
+          <div class="cli-suggest">
+            <input id="ficha-cli-busca" value="${esc(t.cliente_nombre || "")}" placeholder="Escribí nombre del cliente…" autocomplete="off">
+            <input type="hidden" name="cliente_id" id="ficha-cli-id" value="${t.cliente_id || ""}">
+            <ul id="ficha-cli-lista" hidden></ul>
+          </div>
+          <small class="hint">Obligatorio si es del cliente: queda enlazado a su ficha.</small>
         </div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1" ${Number(t.retener) ? "checked" : ""}> Retener (nuestro / robado)</label></div>
         <div class="field full"><label>Notas</label><textarea name="notas" rows="2">${esc(t.notas || "")}</textarea></div>
@@ -1316,13 +1390,27 @@ async function vistaTubo(id) {
       const estadoSel = $("#ficha-estado")?.value || "";
       wrap.hidden = !(estadoSel === "en_planta" && t.estado === "en_planta");
     };
+    const syncProp = () => {
+      const wrap = $("#ficha-wrap-cliente");
+      if (wrap) wrap.hidden = ($("#ficha-propiedad")?.value || "") !== "cliente";
+    };
     $("#ficha-estado").onchange = sync;
+    $("#ficha-propiedad").onchange = syncProp;
     sync();
+    syncProp();
+    bindBusquedaClienteSimple("#ficha-cli-busca", "#ficha-cli-id", "#ficha-cli-lista");
     $("#form-edit").onsubmit = async (e) => {
       e.preventDefault();
       const body = Object.fromEntries(new FormData(e.target).entries());
       body.retener = e.target.retener?.checked ? 1 : 0;
+      body.cliente_id = body.cliente_id || $("#ficha-cli-id")?.value || "";
       const guardar = async () => {
+        if (body.propiedad === "cliente") {
+          if (!body.cliente_id) return toast("Elegí de qué cliente es el tubo", true);
+          body.cliente_id = Number(body.cliente_id);
+        } else if (body.estado !== "en_cliente") {
+          body.cliente_id = null;
+        }
         if (body.estado === "en_planta") {
           if (!body.proveedor_id) return toast("Elegí a qué planta va el tubo", true);
           body.proveedor_id = Number(body.proveedor_id);
@@ -1405,6 +1493,8 @@ async function vistaClienteFicha(id, params) {
   const r = data.resumen || {};
   const tubosGn = data.tubos_gn || (data.tubos_en_cliente || []).filter((t) => t.propiedad !== "cliente");
   const tubosPropios = data.tubos_propios || [];
+  const propiosEnPoder = tubosPropios.filter((t) => t.estado === "en_cliente");
+  const propiosFuera = tubosPropios.filter((t) => t.estado !== "en_cliente");
   app().innerHTML = `
     <p><a href="#/clientes">← Clientes</a></p>
     <h1>${esc(c.nombre)}</h1>
@@ -1415,8 +1505,9 @@ async function vistaClienteFicha(id, params) {
       ${c.activo ? "" : " · <em>Inactivo</em>"}
     </p>
     <div class="grid stats">
-      <div class="card stat en_cliente"><div class="n">${r.en_cliente_gn || tubosGn.length}</div><small>Tubos GN en el cliente</small></div>
-      <div class="card stat vacio"><div class="n">${r.registrados_propios || tubosPropios.length}</div><small>Envases propios registrados</small></div>
+      <div class="card stat en_cliente"><div class="n">${r.en_cliente_gn ?? tubosGn.length}</div><small>GN en su poder</small></div>
+      <div class="card stat cliente"><div class="n">${r.propios_en_poder ?? propiosEnPoder.length}</div><small>Propios en su poder</small></div>
+      <div class="card stat vacio"><div class="n">${r.registrados_propios ?? tubosPropios.length}</div><small>Propios registrados (total)</small></div>
     </div>
     <div class="toolbar">
       <button class="btn copper" type="button" id="btn-asig-tubo">Asignar tubo existente</button>
@@ -1425,7 +1516,7 @@ async function vistaClienteFicha(id, params) {
       <a class="btn secondary" href="#/cliente/recepcion">Recepción de cliente</a>
     </div>
     <div class="tabs">
-      <button data-tab="gn" class="${tab === "gn" ? "active" : ""}">Tubos GN (${tubosGn.length})</button>
+      <button data-tab="gn" class="${tab === "gn" ? "active" : ""}">GN en poder (${tubosGn.length})</button>
       <button data-tab="propios" class="${tab === "propios" ? "active" : ""}">Envases propios (${tubosPropios.length})</button>
       <button data-tab="historial" class="${tab === "historial" ? "active" : ""}">Historial</button>
     </div>
@@ -1438,9 +1529,17 @@ async function vistaClienteFicha(id, params) {
   const box = $("#cli-tab");
   if (tab === "propios") {
     box.innerHTML = `
-      <h3>Envases propios de este cliente</h3>
-      <p class="lead">Números registrados a su nombre (en cliente, en planta o vacíos).</p>
-      ${tablaTubosCliente(tubosPropios, "No hay envases propios registrados.")}`;
+      <h3>Envases propios de este cliente (S/P)</h3>
+      <p class="lead">Todos los cilindros registrados a su nombre. Los que están <b>en cliente</b> son los que tiene en poder; el resto pueden estar vacíos, cargados o en planta.</p>
+      ${propiosEnPoder.length ? `
+        <h4 style="margin:12px 0 6px">En su poder ahora (${propiosEnPoder.length})</h4>
+        ${tablaTubosCliente(propiosEnPoder, "")}
+      ` : `<p class="empty">Ningún envase propio está ahora en su poder.</p>`}
+      ${propiosFuera.length ? `
+        <h4 style="margin:18px 0 6px">Registrados pero no en su poder (${propiosFuera.length})</h4>
+        ${tablaTubosCliente(propiosFuera, "")}
+      ` : ""}
+      ${!tubosPropios.length ? `<p class="empty">No hay envases propios registrados.</p>` : ""}`;
   } else if (tab === "historial") {
     const movs = data.movimientos || [];
     const ventas = data.ventas || [];
@@ -1487,8 +1586,8 @@ async function vistaClienteFicha(id, params) {
       </table>` : `<p class="empty">Todavía no hay movimientos ni cobros para este cliente.</p>`;
   } else {
     box.innerHTML = `
-      <h3>Tubos GN en este cliente</h3>
-      <p class="lead">Cilindros de Gasonor que están ahora en el cliente. Números:</p>
+      <h3>Tubos GN (Gasonor) en su poder</h3>
+      <p class="lead">Cilindros de la empresa que están ahora en este cliente (no son de su propiedad).</p>
       ${tubosGn.length ? `<p class="mono" style="font-size:1.15rem;font-weight:700">${tubosGn.map((t) => esc(t.numero)).join(" · ")}</p>` : ""}
       ${tablaTubosCliente(tubosGn, "No tiene tubos GN en el cliente ahora.")}`;
   }

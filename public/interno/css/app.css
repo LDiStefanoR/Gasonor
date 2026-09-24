@@ -164,6 +164,7 @@ td.mono, .mono { font-family: "IBM Plex Mono", monospace; font-size: .92rem; }
 .badge.en_cliente { background: #d7e6f4; color: #1d4a72; }
 .badge.empresa { background: #d8eedf; color: #21553a; }
 .badge.cliente { background: #f3e0c8; color: #7a430c; }
+.stat.cliente .n { color: #7a430c; }
 tr.muted td { opacity: 0.62; }
 td.actions { white-space: nowrap; vertical-align: middle; }
 td.actions .btn { margin: 2px 4px 2px 0; }

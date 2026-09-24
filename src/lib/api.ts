@@ -465,6 +465,7 @@ async function handleApiInner(ctx: APIContext) {
       "WHERE t.activo=1 AND t.propiedad='cliente' AND t.cliente_id=? AND IFNULL(a.es_tubo,1)=1 ORDER BY t.estado, t.numero",
       [cid],
     );
+    const propios_en_poder = tubos_propios.filter((t) => String(t.estado) === "en_cliente");
     return json({
       ok: true,
       cliente: row,
@@ -473,6 +474,7 @@ async function handleApiInner(ctx: APIContext) {
         en_cliente_gn: tubos_gn.length,
         en_cliente_propios: tubos_en_cliente.length - tubos_gn.length,
         registrados_propios: tubos_propios.length,
+        propios_en_poder: propios_en_poder.length,
       },
       tubos_gn,
       tubos_en_cliente,
@@ -520,6 +522,58 @@ async function handleApiInner(ctx: APIContext) {
         ? `Cliente dado de baja. Quedan ${enCliente} tubo(s) marcados en ese cliente; revisalos si hace falta.`
         : undefined,
     });
+  }
+
+  const cliAsig = path.match(/^\/api\/clientes\/(\d+)\/asignar-tubos$/);
+  if (method === "POST" && cliAsig) {
+    if (!puede(u, "admin", "despacho")) return err("No tiene permiso para esta acción.", 403);
+    const cid = Number(cliAsig[1]);
+    const cli = await one("SELECT * FROM clientes WHERE id=? AND activo=1", [cid]);
+    if (!cli) return err("Cliente no encontrado.", 404);
+    const data = await body(ctx);
+    const como = String(data.como || "gn").trim().toLowerCase();
+    if (como !== "gn" && como !== "propio") return err("Indicá si es GN o propio.");
+    let ids = idsFrom(data);
+    if (!ids.length && data.numero) {
+      const num = String(data.numero || "").trim();
+      const row = await one(
+        "SELECT id FROM tubos WHERE activo=1 AND (numero=? OR codigo_proveedor=?) LIMIT 1",
+        [num, num],
+      );
+      if (!row) return err(`No está el tubo ${num} en la base.`);
+      ids = [Number(row.id)];
+    }
+    if (!ids.length) return err("Indicá al menos un tubo.");
+    let n = 0;
+    for (const tid of ids) {
+      const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
+      if (!tubo) return err(`Tubo ${tid} no encontrado.`);
+      if (como === "propio") {
+        await run(
+          "UPDATE tubos SET propiedad='cliente', cliente_id=?, actualizado_en=? WHERE id=?",
+          [cid, ahora(), tid],
+        );
+        await registrarMovimiento(tubo, "EDICION", String(tubo.estado), String(tubo.estado), hoy(), {
+          cliente_id: cid,
+          observaciones: `Asignado como envase propio de ${cli.nombre}`,
+        });
+      } else {
+        const est = String(tubo.estado || "");
+        if (est !== "cargado" && est !== "en_cliente") {
+          return err(`El tubo ${tubo.numero} debe estar cargado (o ya en cliente) para asignarlo como GN.`);
+        }
+        await run(
+          "UPDATE tubos SET propiedad='empresa', cliente_id=?, estado='en_cliente', actualizado_en=? WHERE id=?",
+          [cid, ahora(), tid],
+        );
+        await registrarMovimiento(tubo, "TRANSALI", est, "en_cliente", hoy(), {
+          cliente_id: cid,
+          observaciones: `Asignado / despacho a ${cli.nombre}`,
+        });
+      }
+      n += 1;
+    }
+    return json({ ok: true, cantidad: n });
   }
 
   if (key === "GET /api/catalogo") {
@@ -920,7 +974,14 @@ async function handleApiInner(ctx: APIContext) {
     let proveedor_id = data.proveedor_id !== undefined
       ? (data.proveedor_id ? Number(data.proveedor_id) : null)
       : (tubo.proveedor_id != null ? Number(tubo.proveedor_id) : null);
-    if (estado !== "en_cliente") cliente_id = null;
+    // Propiedad cliente: cliente_id = dueño (siempre). GN: cliente_id solo si está físicamente en_cliente.
+    if (propiedad === "cliente") {
+      if (!cliente_id) return err("Asigná el cliente propietario del tubo.");
+      const cli = await one("SELECT id FROM clientes WHERE id=? AND activo=1", [cliente_id]);
+      if (!cli) return err("Cliente propietario inválido.");
+    } else if (estado !== "en_cliente") {
+      cliente_id = null;
+    }
     if (estado === "en_planta") {
       if (!proveedor_id) return err("Elegí la planta / proveedor donde está el tubo.");
       const prov = await one("SELECT id, nombre FROM proveedores WHERE id=? AND activo=1", [proveedor_id]);
