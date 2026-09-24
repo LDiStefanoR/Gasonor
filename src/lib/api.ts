@@ -177,6 +177,19 @@ function idsFrom(data: Record<string, unknown>) {
 }
 
 export async function handleApi(ctx: APIContext) {
+  try {
+    return await handleApiInner(ctx);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[api]", ctx.request.method, ctx.url.pathname, msg);
+    if (/TURSO_|Faltan TURSO/i.test(msg)) {
+      return err("Base de datos no configurada en el servidor. Faltan variables Turso.", 503);
+    }
+    return err("Error interno del servidor.", 500);
+  }
+}
+
+async function handleApiInner(ctx: APIContext) {
   await ensureSchema();
   const method = ctx.request.method.toUpperCase();
   const path = ctx.url.pathname.replace(/\/$/, "") || "/";
