@@ -2278,7 +2278,9 @@ function pintarListaScan() {
     btn.onclick = () => {
       const clave = btn.getAttribute("data-reg");
       const t = state.scanLista.find((x) => scanClave(x) === clave);
-      if (t) modalRegistrarDesdeScan(t.codigo_leido || t.codigo_proveedor || t.numero, clave);
+      if (t) modalRegistrarDesdeScan(t.codigo_leido || t.codigo_proveedor || t.numero, clave, {
+        contexto: String(state.scanModo || "").startsWith("cli-") ? "cliente" : "planta",
+      });
     };
   });
 }
@@ -2359,12 +2361,41 @@ function agregarALista(tubo, codigo) {
   return true;
 }
 
-function modalRegistrarDesdeScan(codigoLeido, claveLista) {
+function gasesPorRubro(rubro) {
+  if (rubro === "medicinal") {
+    return ["Oxígeno", "Aire medicinal", "Óxido nitroso", "Mezcla"];
+  }
+  return ["Oxígeno", "Nitrógeno", "Argón", "CO2", "Helio", "Athal"];
+}
+
+function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const leido = String(codigoLeido || "").trim();
+  const contexto = opts.contexto === "cliente" ? "cliente" : "planta";
+  const estadoAlta = contexto === "cliente" ? "cargado" : "vacio";
   abrirModal(`
     <h2 class="modal-warn-title"><span class="warn-tri" aria-hidden="true">⚠</span> Tubo no registrado</h2>
-    <p class="lead">El código <span class="mono">${esc(leido)}</span> no está en la base. Completá los datos para crearlo y seguir el despacho.</p>
-    <form id="form-reg-scan" class="grid form">
+    <p class="lead">Escaneaste <span class="mono">${esc(leido)}</span> (código de proveedor). Podés vincularlo a un tubo GN que ya exista, crearlo, o enviarlo sin registrar.</p>
+    <div class="tabs" id="reg-tabs">
+      <button type="button" class="active" data-reg-tab="vincular">Vincular existente</button>
+      <button type="button" data-reg-tab="crear">Crear nuevo</button>
+    </div>
+
+    <div id="reg-pane-vincular">
+      <div class="field full">
+        <label>Número de tubo (GN / empresa)</label>
+        <div class="cli-suggest">
+          <input id="reg-busca-tubo" placeholder="Escribí el nº de trazabilidad…" autocomplete="off" inputmode="search">
+          <ul id="reg-lista-tubos" hidden></ul>
+        </div>
+        <p class="lead" style="margin:6px 0 0">Solo tubos de Gasonor (no de cliente). Tocá uno de la lista para vincular el código escaneado.</p>
+      </div>
+      <div id="reg-tubo-sel" class="card" hidden style="margin:10px 0;padding:10px"></div>
+      <div class="field full toolbar">
+        <button class="btn copper" type="button" id="reg-vincular" disabled>Vincular y sumar a la lista</button>
+      </div>
+    </div>
+
+    <form id="form-reg-scan" class="grid form" hidden>
       <div class="field full"><label>El código leído es</label>
         <div class="toolbar">
           <label class="chip"><input type="radio" name="tipo_codigo" value="proveedor" checked> Código de proveedor / barras</label>
@@ -2373,26 +2404,66 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista) {
       </div>
       <div class="field"><label>Número de tubo</label><input name="numero" id="reg-numero" placeholder="Nº de trazabilidad" autocomplete="off"></div>
       <div class="field"><label>Código proveedor</label><input name="codigo_proveedor" id="reg-codp" value="${esc(leido)}" required autocomplete="off"></div>
-      <div class="field"><label>Propiedad</label>
+      <div class="field full"><label>Uso</label>
+        <div class="chip-row">
+          <label class="chip-choice"><input type="radio" name="rubro" value="industrial" checked> Industrial</label>
+          <label class="chip-choice"><input type="radio" name="rubro" value="medicinal"> Medicinal</label>
+        </div>
+      </div>
+      <div class="field full"><label>Tipo de gas</label>
+        <select name="grupo" id="reg-gas" required></select>
+      </div>
+      ${contexto === "cliente" ? `
+      <div class="field"><label>Lote</label><input name="lote" id="reg-lote" placeholder="Obligatorio si va cargado" autocomplete="off"></div>
+      <div class="field"><label>Estado</label>
+        <select name="estado"><option value="cargado" selected>Cargado</option><option value="vacio">Vacío</option></select>
+      </div>` : `
+      <input type="hidden" name="estado" value="vacio">
+      <div class="field full"><label>Propiedad</label>
         <select name="propiedad" id="reg-prop">
-          <option value="cliente" selected>Del cliente</option>
-          <option value="empresa">GN (Gasonor)</option>
+          <option value="empresa" selected>GN (Gasonor)</option>
+          <option value="cliente">Del cliente</option>
         </select>
       </div>
-      <div class="field"><label>Tipo de gas (opcional)</label><input name="grupo" placeholder="Oxígeno, Nitrógeno…"></div>
-      <div class="field full" id="reg-wrap-cli">
-        <label>Cliente propietario (si es del cliente)</label>
+      <div class="field full" id="reg-wrap-cli" hidden>
+        <label>Cliente propietario</label>
         <div class="cli-suggest">
           <input id="reg-cli-busca" placeholder="Escribí para buscar…" autocomplete="off">
           <input type="hidden" name="cliente_id" id="reg-cli-id">
           <ul id="reg-cli-lista" hidden></ul>
         </div>
-      </div>
+      </div>`}
       <div class="field full toolbar">
-        <button class="btn copper" type="submit">Crear en la base</button>
-        <button class="btn ghost" type="button" id="reg-solo-lista">Dejar como no registrado</button>
+        <button class="btn copper" type="submit">Crear y sumar</button>
       </div>
-    </form>`);
+    </form>
+
+    <div class="field full toolbar" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <button class="btn ghost" type="button" id="reg-solo-lista">Enviar sin registrar</button>
+    </div>`);
+
+  const paneVinc = $("#reg-pane-vincular");
+  const formCrear = $("#form-reg-scan");
+  let tuboSel = null;
+
+  $("#reg-tabs")?.querySelectorAll("[data-reg-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      $("#reg-tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+      const tab = btn.dataset.regTab;
+      paneVinc.hidden = tab !== "vincular";
+      formCrear.hidden = tab !== "crear";
+    };
+  });
+
+  const pintarGas = () => {
+    const rubro = document.querySelector('input[name="rubro"]:checked')?.value || "industrial";
+    const sel = $("#reg-gas");
+    if (!sel) return;
+    const gases = gasesPorRubro(rubro);
+    sel.innerHTML = gases.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  };
+  document.querySelectorAll('input[name="rubro"]').forEach((r) => { r.onchange = pintarGas; });
+  pintarGas();
 
   const syncTipo = () => {
     const tipo = document.querySelector('input[name="tipo_codigo"]:checked')?.value;
@@ -2409,37 +2480,129 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista) {
   document.querySelectorAll('input[name="tipo_codigo"]').forEach((r) => { r.onchange = syncTipo; });
   syncTipo();
 
-  const syncProp = () => { $("#reg-wrap-cli").hidden = $("#reg-prop").value !== "cliente"; };
-  $("#reg-prop").onchange = syncProp;
-  syncProp();
+  if ($("#reg-prop")) {
+    const syncProp = () => { $("#reg-wrap-cli").hidden = $("#reg-prop").value !== "cliente"; };
+    $("#reg-prop").onchange = syncProp;
+    syncProp();
+    let tcli;
+    const buscarCli = async () => {
+      const q = $("#reg-cli-busca").value.trim();
+      const ul = $("#reg-cli-lista");
+      if (q.length < 2) { ul.hidden = true; ul.innerHTML = ""; return; }
+      const data = await api("/api/clientes?q=" + encodeURIComponent(q));
+      ul.innerHTML = (data.clientes || []).slice(0, 15).map((c) => `<li data-id="${c.id}">${esc(c.nombre)}</li>`).join("") || `<li>Sin coincidencias</li>`;
+      ul.hidden = false;
+      ul.querySelectorAll("li[data-id]").forEach((li) => {
+        li.onclick = () => {
+          $("#reg-cli-id").value = li.dataset.id;
+          $("#reg-cli-busca").value = li.textContent;
+          ul.hidden = true;
+        };
+      });
+    };
+    $("#reg-cli-busca").oninput = () => { clearTimeout(tcli); tcli = setTimeout(() => buscarCli().catch(() => {}), 200); };
+  }
 
-  let tcli;
-  const buscarCli = async () => {
-    const q = $("#reg-cli-busca").value.trim();
-    const ul = $("#reg-cli-lista");
-    if (q.length < 2) { ul.hidden = true; ul.innerHTML = ""; return; }
-    const data = await api("/api/clientes?q=" + encodeURIComponent(q));
-    ul.innerHTML = (data.clientes || []).slice(0, 15).map((c) => `<li data-id="${c.id}">${esc(c.nombre)}</li>`).join("") || `<li>Sin coincidencias</li>`;
+  const aplicarTuboLista = (tubo, msg) => {
+    const actualizado = {
+      ...tubo,
+      nuevo: false,
+      codigo_leido: leido,
+      codigo_proveedor: tubo.codigo_proveedor || leido,
+    };
+    const idx = state.scanLista.findIndex((t) => scanClave(t) === claveLista);
+    if (idx >= 0) state.scanLista[idx] = actualizado;
+    else state.scanLista.unshift(actualizado);
+    cerrarModal();
+    pintarListaScan();
+    toast(msg || "Tubo sumado a la lista");
+  };
+
+  const pintarSel = () => {
+    const box = $("#reg-tubo-sel");
+    const btn = $("#reg-vincular");
+    if (!tuboSel) {
+      box.hidden = true;
+      box.innerHTML = "";
+      btn.disabled = true;
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = `<strong class="mono">${esc(tuboSel.numero)}</strong>
+      <div>${esc(tuboSel.articulo_descripcion || tuboSel.grupo || "")}</div>
+      <small>Estado: ${esc(ESTADOS[tuboSel.estado] || tuboSel.estado || "—")} · Cód. actual: ${esc(tuboSel.codigo_proveedor || "—")}</small>`;
+    btn.disabled = false;
+  };
+
+  let tBus;
+  const buscarTubos = async () => {
+    const q = ($("#reg-busca-tubo").value || "").trim();
+    const ul = $("#reg-lista-tubos");
+    if (q.length < 1) { ul.hidden = true; ul.innerHTML = ""; return; }
+    const qs = new URLSearchParams({ q, propiedad: "empresa" });
+    if (contexto === "cliente") qs.set("estado", "cargado");
+    else qs.set("estado", "vacio,cargado");
+    const data = await api("/api/tubos?" + qs.toString());
+    const tubos = (data.tubos || []).slice(0, 20);
+    if (!tubos.length) {
+      ul.innerHTML = `<li>No hay tubos GN con ese número</li>`;
+      ul.hidden = false;
+      return;
+    }
+    ul.innerHTML = tubos.map((t) => `
+      <li data-id="${t.id}">
+        <strong class="mono">${esc(t.numero)}</strong>
+        · ${esc(t.articulo_descripcion || t.grupo || "")}
+        <small style="display:block;opacity:.75">${esc(ESTADOS[t.estado] || t.estado)} · prov ${esc(t.codigo_proveedor || "—")}</small>
+      </li>`).join("");
     ul.hidden = false;
     ul.querySelectorAll("li[data-id]").forEach((li) => {
       li.onclick = () => {
-        $("#reg-cli-id").value = li.dataset.id;
-        $("#reg-cli-busca").value = li.textContent;
+        tuboSel = tubos.find((t) => String(t.id) === String(li.dataset.id)) || null;
+        $("#reg-busca-tubo").value = tuboSel?.numero || q;
         ul.hidden = true;
+        pintarSel();
       };
     });
   };
-  $("#reg-cli-busca").oninput = () => { clearTimeout(tcli); tcli = setTimeout(() => buscarCli().catch(() => {}), 200); };
-  $("#reg-solo-lista").onclick = () => cerrarModal();
+  $("#reg-busca-tubo").oninput = () => {
+    tuboSel = null;
+    pintarSel();
+    clearTimeout(tBus);
+    tBus = setTimeout(() => buscarTubos().catch((e) => toast(e.message, true)), 220);
+  };
 
-  $("#form-reg-scan").onsubmit = async (e) => {
+  $("#reg-vincular").onclick = async () => {
+    if (!tuboSel?.id) return toast("Elegí un tubo de la lista", true);
+    try {
+      const r = await api("/api/tubos/vincular", {
+        method: "POST",
+        body: { tubo_id: tuboSel.id, codigo_proveedor: leido, contexto },
+      });
+      aplicarTuboLista(r.tubo || r, "Código vinculado al tubo " + (r.tubo?.numero || ""));
+    } catch (err) { toast(err.message, true); }
+  };
+
+  $("#reg-solo-lista").onclick = () => {
+    cerrarModal();
+    toast("Queda en la lista como no registrado");
+  };
+
+  formCrear.onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
     const numero = String(fd.numero || "").trim();
     const codigo_proveedor = String(fd.codigo_proveedor || "").trim();
+    const grupo = String(fd.grupo || "").trim();
+    const rubro = String(fd.rubro || "industrial");
     if (!numero) return toast("Ingresá el número de tubo", true);
     if (!codigo_proveedor) return toast("Ingresá el código de proveedor", true);
+    if (!grupo) return toast("Elegí el tipo de gas", true);
     if (fd.propiedad === "cliente" && !fd.cliente_id) return toast("Asigná el cliente propietario", true);
+    const estado = String(fd.estado || estadoAlta);
+    const lote = String(fd.lote || "").trim().toUpperCase();
+    if (estado === "cargado" && !lote) return toast("Si va cargado, ingresá el lote", true);
+    const desc = `${grupo} ${rubro === "medicinal" ? "MEDICINAL" : "INDUSTRIAL"}`.trim().toUpperCase();
     try {
       const r = await api("/api/tubos", {
         method: "POST",
@@ -2447,29 +2610,15 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista) {
           numero,
           codigo: numero,
           codigo_proveedor,
-          grupo: fd.grupo || "ENVASE CLIENTE",
-          descripcion: fd.grupo || "ENVASE CLIENTE",
-          propiedad: fd.propiedad || "cliente",
+          grupo,
+          descripcion: desc,
+          propiedad: fd.propiedad || "empresa",
           cliente_id: fd.cliente_id || null,
-          estado: "vacio",
+          estado,
+          lote,
         },
       });
-      const tubo = r.tubo || r;
-      const idx = state.scanLista.findIndex((t) => scanClave(t) === claveLista);
-      const actualizado = {
-        ...tubo,
-        nuevo: false,
-        codigo_leido: leido,
-        numero: tubo.numero || numero,
-        codigo_proveedor: tubo.codigo_proveedor || codigo_proveedor,
-        articulo_descripcion: tubo.articulo_descripcion || fd.grupo || "ENVASE CLIENTE",
-        propiedad: tubo.propiedad || fd.propiedad,
-      };
-      if (idx >= 0) state.scanLista[idx] = actualizado;
-      else state.scanLista.unshift(actualizado);
-      cerrarModal();
-      pintarListaScan();
-      toast("Tubo creado y sumado a la lista");
+      aplicarTuboLista(r.tubo || r, "Tubo creado y sumado a la lista");
     } catch (err) { toast(err.message, true); }
   };
 }
@@ -2494,13 +2643,13 @@ async function procesarCodigo(codigo, modo, proveedorId) {
           numero: "",
           codigo_proveedor: codigo,
           articulo_descripcion: "No registrado en la base",
-          propiedad: "cliente",
+          propiedad: "empresa",
           estado: "vacio",
           codigo_leido: codigo,
         },
         codigo,
       );
-      if (ok) modalRegistrarDesdeScan(codigo, clave);
+      if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "planta" });
       return;
     }
     if (r.resultado === "ok" && r.tubo) {
@@ -3034,6 +3183,24 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
     });
     if (r.resultado === "ok" && r.tubo) {
       agregarALista(r.tubo, codigo);
+      return;
+    }
+    if (modo === "despacho" && (r.resultado === "no_encontrado" || r.resultado === "nuevo")) {
+      const clave = "n:" + codigo;
+      const ok = agregarALista(
+        {
+          id: null,
+          nuevo: true,
+          numero: "",
+          codigo_proveedor: codigo,
+          articulo_descripcion: "No registrado en la base",
+          propiedad: "empresa",
+          estado: "cargado",
+          codigo_leido: codigo,
+        },
+        codigo,
+      );
+      if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "cliente" });
       return;
     }
     GasonorScan.beep("fail");

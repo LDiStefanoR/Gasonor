@@ -756,8 +756,46 @@ async function handleApiInner(ctx: APIContext) {
     return json({ ok: true, tubo: tubos[0], movimientos });
   }
 
+  if (key === "POST /api/tubos/vincular") {
+    if (!puede(u, "admin", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
+    const data = await body(ctx);
+    const codigo_proveedor = String(data.codigo_proveedor || data.codigo || "").trim();
+    if (!codigo_proveedor) return err("Falta el código escaneado.");
+    let tuboRow = null;
+    if (data.tubo_id) {
+      tuboRow = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [Number(data.tubo_id)]);
+    } else {
+      const numero = String(data.numero || "").trim().toUpperCase();
+      if (!numero) return err("Indicá el tubo a vincular.");
+      tuboRow = await one(
+        `SELECT * FROM tubos WHERE activo=1 AND propiedad='empresa'
+         AND (UPPER(TRIM(numero))=? OR LTRIM(UPPER(TRIM(numero)),'0')=?)
+         ORDER BY id DESC LIMIT 1`,
+        [numero, numero.replace(/^0+/, "") || numero],
+      );
+    }
+    if (!tuboRow) return err("No se encontró ese tubo de empresa (GN).", 404);
+    if (String(tuboRow.propiedad || "") === "cliente") {
+      return err("Solo se pueden vincular tubos de Gasonor (GN), no de cliente.", 403);
+    }
+    const contexto = String(data.contexto || "planta");
+    const estado = String(tuboRow.estado || "");
+    if (contexto === "cliente" && estado !== "cargado") {
+      return err(`Ese tubo no está cargado en empresa (estado: ${estado}).`);
+    }
+    if (contexto === "planta" && estado !== "vacio" && estado !== "cargado") {
+      return err(`Ese tubo no está disponible para despacho a planta (estado: ${estado}).`);
+    }
+    await run(
+      "UPDATE tubos SET codigo_proveedor=?, actualizado_en=? WHERE id=?",
+      [codigo_proveedor, ahora(), Number(tuboRow.id)],
+    );
+    const list = await fetchTubos("WHERE t.id=?", [Number(tuboRow.id)]);
+    return json({ ok: true, tubo: list[0], codigo: codigo_proveedor });
+  }
+
   if (key === "POST /api/tubos") {
-    if (!puede(u, "admin", "despacho")) return err("No tiene permiso para esta acción.", 403);
+    if (!puede(u, "admin", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
     const numero = String(data.numero || "").trim();
     if (!numero) return err("El número de tubo es obligatorio.");
