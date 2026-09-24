@@ -1880,17 +1880,18 @@ async function vistaOperaciones(params) {
           method: "POST",
           body: { codigo, modo: "despacho", proveedor_id: pid ? Number(pid) : null },
         });
-        if (r.resultado === "ok" && r.tubo?.id) {
+        if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo?.id) {
+          if (debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) return;
           agregarFila(r.tubo);
           $("#pl-manual").value = "";
           $("#pl-manual").focus();
+          if (debeConfirmarDespacho(r)) toast("Sumado con advertencia");
           return;
         }
-        if (r.resultado === "advertencia" && r.tubo?.id) {
-          if (!confirmarAdvertenciaDespacho(r)) return;
+        if (r.tubo?.id && ["estado_invalido", "ya_en_planta"].includes(r.resultado)) {
+          if (!confirmarAdvertenciaDespacho({ ...r, mensaje: (r.mensaje || "Estado no habitual") + " ¿Proseguir igual?" })) return;
           agregarFila(r.tubo);
           $("#pl-manual").value = "";
-          $("#pl-manual").focus();
           toast("Sumado con advertencia");
           return;
         }
@@ -1899,7 +1900,7 @@ async function vistaOperaciones(params) {
           estado_invalido: "Solo vacíos o cargados en empresa (estado: " + (r.tubo?.estado || "?") + ")",
           nuevo: "Tubo no registrado — cargalo primero en el catálogo",
         };
-        toast(msgs[r.resultado] || "No se pudo agregar", true);
+        toast(msgs[r.resultado] || r.mensaje || "No se pudo agregar", true);
       } catch (err) { toast(err.message, true); }
     };
     $("#pl-add").onclick = () => addManual();
@@ -2887,9 +2888,17 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
 }
 
 function confirmarAdvertenciaDespacho(r) {
-  const msg = (r.mensaje || (r.avisos || []).join(" ") || "Este tubo no está en el estado habitual.") +
-    (String(r.mensaje || "").includes("¿Proseguir") ? "" : "\n\n¿Proseguir igual?");
+  const avisos = r.avisos || [];
+  const base = r.mensaje || (avisos.length ? avisos.join(" ") : "");
+  if (!base && !r.requiere_confirmacion) return true;
+  const msg = base
+    ? (String(base).includes("¿Proseguir") ? base : base + "\n\n¿Proseguir igual?")
+    : "Este tubo no está en el estado habitual.\n\n¿Proseguir igual?";
   return confirm(msg);
+}
+
+function debeConfirmarDespacho(r) {
+  return !!(r.requiere_confirmacion || (r.avisos && r.avisos.length) || r.resultado === "advertencia");
 }
 
 async function procesarCodigo(codigo, modo, proveedorId) {
@@ -2922,13 +2931,24 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       return;
     }
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
-      if (r.resultado === "advertencia" && !confirmarAdvertenciaDespacho(r)) {
+      if (modo === "despacho" && debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) {
         GasonorScan.beep("fail");
         GasonorScan.showLast(codigo + " — cancelado", "fail");
         return;
       }
       agregarALista(r.tubo, codigo);
-      if (r.resultado === "advertencia") toast("Sumado con advertencia");
+      if (debeConfirmarDespacho(r)) toast("Sumado con advertencia");
+      return;
+    }
+    // Despacho: si el API devolvió el tubo con cualquier resultado, permitir con confirmación
+    if (modo === "despacho" && r.tubo && ["estado_invalido", "ya_en_planta", "esta_vacio", "en_planta", "otro_cliente", "ya_en_cliente"].includes(r.resultado)) {
+      const avisos = r.avisos || [r.mensaje || ("Estado: " + (ESTADOS[r.tubo.estado] || r.tubo.estado))];
+      if (!confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" })) {
+        GasonorScan.beep("fail");
+        return;
+      }
+      agregarALista(r.tubo, codigo);
+      toast("Sumado con advertencia");
       return;
     }
     GasonorScan.beep("fail");
@@ -2942,7 +2962,7 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       otro_proveedor: "Está en " + (r.tubo?.proveedor_nombre || "otra planta") + ". Entrá a recepción de esa planta.",
       ya_escaneado: "Ya está en un escaneo pendiente" + (r.remito ? " (remito " + r.remito + ")" : "") + ". Administración debe completar los lotes.",
     };
-    const msg = msgs[r.resultado] || "No se pudo leer";
+    const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
     GasonorScan.showLast(codigo + " — " + msg, "fail");
     toast(msg, true);
   } catch (err) {
@@ -3460,13 +3480,23 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
       body: { codigo, modo, cliente_id: Number(clienteId) },
     });
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
-      if (r.resultado === "advertencia" && !confirmarAdvertenciaDespacho(r)) {
+      if (modo === "despacho" && debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) {
         GasonorScan.beep("fail");
         GasonorScan.showLast(codigo + " — cancelado", "fail");
         return;
       }
       agregarALista(r.tubo, codigo);
-      if (r.resultado === "advertencia") toast("Sumado con advertencia");
+      if (debeConfirmarDespacho(r)) toast("Sumado con advertencia");
+      return;
+    }
+    if (modo === "despacho" && r.tubo && ["estado_invalido", "ya_en_cliente", "otro_cliente", "esta_vacio", "en_planta"].includes(r.resultado)) {
+      const avisos = r.avisos || [r.mensaje || ("Estado: " + (ESTADOS[r.tubo.estado] || r.tubo.estado))];
+      if (!confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" })) {
+        GasonorScan.beep("fail");
+        return;
+      }
+      agregarALista(r.tubo, codigo);
+      toast("Sumado con advertencia");
       return;
     }
     if (modo === "despacho" && (r.resultado === "no_encontrado" || r.resultado === "nuevo")) {
@@ -3499,7 +3529,7 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
         : "Estado inválido"),
       no_en_cliente: "Ese tubo no figura en cliente",
     };
-    const msg = msgs[r.resultado] || "No se pudo leer";
+    const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
     GasonorScan.showLast(codigo + " — " + msg, "fail");
     toast(msg, true);
   } catch (err) {

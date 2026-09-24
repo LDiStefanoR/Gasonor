@@ -1281,11 +1281,12 @@ async function handleApiInner(ctx: APIContext) {
       if (avisos.length) {
         return json({
           ok: true,
-          resultado: "advertencia",
+          resultado: "ok",
           tubo,
           codigo,
-          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
           avisos,
+          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
+          requiere_confirmacion: true,
         });
       }
       return json({ ok: true, resultado: "ok", tubo, codigo });
@@ -1334,11 +1335,12 @@ async function handleApiInner(ctx: APIContext) {
       if (avisos.length) {
         return json({
           ok: true,
-          resultado: "advertencia",
+          resultado: "ok",
           tubo,
           codigo,
-          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
           avisos,
+          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
+          requiere_confirmacion: true,
         });
       }
       return json({ ok: true, resultado: "ok", tubo, codigo });
