@@ -13,6 +13,7 @@ import {
   type Usuario,
 } from "./auth";
 import { ensureSchema } from "./schema";
+import { ensureCaja, handleCaja } from "./caja";
 
 const ESTADOS = ["vacio", "en_planta", "cargado", "en_cliente"] as const;
 const CAMPOS_REPARTO = ["direccion", "telefono", "localidad", "tubos"] as const;
@@ -71,7 +72,7 @@ async function fetchTubos(extra = "", args: (string | number | null)[] = []) {
   return all(
     `SELECT t.*, a.codigo AS articulo_codigo, a.descripcion AS articulo_descripcion,
             a.es_tubo AS articulo_es_tubo, a.codigo_proveedor AS articulo_codigo_proveedor,
-            a.grupo, a.capacidad, IFNULL(a.retener,0) AS articulo_retener,
+            a.grupo, a.capacidad, IFNULL(a.retener, 0) AS articulo_retener,
             c.nombre AS cliente_nombre, p.nombre AS proveedor_nombre,
             COALESCE(NULLIF(TRIM(IFNULL(t.codigo_proveedor,'')), ''), a.codigo_proveedor) AS codigo_proveedor_mostrar,
             (SELECT COALESCE(m.creado_en, m.fecha) FROM movimientos m
@@ -191,6 +192,7 @@ export async function handleApi(ctx: APIContext) {
 
 async function handleApiInner(ctx: APIContext) {
   await ensureSchema();
+  await ensureCaja();
   const method = ctx.request.method.toUpperCase();
   const path = ctx.url.pathname.replace(/\/$/, "") || "/";
   const q = ctx.url.searchParams;
@@ -203,6 +205,10 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   if (method === "OPTIONS") return new Response(null, { status: 204 });
+
+  if (u && path.startsWith("/api/caja/")) {
+    return handleCaja(ctx, u, method, path);
+  }
 
   if (key === "POST /api/login") {
     const data = await body(ctx);

@@ -149,17 +149,11 @@ export async function ensureSchema() {
   await run(
     `INSERT OR IGNORE INTO config (clave, valor) VALUES ('reparto_campos', '{"direccion":true,"telefono":true,"localidad":true,"tubos":true}')`,
   );
-  try {
-    await run("ALTER TABLE documento_items ADD COLUMN lote TEXT");
-  } catch {
-    /* columna ya existe */
-  }
-  try {
-    await run("ALTER TABLE movimientos ADD COLUMN usuario_id INTEGER");
-  } catch {
-    /* columna ya existe */
-  }
   for (const col of [
+    "ALTER TABLE articulos ADD COLUMN retener INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tubos ADD COLUMN retener INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE documento_items ADD COLUMN lote TEXT",
+    "ALTER TABLE movimientos ADD COLUMN usuario_id INTEGER",
     "ALTER TABLE reparto_paradas ADD COLUMN completada INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reparto_paradas ADD COLUMN completada_en TEXT",
     "ALTER TABLE reparto_paradas ADD COLUMN completada_por INTEGER",
@@ -187,6 +181,18 @@ export async function ensureSchema() {
       "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
       ["reparto", hashPassword("reparto"), "Reparto", "reparto", t],
     );
+    await run(
+      "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
+      ["cobrador", hashPassword("cobrador"), "Cobrador", "cobrador", t],
+    );
+  } else {
+    const cob = await count("SELECT COUNT(*) AS n FROM usuarios WHERE lower(usuario)='cobrador'");
+    if (!cob) {
+      await run(
+        "INSERT INTO usuarios (usuario, clave, nombre, rol, activo, creado_en) VALUES (?,?,?,?,1,?)",
+        ["cobrador", hashPassword("cobrador"), "Cobrador", "cobrador", ahora()],
+      );
+    }
   }
   const nProv = await count("SELECT COUNT(*) AS n FROM proveedores");
   if (!nProv) {
