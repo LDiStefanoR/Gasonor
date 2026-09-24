@@ -1886,6 +1886,14 @@ async function vistaOperaciones(params) {
           $("#pl-manual").focus();
           return;
         }
+        if (r.resultado === "advertencia" && r.tubo?.id) {
+          if (!confirmarAdvertenciaDespacho(r)) return;
+          agregarFila(r.tubo);
+          $("#pl-manual").value = "";
+          $("#pl-manual").focus();
+          toast("Sumado con advertencia");
+          return;
+        }
         const msgs = {
           ya_en_planta: "Ese tubo ya está en planta",
           estado_invalido: "Solo vacíos o cargados en empresa (estado: " + (r.tubo?.estado || "?") + ")",
@@ -2878,6 +2886,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   };
 }
 
+function confirmarAdvertenciaDespacho(r) {
+  const msg = (r.mensaje || (r.avisos || []).join(" ") || "Este tubo no está en el estado habitual.") +
+    (String(r.mensaje || "").includes("¿Proseguir") ? "" : "\n\n¿Proseguir igual?");
+  return confirm(msg);
+}
+
 async function procesarCodigo(codigo, modo, proveedorId) {
   codigo = String(codigo || "").trim();
   if (!codigo) return;
@@ -2907,8 +2921,14 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "planta" });
       return;
     }
-    if (r.resultado === "ok" && r.tubo) {
+    if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
+      if (r.resultado === "advertencia" && !confirmarAdvertenciaDespacho(r)) {
+        GasonorScan.beep("fail");
+        GasonorScan.showLast(codigo + " — cancelado", "fail");
+        return;
+      }
       agregarALista(r.tubo, codigo);
+      if (r.resultado === "advertencia") toast("Sumado con advertencia");
       return;
     }
     GasonorScan.beep("fail");
@@ -2949,6 +2969,9 @@ async function vistaScan(modo, proveedorId) {
   app().innerHTML = `
     <h1>${modo === "despacho" ? "Despacho a planta" : "Recepción de planta"}</h1>
     <p class="lead">${esc(prov ? prov.nombre : "Proveedor")} — cargá los tubos a mano o activá el escáner continuo cuando lo necesites.</p>
+    ${modo === "despacho"
+      ? `<p class="lead">Podés despachar <b>cualquier</b> tubo. Si no está en depósito vacíos o está asignado a un cliente, te pide confirmación.</p>`
+      : ""}
     ${modo === "recepcion" ? `<p class="lead">En esta planta hay ${deuda.length} tubo(s) despachado(s) pendientes de recepción.</p>` : ""}
     ${modo === "recepcion" && deuda.length ? `
       <div class="card" style="margin-bottom:12px">
@@ -3436,8 +3459,14 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
       method: "POST",
       body: { codigo, modo, cliente_id: Number(clienteId) },
     });
-    if (r.resultado === "ok" && r.tubo) {
+    if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
+      if (r.resultado === "advertencia" && !confirmarAdvertenciaDespacho(r)) {
+        GasonorScan.beep("fail");
+        GasonorScan.showLast(codigo + " — cancelado", "fail");
+        return;
+      }
       agregarALista(r.tubo, codigo);
+      if (r.resultado === "advertencia") toast("Sumado con advertencia");
       return;
     }
     if (modo === "despacho" && (r.resultado === "no_encontrado" || r.resultado === "nuevo")) {
@@ -3516,7 +3545,7 @@ async function vistaScanCliente(modo, clienteId) {
     <p class="lead">${esc(cli.nombre)} — cargá los tubos a mano o activá el escáner continuo cuando lo necesites.</p>
     ${recep
       ? `<p class="lead">Este cliente tiene <strong>${deuda.length}</strong> tubo(s) en su poder. Solo se aceptan esos.</p>`
-      : `<p class="lead">Solo se aceptan tubos <strong>cargados</strong> listos para salir.</p>`}
+      : `<p class="lead">Podés despachar <b>cualquier</b> tubo. Si no está cargado o está en otro cliente, te pide confirmación.</p>`}
     ${recep && deuda.length ? `
       <div class="card" style="margin-bottom:12px">
         <h3 style="margin:0 0 8px">Tubos en su poder</h3>

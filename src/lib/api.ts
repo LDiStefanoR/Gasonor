@@ -1261,9 +1261,32 @@ async function handleApiInner(ctx: APIContext) {
       return json({ ok: true, resultado: "no_encontrado", codigo });
     }
     if (modo === "despacho") {
-      if (tubo.estado === "en_planta") return json({ ok: true, resultado: "ya_en_planta", tubo, codigo });
-      if (tubo.estado !== "vacio" && tubo.estado !== "cargado") {
-        return json({ ok: true, resultado: "estado_invalido", tubo, codigo });
+      const estado = String(tubo.estado || "");
+      const avisos: string[] = [];
+      const lab: Record<string, string> = {
+        vacio: "vacío",
+        en_planta: "en planta",
+        cargado: "cargado",
+        en_cliente: "en cliente",
+      };
+      const num = String(tubo.numero || tubo.codigo_proveedor || codigo);
+      if (estado !== "vacio") {
+        avisos.push(`El tubo ${num} no está en depósito vacíos (estado: ${lab[estado] || estado}).`);
+      }
+      if (tubo.cliente_id) {
+        const quien = String(tubo.cliente_nombre || `cliente #${tubo.cliente_id}`);
+        if (String(tubo.propiedad || "") === "cliente") avisos.push(`Es propiedad de ${quien}.`);
+        else avisos.push(`Figura asignado / en poder de ${quien}.`);
+      }
+      if (avisos.length) {
+        return json({
+          ok: true,
+          resultado: "advertencia",
+          tubo,
+          codigo,
+          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
+          avisos,
+        });
       }
       return json({ ok: true, resultado: "ok", tubo, codigo });
     }
@@ -1290,9 +1313,35 @@ async function handleApiInner(ctx: APIContext) {
     const tubo = await buscarTubo(codigo);
     if (!tubo) return json({ ok: true, resultado: "no_encontrado", codigo });
     if (modo === "despacho") {
-      if (tubo.estado === "cargado") return json({ ok: true, resultado: "ok", tubo, codigo });
-      if (tubo.estado === "en_cliente") return json({ ok: true, resultado: "ya_en_cliente", tubo, codigo });
-      return json({ ok: true, resultado: "estado_invalido", tubo, codigo });
+      const estado = String(tubo.estado || "");
+      const avisos: string[] = [];
+      const lab: Record<string, string> = {
+        vacio: "vacío",
+        en_planta: "en planta",
+        cargado: "cargado",
+        en_cliente: "en cliente",
+      };
+      const num = String(tubo.numero || tubo.codigo_proveedor || codigo);
+      if (estado !== "cargado") {
+        avisos.push(`El tubo ${num} no está cargado en depósito (estado: ${lab[estado] || estado}).`);
+      }
+      if (Number.isFinite(clienteId) && tubo.cliente_id != null && Number(tubo.cliente_id) !== clienteId) {
+        const otro = String(tubo.cliente_nombre || "otro cliente");
+        avisos.push(`Está asignado / en poder de ${otro}.`);
+      } else if (estado === "en_cliente" && Number.isFinite(clienteId) && Number(tubo.cliente_id) === clienteId) {
+        avisos.push(`El tubo ${num} ya figura en este cliente.`);
+      }
+      if (avisos.length) {
+        return json({
+          ok: true,
+          resultado: "advertencia",
+          tubo,
+          codigo,
+          mensaje: avisos.join(" ") + " ¿Proseguir igual?",
+          avisos,
+        });
+      }
+      return json({ ok: true, resultado: "ok", tubo, codigo });
     }
     if (tubo.estado !== "en_cliente") return json({ ok: true, resultado: "no_en_cliente", tubo, codigo });
     if (Number.isFinite(clienteId) && tubo.cliente_id != null && Number(tubo.cliente_id) !== clienteId) {
@@ -1572,29 +1621,9 @@ async function operar(accion: string, data: Record<string, unknown>, usuarioId: 
     const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
     if (!tubo) return err(`Tubo ${tid} no encontrado.`);
     if (accion === "enviar-planta") {
-      if (tubo.estado !== "vacio" && tubo.estado !== "cargado") {
-        return err(`El tubo ${tubo.numero} no está en empresa para despachar (estado: ${tubo.estado}).`);
-      }
+      // Cualquier estado (UI ya advertó si no estaba vacío).
     } else if (accion === "enviar-cliente") {
-      const est = String(tubo.estado || "");
-      const num = tubo.numero || tubo.codigo_proveedor || tid;
-      if (est === "vacio") return err(`El tubo ${num} está vacío: primero hay que cargarlo antes de despacharlo a un cliente.`);
-      if (est === "en_planta") return err(`El tubo ${num} está en planta: no se puede despachar a un cliente hasta que vuelva cargado.`);
-      if (est === "en_cliente") {
-        const otro = tubo.cliente_id
-          ? ((await one("SELECT nombre FROM clientes WHERE id=?", [Number(tubo.cliente_id)]))?.nombre as string) || "otro cliente"
-          : "un cliente";
-        if (tubo.cliente_id && Number(tubo.cliente_id) !== Number(cliente_id)) {
-          return err(`El tubo ${num} ya está asignado / en poder de ${otro}.`);
-        }
-        return err(`El tubo ${num} ya figura en cliente (${otro}).`);
-      }
-      if (est !== "cargado") return err(`El tubo ${num} no está cargado en empresa (estado: ${est}).`);
-      if (tubo.cliente_id && Number(tubo.cliente_id) !== Number(cliente_id)) {
-        const otro =
-          ((await one("SELECT nombre FROM clientes WHERE id=?", [Number(tubo.cliente_id)]))?.nombre as string) || "otro cliente";
-        return err(`El tubo ${num} está asignado a ${otro}: no se puede despachar a otro cliente.`);
-      }
+      // Cualquier estado (UI ya advertó si no estaba cargado / otro cliente).
     } else if (tubo.estado !== origen) {
       return err(`El tubo ${tubo.numero} no está en el estado esperado.`);
     }
@@ -1607,7 +1636,7 @@ async function operar(accion: string, data: Record<string, unknown>, usuarioId: 
         ahora(),
         tid,
       ]);
-      await registrarMovimiento(tubo, tipo, origen, destino, fecha, {
+      await registrarMovimiento(tubo, tipo, String(tubo.estado), destino, fecha, {
         cliente_id,
         lote: String(tubo.lote || ""),
         fecha_vto: String(tubo.fecha_vto || ""),
@@ -1619,12 +1648,22 @@ async function operar(accion: string, data: Record<string, unknown>, usuarioId: 
       if (remito) partes.push(`Remito ${remito}`);
       if (proveedor_nombre) partes.push(proveedor_nombre);
       if (observaciones) partes.push(observaciones);
-      await run("UPDATE tubos SET estado=?, proveedor_id=?, actualizado_en=? WHERE id=?", [
-        destino,
-        proveedor_id,
-        ahora(),
-        tid,
-      ]);
+      if (String(tubo.estado) !== "vacio") partes.push(`Salía de ${tubo.estado}`);
+      if (String(tubo.propiedad || "empresa") === "cliente") {
+        await run("UPDATE tubos SET estado=?, proveedor_id=?, actualizado_en=? WHERE id=?", [
+          destino,
+          proveedor_id,
+          ahora(),
+          tid,
+        ]);
+      } else {
+        await run("UPDATE tubos SET estado=?, proveedor_id=?, cliente_id=NULL, actualizado_en=? WHERE id=?", [
+          destino,
+          proveedor_id,
+          ahora(),
+          tid,
+        ]);
+      }
       await registrarMovimiento(tubo, tipo, String(tubo.estado), destino, fecha, {
         observaciones: partes.join(" · ") || "Envío a planta",
         ...uid,
@@ -1737,16 +1776,24 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
     const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
     if (!tubo) return err(`Tubo ${tid} no encontrado.`);
     if (tipo === "despacho") {
-      if (tubo.estado !== "vacio" && tubo.estado !== "cargado") {
-        return err(`El tubo ${tubo.numero} no está en empresa para despachar.`);
+      // Cualquier estado: la UI ya pidió confirmación si no estaba vacío.
+      if (String(tubo.propiedad || "empresa") === "cliente") {
+        await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, actualizado_en=? WHERE id=?", [
+          proveedor_id,
+          ahora(),
+          tid,
+        ]);
+      } else {
+        await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, cliente_id=NULL, actualizado_en=? WHERE id=?", [
+          proveedor_id,
+          ahora(),
+          tid,
+        ]);
       }
-      await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, actualizado_en=? WHERE id=?", [
-        proveedor_id,
-        ahora(),
-        tid,
-      ]);
       await registrarMovimiento(tubo, "PLANSALI", String(tubo.estado), "en_planta", fecha, {
-        observaciones: `Remito ${remito}`,
+        observaciones:
+          `Remito ${remito}` +
+          (String(tubo.estado) !== "vacio" ? ` · Salía de ${tubo.estado}` : ""),
       });
     } else {
       if (tubo.estado !== "en_planta") return err(`El tubo ${tubo.numero} no está en planta: primero hay que despacharlo.`);
