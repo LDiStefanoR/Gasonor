@@ -1879,7 +1879,7 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
       }
       await registrarMovimiento(tubo, "PLANSALI", String(tubo.estado), "en_planta", fecha, {
         observaciones:
-          `Remito ${remito}` +
+          (remito ? `Remito ${remito}` : "Despacho a planta") +
           (String(tubo.estado) !== "vacio" ? ` · Salía de ${tubo.estado}` : ""),
       });
     } else {

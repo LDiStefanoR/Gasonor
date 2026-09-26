@@ -163,7 +163,8 @@ function selectedIds(root = document) {
 
 async function cargarCatalogos() {
   const rol = rolActual();
-  if (rol === "reparto") {
+  // Roles de celular: no bajar todo el padrón (traba el teléfono).
+  if (rol === "reparto" || rol === "despacho") {
     const cfg = await api("/api/config");
     state.config = cfg.config;
     state.articulos = state.articulos || [];
@@ -446,7 +447,12 @@ async function vistaInicio() {
         <a class="quick red" href="#/cliente/recepcion">Recepción de cliente</a>
       ` : ""}
       ${puede("admin", "reparto") ? `<a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/reparto">Reparto del día</a>` : ""}
-      ${rolActual() === "admin" ? `<a class="quick" style="background:#8a5a12;grid-column:1/-1" href="#/facturacion">Facturación</a>` : ""}
+      ${rolActual() === "admin" || rolActual() === "cobrador" ? `
+        <a class="quick" style="background:#8a5a12" href="#/facturar">Facturar</a>
+        <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
+        <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
+        <a class="quick" style="background:#24483e" href="#/facturacion">Resumen caja</a>
+      ` : ""}
     </div>
     ${pendientes.length ? `
       <a class="banner-fact" href="#/planta/completar">${pendientes.length} recepción(es) escaneada(s) pendientes de lotes / trazabilidad</a>
@@ -1881,7 +1887,7 @@ async function vistaOperaciones(params) {
           body: { codigo, modo: "despacho", proveedor_id: pid ? Number(pid) : null },
         });
         if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo?.id) {
-          if (debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) return;
+          if (debeConfirmarDespacho(r) && !(await confirmarAdvertenciaDespacho(r))) return;
           agregarFila(r.tubo);
           $("#pl-manual").value = "";
           $("#pl-manual").focus();
@@ -1889,7 +1895,7 @@ async function vistaOperaciones(params) {
           return;
         }
         if (r.tubo?.id && ["estado_invalido", "ya_en_planta"].includes(r.resultado)) {
-          if (!confirmarAdvertenciaDespacho({ ...r, mensaje: (r.mensaje || "Estado no habitual") + " ¿Proseguir igual?" })) return;
+          if (!(await confirmarAdvertenciaDespacho({ ...r, mensaje: (r.mensaje || "Estado no habitual") + " ¿Proseguir igual?" }))) return;
           agregarFila(r.tubo);
           $("#pl-manual").value = "";
           toast("Sumado con advertencia");
@@ -2624,7 +2630,95 @@ function esMovil() {
   const ua = navigator.userAgent || "";
   if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua)) return true;
   if (navigator.maxTouchPoints > 1 && Math.min(window.screen.width, window.screen.height) <= 1024) return true;
+  if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches && window.innerWidth <= 900) return true;
   return false;
+}
+
+function scanSafe(fn, ...args) {
+  try {
+    if (window.GasonorScan && typeof window.GasonorScan[fn] === "function") {
+      return window.GasonorScan[fn](...args);
+    }
+  } catch (_) {}
+  return undefined;
+}
+
+function persistScanLista() {
+  try {
+    sessionStorage.setItem("gasonor_scan", JSON.stringify({
+      lista: state.scanLista || [],
+      modo: state.scanModo || null,
+      proveedor: state.scanProveedor || null,
+      cliente: state.scanCliente || null,
+    }));
+  } catch (_) {}
+}
+
+function restoreScanLista(esperado) {
+  try {
+    const raw = sessionStorage.getItem("gasonor_scan");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.lista)) return;
+    if (esperado) {
+      if (esperado.modo != null && String(data.modo) !== String(esperado.modo)) return;
+      if (esperado.proveedor != null && String(data.proveedor) !== String(esperado.proveedor)) return;
+      if (esperado.cliente != null && String(data.cliente) !== String(esperado.cliente)) return;
+    }
+    if (!(state.scanLista && state.scanLista.length) && data.lista.length) {
+      state.scanLista = data.lista;
+      state.scanModo = data.modo;
+      state.scanProveedor = data.proveedor;
+      state.scanCliente = data.cliente;
+    }
+  } catch (_) {}
+}
+
+function clearScanPersist() {
+  try { sessionStorage.removeItem("gasonor_scan"); } catch (_) {}
+}
+
+/** Confirmación en pantalla (no usa window.confirm: en celular con cámara se cuelga). */
+function pedirConfirmacion(mensaje) {
+  return new Promise(async (resolve) => {
+    try { await scanSafe("stop"); } catch (_) {}
+    const prev = document.getElementById("modal-confirm-scan");
+    if (prev) prev.remove();
+    const wrap = document.createElement("div");
+    wrap.id = "modal-confirm-scan";
+    wrap.className = "modal-back modal-confirm-scan";
+    wrap.innerHTML = `
+      <div class="modal card" role="dialog" aria-modal="true">
+        <h2>Advertencia</h2>
+        <p class="lead" style="white-space:pre-wrap">${esc(mensaje)}</p>
+        <div class="toolbar" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+          <button type="button" class="btn copper" id="confirm-si">Sí, proseguir</button>
+          <button type="button" class="btn ghost" id="confirm-no">Cancelar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const done = (ok) => {
+      wrap.remove();
+      resolve(!!ok);
+    };
+    wrap.querySelector("#confirm-si").onclick = () => done(true);
+    wrap.querySelector("#confirm-no").onclick = () => done(false);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) done(false); });
+  });
+}
+
+function debeConfirmarDespacho(r) {
+  return !!(r && (r.requiere_confirmacion || (r.avisos && r.avisos.length) || r.resultado === "advertencia"));
+}
+
+async function confirmarAdvertenciaDespacho(r) {
+  const avisos = (r && r.avisos) || [];
+  const base = (r && r.mensaje) || (avisos.length ? avisos.join(" ") : "");
+  if (!base && !(r && r.requiere_confirmacion)) return true;
+  const msg = base
+    ? (String(base).includes("Proseguir") ? base : `${base}\n\n¿Proseguir igual?`)
+    : "Este tubo no está en el estado habitual.\n\n¿Proseguir igual?";
+  return pedirConfirmacion(msg);
 }
 
 function scanClave(t) {
@@ -2634,6 +2728,7 @@ function scanClave(t) {
 
 function quitarDeLista(clave) {
   state.scanLista = state.scanLista.filter((t) => scanClave(t) !== String(clave));
+  persistScanLista();
   pintarListaScan();
 }
 
@@ -2725,8 +2820,8 @@ function enlazarCamaraScan(onCode) {
     btnCam.onclick = async () => {
       mostrar(true);
       try {
-        GasonorScan.unlockAudio();
-        await GasonorScan.start("lector", onCode);
+        scanSafe("unlockAudio");
+        await scanSafe("start", "lector", onCode);
         toast("Escáner activo — pasá los tubos por la línea roja");
       } catch (err) {
         mostrar(false);
@@ -2736,7 +2831,7 @@ function enlazarCamaraScan(onCode) {
   }
   if (btnStop) {
     btnStop.onclick = async () => {
-      try { await GasonorScan.stop(); } catch (_) {}
+      try { await scanSafe("stop"); } catch (_) {}
       mostrar(false);
       toast("Escáner detenido");
     };
@@ -2746,17 +2841,18 @@ function enlazarCamaraScan(onCode) {
 function agregarALista(tubo, codigo) {
   const code = String(codigo || "").trim();
   if (state.scanLista.some((t) => scanClave(t) === scanClave(tubo) || String(t.codigo_proveedor) === code || String(t.numero) === code)) {
-    GasonorScan.beep("dup");
-    GasonorScan.showLast("Ya está: " + code, "dup");
+    scanSafe("beep", "dup");
+    scanSafe("showLast", "Ya está: " + code, "dup");
     toast("Ya está en la lista", true);
     return false;
   }
-  GasonorScan.beep("ok");
+  scanSafe("beep", "ok");
   const etiqueta = tubo.nuevo ? "No registrado: " : "Agregado: ";
   const detalle = [tubo.numero, tubo.codigo_proveedor].filter(Boolean).join(" · ") || code;
-  GasonorScan.showLast(etiqueta + detalle, tubo.nuevo ? "read" : "ok");
+  scanSafe("showLast", etiqueta + detalle, tubo.nuevo ? "read" : "ok");
   tubo.codigo_leido = code;
   state.scanLista.unshift(tubo);
+  persistScanLista();
   pintarListaScan();
   return true;
 }
@@ -3023,26 +3119,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   };
 }
 
-function confirmarAdvertenciaDespacho(r) {
-  const avisos = r.avisos || [];
-  const base = r.mensaje || (avisos.length ? avisos.join(" ") : "");
-  if (!base && !r.requiere_confirmacion) return true;
-  const msg = base
-    ? (String(base).includes("¿Proseguir") ? base : base + "\n\n¿Proseguir igual?")
-    : "Este tubo no está en el estado habitual.\n\n¿Proseguir igual?";
-  return confirm(msg);
-}
-
-function debeConfirmarDespacho(r) {
-  return !!(r.requiere_confirmacion || (r.avisos && r.avisos.length) || r.resultado === "advertencia");
-}
-
 async function procesarCodigo(codigo, modo, proveedorId) {
   codigo = String(codigo || "").trim();
   if (!codigo) return;
   if (state.scanLista.some((t) => String(t.codigo_proveedor) === codigo || String(t.numero) === codigo)) {
-    GasonorScan.beep("dup");
-    GasonorScan.showLast("Ya está: " + codigo, "dup");
+    scanSafe("beep", "dup");
+    scanSafe("showLast", "Ya está: " + codigo, "dup");
     toast("Ya está en la lista", true);
     return;
   }
@@ -3067,27 +3149,30 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       return;
     }
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
-      if (modo === "despacho" && debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) {
-        GasonorScan.beep("fail");
-        GasonorScan.showLast(codigo + " — cancelado", "fail");
-        return;
+      if (modo === "despacho" && debeConfirmarDespacho(r)) {
+        const sigue = await confirmarAdvertenciaDespacho(r);
+        if (!sigue) {
+          scanSafe("beep", "fail");
+          scanSafe("showLast", codigo + " — cancelado", "fail");
+          return;
+        }
       }
       agregarALista(r.tubo, codigo);
       if (debeConfirmarDespacho(r)) toast("Sumado con advertencia");
       return;
     }
-    // Despacho: si el API devolvió el tubo con cualquier resultado, permitir con confirmación
     if (modo === "despacho" && r.tubo && ["estado_invalido", "ya_en_planta", "esta_vacio", "en_planta", "otro_cliente", "ya_en_cliente"].includes(r.resultado)) {
       const avisos = r.avisos || [r.mensaje || ("Estado: " + (ESTADOS[r.tubo.estado] || r.tubo.estado))];
-      if (!confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" })) {
-        GasonorScan.beep("fail");
+      const sigue = await confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" });
+      if (!sigue) {
+        scanSafe("beep", "fail");
         return;
       }
       agregarALista(r.tubo, codigo);
       toast("Sumado con advertencia");
       return;
     }
-    GasonorScan.beep("fail");
+    scanSafe("beep", "fail");
     const msgs = {
       no_encontrado: modo === "recepcion"
         ? "No está despachado a planta. Solo se recepcionan tubos que ya se enviaron."
@@ -3099,21 +3184,23 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       ya_escaneado: "Ya está en un escaneo pendiente" + (r.remito ? " (remito " + r.remito + ")" : "") + ". Administración debe completar los lotes.",
     };
     const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
-    GasonorScan.showLast(codigo + " — " + msg, "fail");
+    scanSafe("showLast", codigo + " — " + msg, "fail");
     toast(msg, true);
   } catch (err) {
-    GasonorScan.beep("fail");
-    GasonorScan.showLast(codigo + " — " + (err.message || "Error"), "fail");
+    scanSafe("beep", "fail");
+    scanSafe("showLast", codigo + " — " + (err.message || "Error"), "fail");
     toast(err.message, true);
   }
 }
 
 async function vistaScan(modo, proveedorId) {
   setNav("envios");
+  restoreScanLista({ modo, proveedor: proveedorId });
   if (state.scanModo !== modo || String(state.scanProveedor) !== String(proveedorId)) {
     state.scanLista = [];
     state.scanModo = modo;
     state.scanProveedor = proveedorId;
+    clearScanPersist();
   }
   const provs = (await api("/api/proveedores")).proveedores;
   const prov = provs.find((p) => String(p.id) === String(proveedorId));
@@ -3176,13 +3263,17 @@ async function vistaScan(modo, proveedorId) {
   });
   $("#btn-seguir").onclick = async () => {
     if (!state.scanLista.length) return toast("La lista está vacía", true);
-    if (movil) await GasonorScan.stop();
+    persistScanLista();
+    if (movil) {
+      try { await scanSafe("stop"); } catch (_) {}
+    }
     location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
   };
 }
 
 async function vistaConfirmarPlanta(modo, proveedorId) {
   setNav("envios");
+  restoreScanLista({ modo, proveedor: proveedorId });
   const provs = (await api("/api/proveedores")).proveedores;
   const prov = provs.find((p) => String(p.id) === String(proveedorId));
   if (!state.scanLista.length) {
@@ -3191,8 +3282,11 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
   }
   const esAdmin = rolActual() === "admin";
   const recep = modo === "recepcion";
+  const movil = esMovil();
   // Celular / rol despacho: solo escaneo → borrador. Admin en PC completa remito, lote y vto.
-  const soloBorrador = recep && (!esAdmin || esMovil());
+  const soloBorrador = recep && (!esAdmin || movil);
+  // En celular el remito del despacho es opcional (a veces no tienen el papel a mano).
+  const remitoOpcional = !recep && movil;
   const pideLotes = recep && esAdmin && !soloBorrador;
   app().innerHTML = `
     <h1>Confirmar ${recep ? "recepción" : "despacho"}</h1>
@@ -3201,7 +3295,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
     ${soloBorrador ? `<p class="scan-pc-hint">No hace falta remito, lote ni vencimiento acá. Administración los completa en la PC (Completar recepciones).</p>` : ""}
     <div class="card">
       <form id="form-doc" class="grid form">
-        ${soloBorrador ? "" : `<div class="field"><label>Nº remito</label><input name="remito" required placeholder="Como en el papel"></div>`}
+        ${soloBorrador ? "" : `<div class="field"><label>Nº remito${remitoOpcional ? " (opcional)" : ""}</label><input name="remito" ${remitoOpcional ? "" : "required"} placeholder="${remitoOpcional ? "Opcional" : "Como en el papel"}"></div>`}
         <div class="field"><label>Quién despacha / recibe</label><input value="${esc(state.usuario?.nombre || "")}" disabled></div>
         <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" ${esAdmin && !soloBorrador ? "" : "readonly"}></div>
         <div class="field"><label>Hora</label><input name="hora" type="time" value="${horaInput()}" ${esAdmin && !soloBorrador ? "" : "readonly"}></div>
@@ -3300,6 +3394,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       state.scanLista = [];
       state.scanModo = null;
       state.scanProveedor = null;
+      clearScanPersist();
       location.hash = "#/inicio";
     } catch (err) { toast(err.message, true); }
   };
@@ -3605,8 +3700,8 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
   codigo = String(codigo || "").trim();
   if (!codigo) return;
   if (state.scanLista.some((t) => String(t.codigo_proveedor) === codigo || String(t.numero) === codigo)) {
-    GasonorScan.beep("dup");
-    GasonorScan.showLast("Ya está: " + codigo, "dup");
+    scanSafe("beep", "dup");
+    scanSafe("showLast", "Ya está: " + codigo, "dup");
     toast("Ya está en la lista", true);
     return;
   }
@@ -3616,10 +3711,13 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
       body: { codigo, modo, cliente_id: Number(clienteId) },
     });
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
-      if (modo === "despacho" && debeConfirmarDespacho(r) && !confirmarAdvertenciaDespacho(r)) {
-        GasonorScan.beep("fail");
-        GasonorScan.showLast(codigo + " — cancelado", "fail");
-        return;
+      if (modo === "despacho" && debeConfirmarDespacho(r)) {
+        const sigue = await confirmarAdvertenciaDespacho(r);
+        if (!sigue) {
+          scanSafe("beep", "fail");
+          scanSafe("showLast", codigo + " — cancelado", "fail");
+          return;
+        }
       }
       agregarALista(r.tubo, codigo);
       if (debeConfirmarDespacho(r)) toast("Sumado con advertencia");
@@ -3627,8 +3725,9 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
     }
     if (modo === "despacho" && r.tubo && ["estado_invalido", "ya_en_cliente", "otro_cliente", "esta_vacio", "en_planta"].includes(r.resultado)) {
       const avisos = r.avisos || [r.mensaje || ("Estado: " + (ESTADOS[r.tubo.estado] || r.tubo.estado))];
-      if (!confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" })) {
-        GasonorScan.beep("fail");
+      const sigue = await confirmarAdvertenciaDespacho({ ...r, avisos, mensaje: avisos.join(" ") + " ¿Proseguir igual?" });
+      if (!sigue) {
+        scanSafe("beep", "fail");
         return;
       }
       agregarALista(r.tubo, codigo);
@@ -3653,7 +3752,7 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
       if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "cliente" });
       return;
     }
-    GasonorScan.beep("fail");
+    scanSafe("beep", "fail");
     const msgs = {
       no_encontrado: "No está en el sistema",
       ya_en_cliente: r.mensaje || ("Ese tubo ya está en " + (r.tubo?.cliente_nombre || "un cliente")),
@@ -3666,21 +3765,24 @@ async function procesarCodigoCliente(codigo, modo, clienteId) {
       no_en_cliente: "Ese tubo no figura en cliente",
     };
     const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
-    GasonorScan.showLast(codigo + " — " + msg, "fail");
+    scanSafe("showLast", codigo + " — " + msg, "fail");
     toast(msg, true);
   } catch (err) {
-    GasonorScan.beep("fail");
-    GasonorScan.showLast(codigo + " — " + (err.message || "Error"), "fail");
+    scanSafe("beep", "fail");
+    scanSafe("showLast", codigo + " — " + (err.message || "Error"), "fail");
     toast(err.message, true);
   }
 }
 
 async function vistaScanCliente(modo, clienteId) {
   setNav("envios");
-  if (state.scanModo !== "cli-" + modo || String(state.scanCliente) !== String(clienteId)) {
+  const modoKey = "cli-" + modo;
+  restoreScanLista({ modo: modoKey, cliente: clienteId });
+  if (state.scanModo !== modoKey || String(state.scanCliente) !== String(clienteId)) {
     state.scanLista = [];
-    state.scanModo = "cli-" + modo;
+    state.scanModo = modoKey;
     state.scanCliente = clienteId;
+    clearScanPersist();
   }
   let cli = null;
   try {
@@ -3758,7 +3860,10 @@ async function vistaScanCliente(modo, clienteId) {
   });
   $("#btn-seguir").onclick = async () => {
     if (!state.scanLista.length) return toast("La lista está vacía", true);
-    if (esMovil()) await GasonorScan.stop();
+    persistScanLista();
+    if (esMovil()) {
+      try { await scanSafe("stop"); } catch (_) {}
+    }
     location.hash = `#/cliente/${modo}/${clienteId}/confirmar`;
   };
 }
@@ -3766,6 +3871,7 @@ async function vistaScanCliente(modo, clienteId) {
 async function vistaConfirmarCliente(modo, clienteId) {
   setNav("envios");
   const recep = modo === "recepcion";
+  restoreScanLista({ modo: "cli-" + modo, cliente: clienteId });
   if (!state.scanLista.length) {
     location.hash = `#/cliente/${modo}/${clienteId}`;
     return;
@@ -3801,6 +3907,7 @@ async function vistaConfirmarCliente(modo, clienteId) {
       state.scanLista = [];
       state.scanModo = null;
       state.scanCliente = null;
+      clearScanPersist();
       location.hash = "#/inicio";
     } catch (err) { toast(err.message, true); }
   };
@@ -4106,6 +4213,9 @@ function etiquetaMedio(m) {
   const k = String(m || "efectivo").toLowerCase();
   if (k === "transferencia") return "Transferencia";
   if (k === "tarjeta") return "Tarjeta";
+  if (k === "cheque") return "Cheque";
+  if (k === "echeq") return "ECHEQ";
+  if (k === "mixto") return "Mixto";
   if (!k) return "";
   return "Efectivo";
 }
@@ -4117,6 +4227,8 @@ function htmlMedioPago() {
     ["efectivo", "Efectivo"],
     ["transferencia", "Transfer."],
     ["tarjeta", "Tarjeta"],
+    ["cheque", "Cheque"],
+    ["echeq", "ECHEQ"],
   ];
   return `
     <div class="caja-medios-inline">
@@ -4353,8 +4465,13 @@ function pintarCobrar() {
       <div class="caja-cobro">
         <div class="caja-cobro-head">
           <h1 class="caja-title">Cobrar</h1>
-          <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Facturación</a>
+          <div class="caja-head-links">
+            <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
+            <a class="btn secondary btn-caja-fact" href="#/facturar">Facturar</a>
+            <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Resumen</a>
+          </div>
         </div>
+        ${htmlBannerDeudas(c.alertas)}
         ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
         <div class="caja-modos" id="caja-root-modos">
           ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
@@ -4581,7 +4698,10 @@ async function grabarCaja() {
 async function vistaCobrar() {
   setNav("cobrar");
   const prev = state.caja || cajaInicial();
-  const data = await api("/api/caja/ventas");
+  const [data, alertas] = await Promise.all([
+    api("/api/caja/ventas"),
+    api("/api/caja/alertas").catch(() => ({ alertas: [] })),
+  ]);
   state.caja = {
     ...cajaInicial(),
     modo: prev.modo || "gas",
@@ -4592,8 +4712,643 @@ async function vistaCobrar() {
     ventas: data.ventas || [],
     resumen: data.resumen || {},
     recientes: data.recientes || [],
+    alertas: alertas.alertas || [],
   };
   pintarCobrar();
+}
+
+function htmlBannerDeudas(alertas) {
+  const lista = alertas || [];
+  if (!lista.length) return "";
+  const top = lista.slice(0, 5);
+  return `
+    <a class="banner-deuda" href="#/deudas">
+      <strong>${lista.length} cliente${lista.length === 1 ? "" : "s"} con deuda</strong>
+      <span>${top.map((a) => `${esc(a.cliente_nombre)} · ${money(a.saldo)} · desde ${esc(fmtFecha(a.desde))} (${a.dias}d)`).join(" · ")}</span>
+    </a>`;
+}
+
+function facturarInicial() {
+  return {
+    tipo: "factura_x",
+    modoPago: "cuenta",
+    medioPago: "efectivo",
+    cliente: null,
+    items: [],
+    obs: "",
+    tuboQ: "",
+    precios: [],
+    cheque: { tipo: "cheque", banco: "", numero: "", librador: "", fecha_emision: "", fecha_pago: "", monto: "" },
+  };
+}
+
+function totalFacturarItems(items) {
+  return Math.round((items || []).reduce((s, it) => s + Number(it.cantidad || 0) * Number(it.precio_unitario || 0), 0) * 100) / 100;
+}
+
+function htmlChequeForm(prefix, ch, montoHint) {
+  const c = ch || {};
+  return `
+    <div class="card cheque-form" id="${prefix}-cheque">
+      <p class="caja-label">Datos del cheque / ECHEQ</p>
+      <div class="grid form">
+        <div class="field"><label>Tipo</label>
+          <select id="${prefix}-ch-tipo">
+            <option value="cheque" ${c.tipo !== "echeq" ? "selected" : ""}>Cheque</option>
+            <option value="echeq" ${c.tipo === "echeq" ? "selected" : ""}>ECHEQ</option>
+          </select>
+        </div>
+        <div class="field"><label>Número</label><input id="${prefix}-ch-num" value="${esc(c.numero || "")}" required></div>
+        <div class="field"><label>Banco</label><input id="${prefix}-ch-banco" value="${esc(c.banco || "")}"></div>
+        <div class="field"><label>Librador</label><input id="${prefix}-ch-lib" value="${esc(c.librador || "")}"></div>
+        <div class="field"><label>Emisión</label><input id="${prefix}-ch-emi" type="date" value="${esc(c.fecha_emision || "")}"></div>
+        <div class="field"><label>Fecha de pago</label><input id="${prefix}-ch-pago" type="date" value="${esc(c.fecha_pago || "")}"></div>
+        <div class="field"><label>Monto</label><input id="${prefix}-ch-monto" inputmode="decimal" value="${esc(c.monto || (montoHint != null ? String(montoHint) : ""))}"></div>
+      </div>
+    </div>`;
+}
+
+function leerChequeForm(prefix) {
+  return {
+    tipo: $("#" + prefix + "-ch-tipo")?.value || "cheque",
+    numero: $("#" + prefix + "-ch-num")?.value || "",
+    banco: $("#" + prefix + "-ch-banco")?.value || "",
+    librador: $("#" + prefix + "-ch-lib")?.value || "",
+    fecha_emision: $("#" + prefix + "-ch-emi")?.value || "",
+    fecha_pago: $("#" + prefix + "-ch-pago")?.value || "",
+    monto: $("#" + prefix + "-ch-monto")?.value || "",
+  };
+}
+
+async function vistaFacturar(params) {
+  setNav("facturar");
+  const f = state.facturar || facturarInicial();
+  const precios = f.precios?.length
+    ? f.precios
+    : ((await api("/api/caja/ventas").catch(() => ({ precios: [] }))).precios || []);
+  state.facturar = { ...facturarInicial(), ...f, precios };
+  const ventaId = params.get("venta_id");
+  if (ventaId && !state.facturar._fromVenta) {
+    try {
+      const data = await api("/api/caja/ventas/" + ventaId + "/a-comprobante", {
+        method: "POST",
+        body: { tipo: "factura_x" },
+      });
+      toast("Comprobante " + (data.comprobante?.numero_txt || "") + " creado a cuenta corriente");
+      location.hash = "#/deudas?cliente_id=" + data.comprobante.cliente_id;
+      return;
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+  pintarFacturar();
+}
+
+function pintarFacturar() {
+  const f = state.facturar;
+  const total = totalFacturarItems(f.items);
+  const gases = (f.precios || []).filter((p) => p.tipo === "gas");
+  app().innerHTML = `
+    <h1>Facturar</h1>
+    <p class="lead">Comprobante interno · cuenta corriente o contado · podés despachar tubos al cliente al grabar.</p>
+    <div class="toolbar">
+      <div class="field"><label>Tipo</label>
+        <select id="fac-tipo">
+          <option value="factura_x" ${f.tipo === "factura_x" ? "selected" : ""}>Factura X</option>
+          <option value="factura_a" ${f.tipo === "factura_a" ? "selected" : ""}>Factura A</option>
+          <option value="factura_b" ${f.tipo === "factura_b" ? "selected" : ""}>Factura B</option>
+          <option value="remito_interno" ${f.tipo === "remito_interno" ? "selected" : ""}>Remito interno</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1.4"><label>Cliente</label>
+        <input id="fac-cli-q" placeholder="Buscar cliente…" value="">
+        <div id="fac-cli-sug" class="cli-live-list" hidden></div>
+      </div>
+      ${f.cliente ? `<div class="cli-elegido"><strong>${esc(f.cliente.nombre)}</strong><small>${esc(f.cliente.cuit || "")}</small>
+        <button type="button" class="btn ghost" data-fac="quit-cli">Quitar</button></div>` : ""}
+    </div>
+
+    <div class="card">
+      <p class="caja-label">Agregar gas / regulador rápido</p>
+      <div class="gas-grid gas-grid-mini">
+        ${gases.map((p) => `<button type="button" class="gas-card" data-fac="add-gas" data-clave="${esc(p.clave)}" data-nom="${esc(p.nombre)}" data-precio="${p.precio}">
+          <span class="gn">${esc(p.nombre)}</span><span class="precio">${money(p.precio)}</span>
+        </button>`).join("") || `<p class="empty">Sin precios cargados</p>`}
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <div class="field" style="flex:1"><label>Línea libre</label><input id="fac-desc" placeholder="Descripción"></div>
+        <div class="field"><label>Cant.</label><input id="fac-cant" inputmode="decimal" value="1" style="width:80px"></div>
+        <div class="field"><label>Precio</label><input id="fac-pu" inputmode="decimal" value="0" style="width:110px"></div>
+        <button type="button" class="btn secondary" data-fac="add-linea">Sumar línea</button>
+      </div>
+      <div class="toolbar">
+        <div class="field" style="flex:1"><label>Tubo (nº / cód. proveedor)</label>
+          <input id="fac-tubo-q" placeholder="Escanear o escribir…" value="${esc(f.tuboQ || "")}">
+        </div>
+        <button type="button" class="btn copper" data-fac="add-tubo">Agregar tubo</button>
+      </div>
+      <div id="fac-tubo-hits" class="cli-live-list" hidden></div>
+    </div>
+
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Descripción</th><th>Cant.</th><th>P. unit.</th><th>Subtotal</th><th></th></tr></thead>
+        <tbody>
+          ${f.items.map((it, i) => `
+            <tr>
+              <td>${esc(it.descripcion)}${it.tubo_id ? ` <span class="badge cargado">Tubo</span>` : ""}</td>
+              <td class="mono">${esc(it.cantidad)}</td>
+              <td>${money(it.precio_unitario)}</td>
+              <td><strong>${money(Number(it.cantidad) * Number(it.precio_unitario))}</strong></td>
+              <td><button type="button" class="btn ghost" data-fac="del-item" data-i="${i}">Quitar</button></td>
+            </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin líneas</td></tr>`}
+        </tbody>
+      </table>
+      <p style="text-align:right;margin:10px 0 0;font-size:1.25rem"><strong>Total ${money(total)}</strong></p>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <button type="button" class="btn big-soft ${f.modoPago === "cuenta" ? "on" : ""}" data-fac="modo" data-m="cuenta">Cuenta corriente</button>
+        <button type="button" class="btn big-soft ${f.modoPago === "contado" ? "on" : ""}" data-fac="modo" data-m="contado">Contado</button>
+      </div>
+      ${f.modoPago === "contado" ? `
+        <div class="caja-medios-inline" style="margin:10px 0">
+          ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
+            `<button type="button" class="btn big-soft ${f.medioPago === id ? "on" : ""}" data-fac="medio" data-m="${id}">${n}</button>`
+          ).join("")}
+        </div>
+        ${f.medioPago === "cheque" || f.medioPago === "echeq" ? htmlChequeForm("fac", { ...f.cheque, tipo: f.medioPago }, total) : ""}
+      ` : `<p class="lead">Queda como deuda del cliente hasta que se cobre.</p>`}
+      <div class="field full"><label>Observaciones</label><input id="fac-obs" value="${esc(f.obs || "")}"></div>
+      <button type="button" class="btn btn-grabar" data-fac="grabar" ${!f.cliente || !f.items.length ? "disabled" : ""}>
+        ${f.modoPago === "contado" ? "Grabar cobrado" : "Grabar a cuenta"} ${f.items.some((x) => x.tubo_id) ? "+ despachar tubos" : ""}
+      </button>
+    </div>`;
+
+  const root = app();
+  root.onclick = onFacturarClick;
+  $("#fac-tipo").onchange = () => { state.facturar.tipo = $("#fac-tipo").value; };
+  const q = $("#fac-cli-q");
+  let tCli;
+  q.oninput = () => {
+    clearTimeout(tCli);
+    tCli = setTimeout(async () => {
+      const term = q.value.trim();
+      const box = $("#fac-cli-sug");
+      if (term.length < 2) { box.hidden = true; return; }
+      try {
+        const data = await api("/api/clientes?q=" + encodeURIComponent(term));
+        const rows = data.clientes || data || [];
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          box.innerHTML = `<li class="empty-li">Sin resultados</li>`;
+          box.hidden = false;
+          return;
+        }
+        box.innerHTML = list.slice(0, 12).map((c) =>
+          `<li data-fac="pick-cli" data-id="${c.id}" data-nombre="${esc(c.nombre)}" data-cuit="${esc(c.cuit || "")}">
+            <strong>${esc(c.nombre)}</strong><small>${esc(c.cuit || "")}</small><span class="cli-dir">${esc(c.direccion || "")}</span>
+          </li>`
+        ).join("");
+        box.hidden = false;
+      } catch (e) { toast(e.message, true); }
+    }, 220);
+  };
+  const tq = $("#fac-tubo-q");
+  let tTub;
+  tq.oninput = () => {
+    state.facturar.tuboQ = tq.value;
+    clearTimeout(tTub);
+    tTub = setTimeout(() => buscarTubosFacturar(tq.value).catch((e) => toast(e.message, true)), 250);
+  };
+  tq.onkeydown = (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      agregarTuboFacturar(tq.value).catch((e) => toast(e.message, true));
+    }
+  };
+}
+
+async function buscarTubosFacturar(term) {
+  const box = $("#fac-tubo-hits");
+  if (!box) return;
+  const q = String(term || "").trim();
+  if (q.length < 1) { box.hidden = true; return; }
+  const data = await api("/api/caja/buscar-tubo?q=" + encodeURIComponent(q));
+  const tubos = data.tubos || [];
+  if (!tubos.length) {
+    box.innerHTML = `<li class="empty-li">Sin tubos</li>`;
+    box.hidden = false;
+    return;
+  }
+  box.innerHTML = tubos.map((t) =>
+    `<li data-fac="pick-tubo" data-id="${t.id}" data-num="${esc(t.numero)}" data-desc="${esc(t.articulo_descripcion || "")}" data-estado="${esc(t.estado || "")}">
+      <strong>${esc(t.numero)}</strong>
+      <small>${esc(t.articulo_descripcion || "")} · ${esc(t.estado || "")}</small>
+      <span class="cli-dir">${esc(t.codigo_proveedor_mostrar || t.codigo_proveedor || "")}</span>
+    </li>`
+  ).join("");
+  box.hidden = false;
+}
+
+async function agregarTuboFacturar(codigo) {
+  const q = String(codigo || "").trim();
+  if (!q) return;
+  const data = await api("/api/caja/buscar-tubo?q=" + encodeURIComponent(q));
+  const t = (data.tubos || [])[0];
+  if (!t) { toast("Tubo no encontrado", true); return; }
+  pushTuboFacturar(t);
+}
+
+function pushTuboFacturar(t) {
+  const f = state.facturar;
+  if (f.items.some((it) => Number(it.tubo_id) === Number(t.id))) {
+    toast("Ese tubo ya está en la factura", true);
+    return;
+  }
+  f.items.push({
+    descripcion: `Tubo ${t.numero} · ${t.articulo_descripcion || ""}`.trim(),
+    cantidad: 1,
+    precio_unitario: 0,
+    tubo_id: t.id,
+  });
+  f.tuboQ = "";
+  pintarFacturar();
+  toast("Tubo agregado");
+}
+
+function onFacturarClick(ev) {
+  const btn = ev.target.closest("[data-fac]");
+  if (!btn) return;
+  const act = btn.getAttribute("data-fac");
+  const f = state.facturar;
+  if (act === "quit-cli") {
+    f.cliente = null;
+    pintarFacturar();
+  } else if (act === "pick-cli") {
+    f.cliente = { id: Number(btn.dataset.id), nombre: btn.dataset.nombre, cuit: btn.dataset.cuit || "" };
+    pintarFacturar();
+  } else if (act === "add-gas") {
+    f.items.push({
+      descripcion: btn.dataset.nom,
+      cantidad: 1,
+      precio_unitario: Number(btn.dataset.precio) || 0,
+      precio_caja_clave: btn.dataset.clave,
+    });
+    pintarFacturar();
+  } else if (act === "add-linea") {
+    const desc = $("#fac-desc")?.value?.trim();
+    const cant = parseMonto($("#fac-cant")?.value) || 1;
+    const pu = parseMonto($("#fac-pu")?.value) || 0;
+    if (!desc) { toast("Escribí la descripción", true); return; }
+    f.items.push({ descripcion: desc, cantidad: cant, precio_unitario: pu });
+    pintarFacturar();
+  } else if (act === "add-tubo") {
+    agregarTuboFacturar($("#fac-tubo-q")?.value).catch((e) => toast(e.message, true));
+  } else if (act === "pick-tubo") {
+    pushTuboFacturar({
+      id: Number(btn.dataset.id),
+      numero: btn.dataset.num,
+      articulo_descripcion: btn.dataset.desc,
+      estado: btn.dataset.estado,
+    });
+  } else if (act === "del-item") {
+    f.items.splice(Number(btn.dataset.i), 1);
+    pintarFacturar();
+  } else if (act === "modo") {
+    f.modoPago = btn.dataset.m;
+    pintarFacturar();
+  } else if (act === "medio") {
+    f.medioPago = btn.dataset.m;
+    if (btn.dataset.m === "cheque" || btn.dataset.m === "echeq") f.cheque.tipo = btn.dataset.m;
+    pintarFacturar();
+  } else if (act === "grabar") {
+    grabarFacturar().catch((e) => toast(e.message, true));
+  }
+}
+
+async function grabarFacturar() {
+  const f = state.facturar;
+  if (!f.cliente) { toast("Elegí un cliente", true); return; }
+  if (!f.items.length) { toast("Agregá líneas", true); return; }
+  f.tipo = $("#fac-tipo")?.value || f.tipo;
+  f.obs = $("#fac-obs")?.value || "";
+  const body = {
+    tipo: f.tipo,
+    cliente_id: f.cliente.id,
+    modo_pago: f.modoPago,
+    medio_pago: f.medioPago,
+    observaciones: f.obs,
+    items: f.items,
+  };
+  if (f.modoPago === "contado" && (f.medioPago === "cheque" || f.medioPago === "echeq")) {
+    body.cheque = leerChequeForm("fac");
+    body.medio_pago = body.cheque.tipo || f.medioPago;
+  }
+  const r = await api("/api/caja/comprobantes", { method: "POST", body });
+  const n = r.comprobante?.numero_txt || "";
+  const desp = (r.tubos_despachados || []).length;
+  toast(`Comprobante ${n} grabado` + (desp ? ` · ${desp} tubo(s) despachado(s)` : ""));
+  state.facturar = facturarInicial();
+  if (f.modoPago === "cuenta") location.hash = "#/deudas?cliente_id=" + f.cliente.id;
+  else pintarFacturar();
+}
+
+async function vistaDeudas(params) {
+  setNav("deudas");
+  const clienteId = params.get("cliente_id");
+  const q = params.get("q") || "";
+  if (clienteId) return vistaCuentaCorriente(clienteId);
+  const data = await api("/api/caja/deudas" + (q ? "?q=" + encodeURIComponent(q) : ""));
+  app().innerHTML = `
+    <h1>Deudas</h1>
+    <p class="lead">Clientes con saldo pendiente y desde cuándo.</p>
+    <div class="toolbar">
+      <div class="field" style="flex:1"><label>Buscar</label><input id="deu-q" value="${esc(q)}" placeholder="Cliente…"></div>
+      <button type="button" class="btn secondary" id="deu-buscar">Buscar</button>
+      <a class="btn" href="#/facturar">Nueva factura</a>
+    </div>
+    <div class="card"><small>Total adeudado</small><div class="n" style="font-size:1.6rem">${money(data.total)}</div>
+      <small>${data.n_clientes || 0} cliente(s)</small></div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Cliente</th><th>Desde</th><th>Días</th><th>Comp.</th><th>Saldo</th><th></th></tr></thead>
+        <tbody>
+          ${(data.deudas || []).map((d) => `
+            <tr class="${Number(d.dias) >= 30 ? "fila-deuda-vieja" : ""}">
+              <td><strong>${esc(d.cliente_nombre)}</strong><br><small>${esc(d.cliente_cuit || "")}</small></td>
+              <td>${esc(fmtFecha(d.desde))}</td>
+              <td class="mono">${esc(d.dias)}</td>
+              <td class="mono">${esc(d.n_comprobantes)}</td>
+              <td><strong>${money(d.saldo)}</strong></td>
+              <td><a class="btn secondary" href="#/deudas?cliente_id=${d.cliente_id}">Ver / Cobrar</a></td>
+            </tr>`).join("") || `<tr><td colspan="6" class="empty">No hay deudas abiertas.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#deu-buscar").onclick = () => {
+    const term = $("#deu-q").value.trim();
+    location.hash = "#/deudas" + (term ? "?q=" + encodeURIComponent(term) : "");
+  };
+}
+
+async function vistaCuentaCorriente(clienteId) {
+  setNav("deudas");
+  const data = await api("/api/caja/cuenta-corriente/" + clienteId);
+  const cli = data.cliente || {};
+  const abiertos = data.abiertos || [];
+  state.cobroDeuda = {
+    cliente_id: Number(clienteId),
+    medio: "efectivo",
+    montos: Object.fromEntries(abiertos.map((c) => [c.id, String(c.saldo)])),
+    cheque: { tipo: "cheque", banco: "", numero: "", librador: "", fecha_emision: "", fecha_pago: "", monto: "" },
+  };
+  const pintar = () => {
+    const st = state.cobroDeuda;
+    const totalSel = Math.round(
+      Object.entries(st.montos).reduce((s, [, v]) => s + (parseMonto(v) || 0), 0) * 100
+    ) / 100;
+    app().innerHTML = `
+      <p><a href="#/deudas">← Deudas</a></p>
+      <h1>${esc(cli.nombre)}</h1>
+      <p class="lead">Cuenta corriente · saldo ${money(data.saldo)}</p>
+      <div class="card">
+        <h3 style="margin-top:0">Cobrar deudas</h3>
+        ${abiertos.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th></th><th>Comprobante</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>A cobrar</th></tr></thead>
+            <tbody>
+              ${abiertos.map((c) => `
+                <tr>
+                  <td><input type="checkbox" class="deu-chk" data-id="${c.id}" ${st.montos[c.id] != null ? "checked" : ""}></td>
+                  <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)}</td>
+                  <td>${esc(fmtFecha(c.fecha))}</td>
+                  <td>${money(c.total)}</td>
+                  <td>${money(c.saldo)}</td>
+                  <td><input class="deu-monto" data-id="${c.id}" inputmode="decimal" value="${esc(st.montos[c.id] ?? "")}" ${st.montos[c.id] == null ? "disabled" : ""} style="width:110px"></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <div class="caja-medios-inline" style="margin:12px 0">
+            ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
+              `<button type="button" class="btn big-soft ${st.medio === id ? "on" : ""}" data-deu="medio" data-m="${id}">${n}</button>`
+            ).join("")}
+          </div>
+          ${st.medio === "cheque" || st.medio === "echeq" ? htmlChequeForm("deu", { ...st.cheque, tipo: st.medio }, totalSel) : ""}
+          <button type="button" class="btn btn-grabar" data-deu="cobrar" ${totalSel <= 0 ? "disabled" : ""}>Cobrar ${money(totalSel)}</button>
+        ` : `<p class="empty">Sin comprobantes abiertos.</p>`}
+      </div>
+      <div class="grid two">
+        <div class="card table-wrap">
+          <h3>Comprobantes</h3>
+          <table>
+            <thead><tr><th>Fecha</th><th>Nº</th><th>Estado</th><th>Total</th><th>Saldo</th></tr></thead>
+            <tbody>
+              ${(data.comprobantes || []).map((c) => `
+                <tr>
+                  <td>${esc(fmtFecha(c.fecha))}</td>
+                  <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)}</td>
+                  <td><span class="badge">${esc(c.estado)}</span></td>
+                  <td>${money(c.total)}</td>
+                  <td>${money(c.saldo)}</td>
+                </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin comprobantes</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="card table-wrap">
+          <h3>Cobros</h3>
+          <table>
+            <thead><tr><th>Fecha</th><th>Medio</th><th>Total</th></tr></thead>
+            <tbody>
+              ${(data.cobros || []).map((c) => `
+                <tr>
+                  <td>${esc(fmtFecha(c.fecha))} ${esc(c.hora || "")}</td>
+                  <td>${esc(etiquetaMedio(c.medio_pago))}</td>
+                  <td>${money(c.total)}</td>
+                </tr>`).join("") || `<tr><td colspan="3" class="empty">Sin cobros</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    app().onclick = (ev) => {
+      const b = ev.target.closest("[data-deu]");
+      if (!b) return;
+      if (b.getAttribute("data-deu") === "medio") {
+        leerMontosDeudaDom();
+        st.medio = b.dataset.m;
+        if (b.dataset.m === "cheque" || b.dataset.m === "echeq") st.cheque.tipo = b.dataset.m;
+        pintar();
+      } else if (b.getAttribute("data-deu") === "cobrar") {
+        cobrarDeudaCliente().catch((e) => toast(e.message, true));
+      }
+    };
+    document.querySelectorAll(".deu-chk").forEach((chk) => {
+      chk.onchange = () => {
+        const id = chk.dataset.id;
+        const open = abiertos.find((x) => String(x.id) === String(id));
+        if (chk.checked) st.montos[id] = String(open?.saldo ?? "");
+        else delete st.montos[id];
+        pintar();
+      };
+    });
+    document.querySelectorAll(".deu-monto").forEach((inp) => {
+      inp.oninput = () => { st.montos[inp.dataset.id] = inp.value; };
+    });
+  };
+  function leerMontosDeudaDom() {
+    document.querySelectorAll(".deu-monto").forEach((inp) => {
+      if (!inp.disabled) state.cobroDeuda.montos[inp.dataset.id] = inp.value;
+    });
+  }
+  async function cobrarDeudaCliente() {
+    leerMontosDeudaDom();
+    const st = state.cobroDeuda;
+    const aplicaciones = Object.entries(st.montos)
+      .map(([id, v]) => ({ comprobante_id: Number(id), monto: parseMonto(v) }))
+      .filter((a) => a.monto > 0);
+    if (!aplicaciones.length) { toast("Indicá montos a cobrar", true); return; }
+    const body = {
+      cliente_id: st.cliente_id,
+      medio_pago: st.medio,
+      aplicaciones,
+    };
+    if (st.medio === "cheque" || st.medio === "echeq") {
+      body.cheque = leerChequeForm("deu");
+      body.medio_pago = body.cheque.tipo || st.medio;
+    }
+    await api("/api/caja/cobros", { method: "POST", body });
+    toast("Cobro registrado");
+    return vistaCuentaCorriente(clienteId);
+  }
+  pintar();
+}
+
+async function vistaCheques(params) {
+  setNav("cheques");
+  const estado = params.get("estado") || "";
+  const tipo = params.get("tipo") || "";
+  const q = new URLSearchParams();
+  if (estado) q.set("estado", estado);
+  if (tipo) q.set("tipo", tipo);
+  const data = await api("/api/caja/cheques" + (q.toString() ? "?" + q : ""));
+  const filtrosEst = [
+    ["", "Todos"],
+    ["en_cartera", "En cartera"],
+    ["endosado", "Endosados"],
+    ["depositado", "Depositados"],
+    ["cobrado", "Cobrados"],
+    ["rechazado", "Rechazados"],
+  ];
+  app().innerHTML = `
+    <h1>Cheques</h1>
+    <p class="lead">Cartera de cheques y ECHEQ · cargar, endosar y cambiar estado.</p>
+    <div class="toolbar">
+      ${filtrosEst.map(([id, nom]) =>
+        `<a class="btn secondary ${estado === id ? "on" : ""}" href="#/cheques?estado=${id}${tipo ? "&tipo=" + tipo : ""}">${nom}</a>`
+      ).join("")}
+      <a class="btn secondary ${tipo === "cheque" ? "on" : ""}" href="#/cheques?tipo=cheque${estado ? "&estado=" + estado : ""}">Cheque</a>
+      <a class="btn secondary ${tipo === "echeq" ? "on" : ""}" href="#/cheques?tipo=echeq${estado ? "&estado=" + estado : ""}">ECHEQ</a>
+      <button type="button" class="btn" id="ch-nuevo">Cargar cheque</button>
+    </div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Tipo</th><th>Nº</th><th>Banco</th><th>Cliente</th><th>Monto</th><th>Pago</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${(data.cheques || []).map((c) => `
+            <tr>
+              <td>${esc(c.tipo === "echeq" ? "ECHEQ" : "Cheque")}</td>
+              <td class="mono">${esc(c.numero)}</td>
+              <td>${esc(c.banco || "")}</td>
+              <td>${esc(c.cliente_nombre || "—")}</td>
+              <td><strong>${money(c.monto)}</strong></td>
+              <td>${esc(c.fecha_pago ? fmtFecha(c.fecha_pago) : "—")}</td>
+              <td><span class="badge">${esc(c.estado)}</span></td>
+              <td class="toolbar" style="margin:0">
+                ${c.estado === "en_cartera" || c.estado === "endosado" ? `<button type="button" class="btn secondary" data-ch="endosar" data-id="${c.id}">Endosar</button>` : ""}
+                ${c.estado !== "depositado" && c.estado !== "cobrado" && c.estado !== "rechazado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="depositado">Depositar</button>` : ""}
+                ${c.estado === "depositado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="cobrado">Cobrado</button>` : ""}
+                ${c.estado !== "rechazado" && c.estado !== "cobrado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="rechazado" style="color:#9b2c2c">Rechazar</button>` : ""}
+              </td>
+            </tr>`).join("") || `<tr><td colspan="8" class="empty">Sin cheques</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div id="ch-modal" class="modal-backdrop" hidden></div>`;
+  $("#ch-nuevo").onclick = () => abrirAltaCheque();
+  app().onclick = (ev) => {
+    const b = ev.target.closest("[data-ch]");
+    if (!b) return;
+    const act = b.getAttribute("data-ch");
+    const id = b.dataset.id;
+    if (act === "endosar") abrirEndoso(id);
+    else if (act === "estado") {
+      (async () => {
+        try {
+          await api("/api/caja/cheques/" + id, { method: "PUT", body: { estado: b.dataset.e } });
+          toast("Estado actualizado");
+          vistaCheques(params);
+        } catch (e) { toast(e.message, true); }
+      })();
+    }
+  };
+}
+
+function abrirAltaCheque() {
+  const box = $("#ch-modal");
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="modal card">
+      <h2>Cargar cheque / ECHEQ</h2>
+      ${htmlChequeForm("new", { tipo: "cheque" })}
+      <div class="toolbar" style="margin-top:12px">
+        <button type="button" class="btn" id="ch-save">Guardar</button>
+        <button type="button" class="btn secondary" id="ch-cancel">Cancelar</button>
+      </div>
+    </div>`;
+  box.onclick = (ev) => { if (ev.target === box) box.hidden = true; };
+  $("#ch-cancel").onclick = () => { box.hidden = true; };
+  $("#ch-save").onclick = async () => {
+    try {
+      const body = leerChequeForm("new");
+      if (!body.numero) { toast("Falta el número", true); return; }
+      await api("/api/caja/cheques", { method: "POST", body });
+      toast("Cheque cargado");
+      box.hidden = true;
+      vistaCheques(new URLSearchParams());
+    } catch (e) { toast(e.message, true); }
+  };
+}
+
+function abrirEndoso(id) {
+  const box = $("#ch-modal");
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="modal card">
+      <h2>Endosar cheque</h2>
+      <div class="field"><label>Endosatario</label><input id="end-nom" required></div>
+      <div class="field"><label>Fecha</label><input id="end-fecha" type="date" value="${hoyInput()}"></div>
+      <div class="field"><label>Observaciones</label><input id="end-obs"></div>
+      <div class="toolbar">
+        <button type="button" class="btn" id="end-ok">Confirmar endoso</button>
+        <button type="button" class="btn secondary" id="end-cancel">Cancelar</button>
+      </div>
+    </div>`;
+  box.onclick = (ev) => { if (ev.target === box) box.hidden = true; };
+  $("#end-cancel").onclick = () => { box.hidden = true; };
+  $("#end-ok").onclick = async () => {
+    try {
+      const endosatario = $("#end-nom").value.trim();
+      if (!endosatario) { toast("Indicá el endosatario", true); return; }
+      await api("/api/caja/cheques/" + id + "/endosar", {
+        method: "POST",
+        body: { endosatario, fecha: $("#end-fecha").value, observaciones: $("#end-obs").value },
+      });
+      toast("Cheque endosado");
+      box.hidden = true;
+      vistaCheques(new URLSearchParams(location.hash.split("?")[1] || ""));
+    } catch (e) { toast(e.message, true); }
+  };
 }
 
 function claseFilaVenta(v) {
@@ -4626,8 +5381,9 @@ async function vistaFacturacion(params) {
   ];
   app().innerHTML = `
     <h1>Facturación</h1>
-    <p class="lead">Resumen de lo cobrado. Para cobrar usá <a href="#/cobrar">Cobrar</a>.</p>
+    <p class="lead">Resumen de cobros del día/periodo. También: <a href="#/facturar">Facturar</a> · <a href="#/deudas">Deudas</a> · <a href="#/cheques">Cheques</a> · <a href="#/cobrar">Cobrar</a>.</p>
     ${r.pendientes_total ? `<a class="banner-fact" href="#/facturacion?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${r.pendientes_total} remito${r.pendientes_total === 1 ? "" : "s"} para facturar · ${money(r.pendientes_importe)}</a>` : ""}
+    <div id="banner-deudas-fact"></div>
     <div class="resumen-caja resumen-fact">
       <div class="card resumen-titulo"><small>${esHoy ? "Hoy" : "Período"}</small><div class="n">${esc(fmtFecha(desde))}${desde !== hasta ? " – " + esc(fmtFecha(hasta)) : ""}</div><small>${nVentas} venta${nVentas === 1 ? "" : "s"}</small></div>
       <div class="card"><small>Total vendido</small><div class="n">${money(r.ventas)}</div></div>
@@ -4644,6 +5400,9 @@ async function vistaFacturacion(params) {
       <a class="btn ghost" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Hoy</a>
       ${esAdmin ? `<a class="btn secondary" href="/api/caja/ventas.csv?desde=${esc(desde)}&hasta=${esc(hasta)}">Exportar CSV</a>` : ""}
       <a class="btn copper" href="#/cobrar">Ir a cobrar</a>
+      <a class="btn" href="#/facturar">Nueva factura</a>
+      <a class="btn secondary" href="#/deudas">Deudas</a>
+      <a class="btn secondary" href="#/cheques">Cheques</a>
     </form>
     <div class="tabs">
       ${filtros.map(([id, nom]) => `<a class="btn ${estado === id ? "" : "secondary"}" href="#/facturacion?desde=${esc(desde)}&hasta=${esc(hasta)}${id ? "&estado=" + id : ""}">${nom}</a>`).join("")}
@@ -4663,6 +5422,7 @@ async function vistaFacturacion(params) {
               <td>
                 <button type="button" class="btn ghost" data-edit-v="${v.id}">Editar</button>
                 ${esAdmin ? `<button type="button" class="btn secondary" data-tot-v="${v.id}">Ajustar $</button>` : ""}
+                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">A cuenta corriente</button>` : ""}
                 ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
               </td>
             </tr>`).join("") || `<tr><td colspan="7" class="empty">No hay movimientos en este período.</td></tr>`}
@@ -4732,6 +5492,19 @@ async function vistaFacturacion(params) {
       } catch (err) { toast(err.message, true); }
     };
   });
+  document.querySelectorAll("[data-cc-v]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        const r = await api("/api/caja/ventas/" + b.dataset.ccV + "/a-comprobante", { method: "POST", body: { tipo: "factura_x" } });
+        toast("Comprobante " + (r.comprobante?.numero_txt || "") + " en cuenta corriente");
+        location.hash = "#/deudas?cliente_id=" + r.comprobante.cliente_id;
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+  api("/api/caja/alertas").then((a) => {
+    const el = $("#banner-deudas-fact");
+    if (el) el.innerHTML = htmlBannerDeudas(a.alertas || []);
+  }).catch(() => {});
 }
 
 function refrescarTrasEditarVenta(desdeCobrar) {
@@ -4893,7 +5666,7 @@ async function route() {
     const { path, params } = parseHash();
     const parts = path.split("/").filter(Boolean);
     const seccion = parts[0] || "inicio";
-    if (rolActual() === "cobrador" && seccion !== "cobrar" && seccion !== "facturacion") {
+    if (rolActual() === "cobrador" && !["cobrar", "facturacion", "facturar", "deudas", "cheques"].includes(seccion)) {
       location.hash = "#/cobrar";
       return;
     }
@@ -5033,7 +5806,8 @@ $("#form-login")?.addEventListener("submit", async (e) => {
     mostrarLogin(false);
     if (rolActual() === "cobrador") {
       aplicarPermisos();
-      if (location.hash !== "#/cobrar") location.hash = "#/cobrar";
+      const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion"].some((p) => (location.hash || "").startsWith(p));
+      if (!okCaja) location.hash = "#/cobrar";
       else route();
       return;
     }
@@ -5061,7 +5835,8 @@ setInterval(tickReloj, 15000);
   mostrarLogin(false);
   if (rolActual() === "cobrador") {
     aplicarPermisos();
-    if (location.hash !== "#/cobrar") location.hash = "#/cobrar";
+    const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion"].some((p) => (location.hash || "").startsWith(p));
+    if (!okCaja) location.hash = "#/cobrar";
     else route();
     return;
   }
