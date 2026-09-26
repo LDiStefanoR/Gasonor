@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS documentos_planta (
   fecha TEXT NOT NULL,
   hora TEXT,
   observaciones TEXT,
-  creado_en TEXT NOT NULL
+  creado_en TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'cerrado'
 );
 CREATE TABLE IF NOT EXISTS documento_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +161,7 @@ export async function ensureSchema() {
     "ALTER TABLE reparto_paradas ADD COLUMN completada_por INTEGER",
     "ALTER TABLE reparto_paradas ADD COLUMN comentario TEXT",
     "ALTER TABLE proveedores ADD COLUMN cuit TEXT",
+    "ALTER TABLE documentos_planta ADD COLUMN estado TEXT NOT NULL DEFAULT 'cerrado'",
   ]) {
     try {
       await run(col);

@@ -1493,11 +1493,26 @@ async function handleApiInner(ctx: APIContext) {
 
   if (key === "GET /api/planta/documentos") {
     if (!puede(u, "admin", "despacho")) return err("No tiene permiso para esta acción.", 403);
+    const where: string[] = ["1=1"];
+    const args: (string | number)[] = [];
+    const tipoDoc = String(q.get("tipo") || "").trim();
+    const estadoDoc = String(q.get("estado") || "").trim();
+    if (tipoDoc === "despacho" || tipoDoc === "recepcion") {
+      where.push("d.tipo=?");
+      args.push(tipoDoc);
+    }
+    if (estadoDoc === "borrador" || estadoDoc === "cerrado") {
+      where.push("IFNULL(d.estado,'cerrado')=?");
+      args.push(estadoDoc);
+    }
     const documentos = await all(
       `SELECT d.*, p.nombre AS proveedor_nombre, u.nombre AS usuario_nombre,
               (SELECT COUNT(*) FROM documento_items i WHERE i.documento_id=d.id) AS cantidad
        FROM documentos_planta d JOIN proveedores p ON p.id=d.proveedor_id
-       LEFT JOIN usuarios u ON u.id=d.usuario_id ORDER BY d.id DESC LIMIT 80`,
+       LEFT JOIN usuarios u ON u.id=d.usuario_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY d.id DESC LIMIT 80`,
+      args,
     );
     return json({ ok: true, documentos });
   }
@@ -1828,6 +1843,9 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
     hora = ahora().slice(11, 16);
   }
   const lotesRaw = (data.lotes && typeof data.lotes === "object" ? data.lotes : {}) as Record<string, unknown>;
+  const borrador =
+    tipo === "recepcion" &&
+    (Boolean(data.borrador) || String(u.rol || "") === "despacho");
   if (tipo === "despacho" && nuevos.length) {
     const art = await asegurarNoreg();
     const tnow = ahora();
@@ -1849,10 +1867,14 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
       ids.push(Number(ins.lastInsertRowid));
     }
   }
+  const estadoDoc = borrador ? "borrador" : "cerrado";
+  if (tipo === "recepcion" && !borrador && !remito) {
+    return err("El número de remito es obligatorio al cerrar la recepción.");
+  }
   const doc = await run(
-    `INSERT INTO documentos_planta (tipo, proveedor_id, usuario_id, remito, fecha, hora, observaciones, creado_en)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [tipo, proveedor_id, u.id, remito, fecha, hora, obs, ahora()],
+    `INSERT INTO documentos_planta (tipo, proveedor_id, usuario_id, remito, fecha, hora, observaciones, creado_en, estado)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [tipo, proveedor_id, u.id, remito, fecha, hora, obs, ahora(), estadoDoc],
   );
   const doc_id = Number(doc.lastInsertRowid);
   const vistos = new Set<number>();
@@ -1887,6 +1909,15 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
       if (tubo.proveedor_id && Number(tubo.proveedor_id) !== Number(proveedor_id)) {
         return err(`El tubo ${tubo.numero} está en otra planta.`);
       }
+      if (borrador) {
+        await run("INSERT INTO documento_items (documento_id, tubo_id, codigo_leido) VALUES (?,?,?)", [
+          doc_id,
+          tid,
+          String(tubo.codigo_proveedor || tubo.numero),
+        ]);
+        cantidad += 1;
+        continue;
+      }
       const loteTubo = String(lotesRaw[String(tid)] ?? lotesRaw[tid] ?? lote ?? "").trim().toUpperCase();
       if (!loteTubo) return err(`Falta el número de lote del tubo ${tubo.numero}.`);
       await run(
@@ -1896,7 +1927,7 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
       await registrarMovimiento(tubo, "PLANENTR", "en_planta", "cargado", fecha, {
         lote: loteTubo,
         fecha_vto: fecha_vto || String(tubo.fecha_vto || ""),
-        observaciones: `Remito ${remito}`,
+        observaciones: remito ? `Remito ${remito}` : "Recepción de planta",
       });
       await run("INSERT INTO documento_items (documento_id, tubo_id, codigo_leido, lote) VALUES (?,?,?,?)", [
         doc_id,
@@ -1914,7 +1945,7 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
     ]);
     cantidad += 1;
   }
-  return json({ ok: true, id: doc_id, cantidad });
+  return json({ ok: true, id: doc_id, cantidad, borrador, estado: estadoDoc });
 }
 
 async function paradasDe(rid: number, campos: Record<string, boolean>, rol: string) {
