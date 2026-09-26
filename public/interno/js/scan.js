@@ -1,4 +1,4 @@
-/* Lector continuo de códigos de barras: cámara, línea roja, sonidos. */
+/* Lector continuo de códigos de barras: cámara, línea roja, sonidos, reenfoque. */
 (function (global) {
   let running = false;
   let stream = null;
@@ -10,6 +10,10 @@
   let detector = null;
   let canvas = null;
   let canvasCtx = null;
+  let videoTrack = null;
+  let focusTimer = 0;
+  let tapBoundEl = null;
+  let lastFocusAt = 0;
 
   function unlockAudio() {
     try {
@@ -102,6 +106,160 @@
     return String(raw || "").replace(/[\s\u0000]/g, "").trim();
   }
 
+  function getActiveTrack() {
+    if (videoTrack && videoTrack.readyState === "live") return videoTrack;
+    if (stream) {
+      const t = stream.getVideoTracks()[0];
+      if (t) {
+        videoTrack = t;
+        return t;
+      }
+    }
+    const video = document.querySelector("#lector video");
+    if (video && video.srcObject) {
+      const t = video.srcObject.getVideoTracks && video.srcObject.getVideoTracks()[0];
+      if (t) {
+        videoTrack = t;
+        stream = video.srcObject;
+        return t;
+      }
+    }
+    return null;
+  }
+
+  function capsOf(track) {
+    try {
+      return typeof track.getCapabilities === "function" ? track.getCapabilities() : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  async function applyFocus(track, mode, point) {
+    if (!track) return false;
+    const caps = capsOf(track);
+    const advanced = [];
+    if (caps.focusMode && Array.isArray(caps.focusMode) && caps.focusMode.includes(mode)) {
+      advanced.push({ focusMode: mode });
+    }
+    if (
+      point &&
+      caps.pointsOfInterest &&
+      Number.isFinite(point.x) &&
+      Number.isFinite(point.y)
+    ) {
+      advanced.push({
+        pointsOfInterest: [{ x: Math.min(1, Math.max(0, point.x)), y: Math.min(1, Math.max(0, point.y)) }],
+      });
+    }
+    if (!advanced.length) return false;
+    try {
+      await track.applyConstraints({ advanced });
+      lastFocusAt = Date.now();
+      return true;
+    } catch (_) {
+      try {
+        if (mode) await track.applyConstraints({ focusMode: mode });
+        lastFocusAt = Date.now();
+        return true;
+      } catch (__) {
+        return false;
+      }
+    }
+  }
+
+  async function enableContinuousFocus() {
+    const track = getActiveTrack();
+    if (!track) return;
+    const caps = capsOf(track);
+    // Preferir enfoque continuo; si no, single-shot al arrancar.
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      await applyFocus(track, "continuous");
+    } else if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      await applyFocus(track, "single-shot");
+    } else {
+      await applyFocus(track, "continuous");
+    }
+  }
+
+  /** Reenfoca: toque en pantalla o después de leer un código. */
+  async function refocus(point) {
+    const track = getActiveTrack();
+    if (!track) return false;
+    const now = Date.now();
+    if (now - lastFocusAt < 350) return false;
+    const caps = capsOf(track);
+    let ok = false;
+    // Ciclo single-shot → continuous despierta el AF en muchos Android.
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      ok = await applyFocus(track, "single-shot", point);
+      setTimeout(() => {
+        applyFocus(track, caps.focusMode.includes("continuous") ? "continuous" : "single-shot", point).catch(() => {});
+      }, 280);
+    } else {
+      ok = await applyFocus(track, "continuous", point);
+      // Pequeño “nudge”: algunos equipos reaccionan mejor al reaplicar.
+      setTimeout(() => {
+        applyFocus(track, "continuous", point).catch(() => {});
+      }, 200);
+    }
+    flashFocusHint(point);
+    return ok;
+  }
+
+  function flashFocusHint(point) {
+    const stage = document.querySelector(".scan-stage");
+    if (!stage) return;
+    let ring = stage.querySelector(".scan-focus-ring");
+    if (!ring) {
+      ring = document.createElement("div");
+      ring.className = "scan-focus-ring";
+      stage.appendChild(ring);
+    }
+    const x = point && Number.isFinite(point.x) ? point.x * 100 : 50;
+    const y = point && Number.isFinite(point.y) ? point.y * 100 : 50;
+    ring.style.left = x + "%";
+    ring.style.top = y + "%";
+    ring.classList.remove("show");
+    // force reflow
+    void ring.offsetWidth;
+    ring.classList.add("show");
+  }
+
+  function scheduleAutoRefocus() {
+    if (focusTimer) clearInterval(focusTimer);
+    focusTimer = window.setInterval(() => {
+      if (!running) return;
+      refocus().catch(() => {});
+    }, 4500);
+  }
+
+  function bindTapToFocus(rootEl) {
+    unbindTapToFocus();
+    const stage = (rootEl && rootEl.closest && rootEl.closest(".scan-stage")) || document.querySelector(".scan-stage") || rootEl;
+    if (!stage) return;
+    tapBoundEl = stage;
+    const onTap = (ev) => {
+      if (!running) return;
+      const t = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
+      const rect = stage.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const x = (t.clientX - rect.left) / rect.width;
+      const y = (t.clientY - rect.top) / rect.height;
+      refocus({ x, y }).catch(() => {});
+    };
+    stage.addEventListener("pointerdown", onTap);
+    stage._gasonorFocusTap = onTap;
+  }
+
+  function unbindTapToFocus() {
+    if (tapBoundEl && tapBoundEl._gasonorFocusTap) {
+      tapBoundEl.removeEventListener("pointerdown", tapBoundEl._gasonorFocusTap);
+      delete tapBoundEl._gasonorFocusTap;
+    }
+    tapBoundEl = null;
+  }
+
   function emit(code, onCode) {
     code = normalize(code);
     if (!code) return;
@@ -111,6 +269,8 @@
     lastAt = now;
     beep("read");
     showLast("Leído: " + code, "read");
+    // Tras cada lectura el tubo se aleja: forzar reenfoque para el siguiente.
+    setTimeout(() => { refocus().catch(() => {}); }, 400);
     onCode(code);
   }
 
@@ -121,6 +281,8 @@
         facingMode: { ideal: "environment" },
         width: { ideal: 1280 },
         height: { ideal: 720 },
+        // Pistas avanzadas: el navegador ignora las que no soporta.
+        advanced: [{ focusMode: "continuous" }],
       },
     };
   }
@@ -140,7 +302,12 @@
         streamTry.getTracks().forEach((t) => t.stop());
         return navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { deviceId: { exact: rear.deviceId } },
+          video: {
+            deviceId: { exact: rear.deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ focusMode: "continuous" }],
+          },
         });
       }
     } catch (_) {}
@@ -229,6 +396,13 @@
       (decodedText, decodedResult) => emit(decodedText || decodedResult, onCode),
       () => {}
     );
+    // Capturar track del video que crea html5-qrcode.
+    setTimeout(() => {
+      getActiveTrack();
+      enableContinuousFocus().catch(() => {});
+      bindTapToFocus(el);
+      scheduleAutoRefocus();
+    }, 300);
   }
 
   async function start(elementId, onCode) {
@@ -237,6 +411,7 @@
     beep("read");
     lastCode = "";
     lastAt = 0;
+    lastFocusAt = 0;
     const el = document.getElementById(elementId);
     if (!el) return;
     running = true;
@@ -244,13 +419,18 @@
     if ("BarcodeDetector" in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         stream = await pickRearStream();
+        videoTrack = stream.getVideoTracks()[0] || null;
         const video = await mountVideo(el, stream);
+        await enableContinuousFocus();
+        bindTapToFocus(el);
+        scheduleAutoRefocus();
         await loopDetect(video, onCode);
         return;
       } catch (err) {
         running = false;
         if (stream) stream.getTracks().forEach((t) => t.stop());
         stream = null;
+        videoTrack = null;
         if (insecure) {
           throw new Error("El celular bloquea la cámara en HTTP. Usá https://192.168.x.x:5051 y aceptá el aviso.");
         }
@@ -272,10 +452,16 @@
       clearTimeout(raf);
       raf = 0;
     }
+    if (focusTimer) {
+      clearInterval(focusTimer);
+      focusTimer = 0;
+    }
+    unbindTapToFocus();
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
       stream = null;
     }
+    videoTrack = null;
     detector = null;
     canvas = null;
     canvasCtx = null;
@@ -288,5 +474,5 @@
     }
   }
 
-  global.GasonorScan = { start, stop, beep, unlockAudio, showLast };
+  global.GasonorScan = { start, stop, beep, unlockAudio, showLast, refocus };
 })(window);

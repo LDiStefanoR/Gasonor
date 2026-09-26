@@ -119,7 +119,7 @@ function esCelular() {
 }
 
 function rutaSoloCelular(seccion) {
-  return ["facturar", "deudas", "cheques", "facturacion", "planta", "cliente", "envios", "reparto"].includes(seccion);
+  return ["planta", "cliente", "envios", "reparto"].includes(seccion);
 }
 
 function etiquetaRol(rol) {
@@ -468,14 +468,20 @@ async function vistaInicio() {
         <a class="quick red" href="#/cliente/recepcion">Recepción de cliente</a>
       ` : ""}
       ${esCelular() && puede("admin", "reparto") ? `<a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/reparto">Reparto del día</a>` : ""}
+      ${!esCelular() && rolActual() === "admin" ? `
+        <a class="quick" style="background:#8a5a12" href="#/facturacion">Facturación</a>
+        <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
+        <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
+        <a class="quick" style="background:#24483e" href="#/facturar">Nueva factura</a>
+      ` : ""}
       ${esCelular() && (rolActual() === "admin" || rolActual() === "cobrador") ? `
         <a class="quick" style="background:#8a5a12" href="#/facturar">Facturar</a>
         <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
         <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
-        <a class="quick" style="background:#24483e" href="#/facturacion">Resumen caja</a>
+        <a class="quick" style="background:#24483e" href="#/facturacion">Facturación</a>
       ` : ""}
-      ${!esCelular() && (rolActual() === "admin" || rolActual() === "cobrador") ? `
-        <a class="quick" style="background:#24483e;grid-column:1/-1" href="#/cobrar">Cobrar</a>
+      ${(rolActual() === "admin" || rolActual() === "cobrador") ? `
+        <a class="quick" style="background:#1a3a32${!esCelular() && rolActual() === "admin" ? "" : ";grid-column:1/-1"}" href="#/cobrar">Cobrar (caja)</a>
       ` : ""}
     </div>
     ${esCelular() && pendientes.length ? `
@@ -2822,6 +2828,7 @@ function htmlBloqueCamara(hint) {
           </div>
         </div>
         <p class="scan-hint">${hint}</p>
+        <p class="scan-hint" style="margin-top:4px;opacity:.85">Enfoque continuo activo · <b>tocá la cámara</b> si pierde el foco</p>
         <button class="btn secondary btn-cam-lg" type="button" id="btn-stop">Detener escáner</button>
       </div>
     </div>`;
@@ -3318,8 +3325,8 @@ async function vistaScan(modo, proveedorId) {
       </div>` : ""}
     <div class="card scan-wrap">
       ${htmlBloqueCamara(modo === "despacho"
-        ? "Tocá <b>Iniciar cámara</b>. Sirve número de tubo o código de proveedor. Si no está en la base, vas a poder registrarlo."
-        : "Tocá <b>Iniciar cámara</b>. Solo se aceptan tubos <b>ya despachados</b> a este proveedor.")}
+        ? "Tocá <b>Iniciar cámara</b>. Sirve número de tubo o código de proveedor. Si no está en la base, vas a poder registrarlo. Si se desenfoca, <b>tocá la imagen</b> para reenfocar."
+        : "Tocá <b>Iniciar cámara</b>. Solo se aceptan tubos <b>ya despachados</b> a este proveedor. Si se desenfoca, <b>tocá la imagen</b> para reenfocar.")}
       <div id="scan-last" class="scan-last" hidden></div>
       <form id="manual" class="toolbar">
         <div class="field" style="flex:1"><label>Carga manual</label>
@@ -3915,7 +3922,7 @@ async function vistaScanCliente(modo, clienteId) {
         </table></div>
       </div>` : ""}
     <div class="card scan-wrap">
-      ${htmlBloqueCamara("Tocá <b>Activar escáner continuo</b> si querés leer con la cámara.")}
+      ${htmlBloqueCamara("Tocá <b>Activar escáner continuo</b> si querés leer con la cámara. Si se desenfoca, tocá la imagen para reenfocar.")}
       <div id="scan-last" class="scan-last" hidden></div>
       <form id="manual" class="toolbar">
         <div class="field" style="flex:1"><label>Carga manual</label>
@@ -4549,14 +4556,15 @@ function pintarCobrar() {
         <div class="caja-cobro-head">
           <h1 class="caja-title">Cobrar</h1>
           <div class="caja-head-links">
-            ${esCelular() ? `
+            ${rolActual() === "admin" || esCelular() ? `
+              <a class="btn secondary btn-caja-fact" href="#/facturacion">Facturación</a>
               <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
-              <a class="btn secondary btn-caja-fact" href="#/facturar">Facturar</a>
-              <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Resumen</a>
+              <a class="btn secondary btn-caja-fact" href="#/facturar">Nueva factura</a>
+              <a class="btn secondary btn-caja-fact" href="#/cheques?estado=en_cartera">Cheques</a>
             ` : ""}
           </div>
         </div>
-        ${esCelular() ? htmlBannerDeudas(c.alertas) : ""}
+        ${rolActual() === "admin" || esCelular() ? htmlBannerDeudas(c.alertas) : ""}
         ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
         <div class="caja-modos" id="caja-root-modos">
           ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
@@ -4895,7 +4903,7 @@ function pintarFacturar() {
   const gases = (f.precios || []).filter((p) => p.tipo === "gas");
   app().innerHTML = `
     <h1>Facturar</h1>
-    <p class="lead">Comprobante interno · cuenta corriente o contado · podés despachar tubos al cliente al grabar.</p>
+    <p class="lead">Comprobante de venta (A/B/X/remito) con códigos de precio · cuenta corriente o contado · podés sumar un tubo y despacharlo al cliente al grabar.</p>
     <div class="toolbar">
       <div class="field"><label>Tipo</label>
         <select id="fac-tipo">
@@ -5324,10 +5332,11 @@ async function vistaCheques(params) {
     ["depositado", "Depositados"],
     ["cobrado", "Cobrados"],
     ["rechazado", "Rechazados"],
+    ["fuera_cartera", "Fuera de cartera"],
   ];
   app().innerHTML = `
-    <h1>Cheques</h1>
-    <p class="lead">Cartera de cheques y ECHEQ · cargar, endosar y cambiar estado.</p>
+    <h1>Cartera de cheques</h1>
+    <p class="lead">Cheques y ECHEQ en cartera · endosar a proveedores · depositar o sacar de cartera.</p>
     <div class="toolbar">
       ${filtrosEst.map(([id, nom]) =>
         `<a class="btn secondary ${estado === id ? "on" : ""}" href="#/cheques?estado=${id}${tipo ? "&tipo=" + tipo : ""}">${nom}</a>`
@@ -5335,6 +5344,7 @@ async function vistaCheques(params) {
       <a class="btn secondary ${tipo === "cheque" ? "on" : ""}" href="#/cheques?tipo=cheque${estado ? "&estado=" + estado : ""}">Cheque</a>
       <a class="btn secondary ${tipo === "echeq" ? "on" : ""}" href="#/cheques?tipo=echeq${estado ? "&estado=" + estado : ""}">ECHEQ</a>
       <button type="button" class="btn" id="ch-nuevo">Cargar cheque</button>
+      <a class="btn ghost" href="#/facturacion">← Facturación</a>
     </div>
     <div class="card table-wrap">
       <table>
@@ -5348,18 +5358,19 @@ async function vistaCheques(params) {
               <td>${esc(c.cliente_nombre || "—")}</td>
               <td><strong>${money(c.monto)}</strong></td>
               <td>${esc(c.fecha_pago ? fmtFecha(c.fecha_pago) : "—")}</td>
-              <td><span class="badge">${esc(c.estado)}</span></td>
+              <td><span class="badge">${esc(c.estado === "fuera_cartera" ? "Fuera de cartera" : c.estado)}</span></td>
               <td class="toolbar" style="margin:0">
-                ${c.estado === "en_cartera" || c.estado === "endosado" ? `<button type="button" class="btn secondary" data-ch="endosar" data-id="${c.id}">Endosar</button>` : ""}
-                ${c.estado !== "depositado" && c.estado !== "cobrado" && c.estado !== "rechazado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="depositado">Depositar</button>` : ""}
+                ${c.estado === "en_cartera" ? `<button type="button" class="btn secondary" data-ch="endosar" data-id="${c.id}">Endosar a proveedor</button>` : ""}
+                ${c.estado === "en_cartera" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="depositado">Depositar</button>` : ""}
+                ${c.estado === "en_cartera" || c.estado === "endosado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="fuera_cartera">Sacar de cartera</button>` : ""}
                 ${c.estado === "depositado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="cobrado">Cobrado</button>` : ""}
-                ${c.estado !== "rechazado" && c.estado !== "cobrado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="rechazado" style="color:#9b2c2c">Rechazar</button>` : ""}
+                ${c.estado === "en_cartera" || c.estado === "depositado" ? `<button type="button" class="btn ghost" data-ch="estado" data-id="${c.id}" data-e="rechazado" style="color:#9b2c2c">Rechazar</button>` : ""}
               </td>
             </tr>`).join("") || `<tr><td colspan="8" class="empty">Sin cheques</td></tr>`}
         </tbody>
       </table>
     </div>
-    <div id="ch-modal" class="modal-backdrop" hidden></div>`;
+    <div id="ch-modal" class="modal-back" hidden></div>`;
   $("#ch-nuevo").onclick = () => abrirAltaCheque();
   app().onclick = (ev) => {
     const b = ev.target.closest("[data-ch]");
@@ -5410,8 +5421,9 @@ function abrirEndoso(id) {
   box.hidden = false;
   box.innerHTML = `
     <div class="modal card">
-      <h2>Endosar cheque</h2>
-      <div class="field"><label>Endosatario</label><input id="end-nom" required></div>
+      <h2>Endosar a proveedor / tercero</h2>
+      <p class="lead">El cheque sale de cartera como endosado para pago.</p>
+      <div class="field"><label>Endosatario (proveedor / beneficiario)</label><input id="end-nom" required placeholder="Nombre del proveedor"></div>
       <div class="field"><label>Fecha</label><input id="end-fecha" type="date" value="${hoyInput()}"></div>
       <div class="field"><label>Observaciones</label><input id="end-obs"></div>
       <div class="toolbar">
@@ -5451,12 +5463,19 @@ async function vistaFacturacion(params) {
   const estado = params.get("estado") || "";
   const q = new URLSearchParams({ desde, hasta });
   if (estado) q.set("estado", estado);
-  const data = await api("/api/caja/ventas?" + q.toString());
+  const [data, deudas, cheques] = await Promise.all([
+    api("/api/caja/ventas?" + q.toString()),
+    api("/api/caja/deudas").catch(() => ({ deudas: [], total: 0, n_clientes: 0 })),
+    api("/api/caja/cheques?estado=en_cartera").catch(() => ({ cheques: [] })),
+  ]);
   const precios = data.precios || [];
   const gases = precios.filter((p) => p.tipo === "gas");
   const r = data.resumen || {};
   const esHoy = desde === hoyInput() && hasta === hoyInput();
   const nVentas = (data.ventas || []).filter((v) => v.tipo !== "salida").length;
+  const listaDeudas = (deudas.deudas || []).slice(0, 8);
+  const listaCheques = (cheques.cheques || []).slice(0, 8);
+  const nCheques = (cheques.cheques || []).length;
   const filtros = [
     ["", "Del período"],
     ["pendiente", "Para facturar"],
@@ -5466,15 +5485,66 @@ async function vistaFacturacion(params) {
   ];
   app().innerHTML = `
     <h1>Facturación</h1>
-    <p class="lead">Resumen de cobros del día/periodo. También: <a href="#/facturar">Facturar</a> · <a href="#/deudas">Deudas</a> · <a href="#/cheques">Cheques</a> · <a href="#/cobrar">Cobrar</a>.</p>
-    ${r.pendientes_total ? `<a class="banner-fact" href="#/facturacion?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${r.pendientes_total} remito${r.pendientes_total === 1 ? "" : "s"} para facturar · ${money(r.pendientes_importe)}</a>` : ""}
-    <div id="banner-deudas-fact"></div>
+    <p class="lead">Estadísticas de ventas, deudas, facturas y cheques. <a href="#/cobrar">Cobrar</a> es solo para quien atiende la caja.</p>
+
+    <div class="toolbar fact-acciones">
+      <a class="btn copper" href="#/facturar">Nueva factura / comprobante</a>
+      <a class="btn" href="#/deudas">Deudas activas${deudas.n_clientes ? ` (${deudas.n_clientes})` : ""}</a>
+      <a class="btn secondary" href="#/cheques?estado=en_cartera">Cartera de cheques${nCheques ? ` (${nCheques})` : ""}</a>
+      <a class="btn ghost" href="#/cobrar">Ir a cobrar (caja)</a>
+    </div>
+
+    <div class="grid two fact-paneles">
+      <div class="card">
+        <h3 style="margin-top:0">Deudas activas · ${money(deudas.total || 0)}</h3>
+        ${listaDeudas.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Cliente</th><th>Desde</th><th>Días</th><th>Saldo</th><th></th></tr></thead>
+            <tbody>
+              ${listaDeudas.map((d) => `
+                <tr class="${Number(d.dias) >= 30 ? "fila-deuda-vieja" : ""}">
+                  <td><strong>${esc(d.cliente_nombre)}</strong></td>
+                  <td>${esc(fmtFecha(d.desde))}</td>
+                  <td class="mono">${esc(d.dias)}</td>
+                  <td><strong>${money(d.saldo)}</strong></td>
+                  <td><a class="btn secondary" href="#/deudas?cliente_id=${d.cliente_id}">Cobrar</a></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <p style="margin:10px 0 0"><a href="#/deudas">Ver todas las deudas →</a></p>
+        ` : `<p class="empty">No hay deudas pendientes.</p>`}
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Cheques en cartera</h3>
+        ${listaCheques.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Tipo</th><th>Nº</th><th>Cliente</th><th>Monto</th><th>Pago</th></tr></thead>
+            <tbody>
+              ${listaCheques.map((c) => `
+                <tr>
+                  <td>${esc(c.tipo === "echeq" ? "ECHEQ" : "Cheque")}</td>
+                  <td class="mono">${esc(c.numero)}</td>
+                  <td>${esc(c.cliente_nombre || "—")}</td>
+                  <td><strong>${money(c.monto)}</strong></td>
+                  <td>${esc(c.fecha_pago ? fmtFecha(c.fecha_pago) : "—")}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <p style="margin:10px 0 0"><a href="#/cheques?estado=en_cartera">Abrir cartera (endosar / sacar) →</a></p>
+        ` : `<p class="empty">No hay cheques en cartera.</p>`}
+      </div>
+    </div>
+
+    ${r.pendientes_total ? `<a class="banner-fact" href="#/facturacion?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${r.pendientes_total} cobro${r.pendientes_total === 1 ? "" : "s"} de caja marcados para facturar · ${money(r.pendientes_importe)}</a>` : ""}
+
+    <h2 style="margin:22px 0 8px;font-size:1.15rem">Estadística de ventas</h2>
     <div class="resumen-caja resumen-fact">
       <div class="card resumen-titulo"><small>${esHoy ? "Hoy" : "Período"}</small><div class="n">${esc(fmtFecha(desde))}${desde !== hasta ? " – " + esc(fmtFecha(hasta)) : ""}</div><small>${nVentas} venta${nVentas === 1 ? "" : "s"}</small></div>
       <div class="card"><small>Total vendido</small><div class="n">${money(r.ventas)}</div></div>
       <div class="card"><small>Efectivo</small><div class="n">${money(r.efectivo)}</div></div>
       <div class="card"><small>Transf. / tarjeta</small><div class="n">${money((r.transferencia || 0) + (r.tarjeta || 0))}</div></div>
-      <div class="card"><small>Para facturar</small><div class="n">${money(r.para_facturar)}</div><small>${r.n_para_facturar || 0} pendiente${(r.n_para_facturar || 0) === 1 ? "" : "s"}</small></div>
+      <div class="card"><small>Cheques / ECHEQ</small><div class="n">${money((r.cheque || 0) + (r.echeq || 0))}</div></div>
+      <div class="card"><small>Para facturar (caja)</small><div class="n">${money(r.para_facturar)}</div><small>${r.n_para_facturar || 0}</small></div>
       <div class="card"><small>Salidas de caja</small><div class="n">${money(r.salidas)}</div></div>
       <div class="card"><small>Queda en caja</small><div class="n">${money(r.en_caja)}</div></div>
     </div>
@@ -5484,10 +5554,6 @@ async function vistaFacturacion(params) {
       <button class="btn" type="submit">Ver</button>
       <a class="btn ghost" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Hoy</a>
       ${esAdmin ? `<a class="btn secondary" href="/api/caja/ventas.csv?desde=${esc(desde)}&hasta=${esc(hasta)}">Exportar CSV</a>` : ""}
-      <a class="btn copper" href="#/cobrar">Ir a cobrar</a>
-      <a class="btn" href="#/facturar">Nueva factura</a>
-      <a class="btn secondary" href="#/deudas">Deudas</a>
-      <a class="btn secondary" href="#/cheques">Cheques</a>
     </form>
     <div class="tabs">
       ${filtros.map(([id, nom]) => `<a class="btn ${estado === id ? "" : "secondary"}" href="#/facturacion?desde=${esc(desde)}&hasta=${esc(hasta)}${id ? "&estado=" + id : ""}">${nom}</a>`).join("")}
@@ -5516,8 +5582,8 @@ async function vistaFacturacion(params) {
     </div>
     ${esAdmin ? `
     <div class="card" style="margin-top:14px">
-      <h3>Precios que ve el cobrador</h3>
-      <p class="lead">Gases por m³ (0,5 · 1 · 2 · 3 · 4 · 6 · 10). El CO2 se cobra por kilo; podés cambiarlo a m³ si hace falta. Regulador por unidad.</p>
+      <h3>Precios de caja (cobrador)</h3>
+      <p class="lead">Gases por m³ (CO2 por kg por defecto). Regulador por unidad.</p>
       <form id="form-precios">
         <div class="precio-grid precio-grid-4" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong></div>
         ${gases.map((g) => {
@@ -5580,17 +5646,14 @@ async function vistaFacturacion(params) {
   document.querySelectorAll("[data-cc-v]").forEach((b) => {
     b.onclick = async () => {
       try {
-        const r = await api("/api/caja/ventas/" + b.dataset.ccV + "/a-comprobante", { method: "POST", body: { tipo: "factura_x" } });
-        toast("Comprobante " + (r.comprobante?.numero_txt || "") + " en cuenta corriente");
-        location.hash = "#/deudas?cliente_id=" + r.comprobante.cliente_id;
+        const r2 = await api("/api/caja/ventas/" + b.dataset.ccV + "/a-comprobante", { method: "POST", body: { tipo: "factura_x" } });
+        toast("Comprobante " + (r2.comprobante?.numero_txt || "") + " en cuenta corriente");
+        location.hash = "#/deudas?cliente_id=" + r2.comprobante.cliente_id;
       } catch (err) { toast(err.message, true); }
     };
   });
-  api("/api/caja/alertas").then((a) => {
-    const el = $("#banner-deudas-fact");
-    if (el) el.innerHTML = htmlBannerDeudas(a.alertas || []);
-  }).catch(() => {});
 }
+
 
 function refrescarTrasEditarVenta(desdeCobrar) {
   if (desdeCobrar || (location.hash || "").startsWith("#/cobrar")) return vistaCobrar();
