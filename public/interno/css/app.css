@@ -302,7 +302,7 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(0,0,0,.35);
   pointer-events: none;
-  z-index: 5;
+  z-index: 7;
   opacity: 0;
   transform: scale(1.35);
 }
@@ -319,6 +319,15 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   inset: 0;
   pointer-events: none;
   z-index: 3;
+}
+.scan-focus-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: transparent;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  cursor: crosshair;
 }
 .scan-aim .shade {
   position: absolute;

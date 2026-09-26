@@ -251,19 +251,23 @@
     const old = getActiveTrack();
     const settings = old ? settingsOf(old) : {};
     const deviceId = preferredDeviceId || settings.deviceId || null;
+
+    // Importante en Android: soltar el hardware ANTES de pedir de nuevo.
+    if (stream) {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+      stream = null;
+    }
+    videoTrack = null;
+    if (video) {
+      try { video.srcObject = null; } catch (_) {}
+    }
+    await sleep(120);
+
     const constraints = {
       audio: false,
       video: deviceId
-        ? {
-            deviceId: { exact: deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          }
-        : {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
     };
     let newStream;
     try {
@@ -274,9 +278,6 @@
         video: { facingMode: { ideal: "environment" } },
       });
     }
-    if (stream) {
-      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
-    }
     stream = newStream;
     videoTrack = newStream.getVideoTracks()[0] || null;
     const st = settingsOf(videoTrack);
@@ -285,41 +286,42 @@
       video.srcObject = newStream;
       try { await video.play(); } catch (_) {}
     }
-    await sleep(80);
+    await sleep(100);
     await enableContinuousFocus();
-    // Un pulso de zoom al reiniciar ayuda a “cerrar” el AF.
     await zoomPulse(videoTrack);
     return true;
   }
 
   /**
    * Reenfoque real (no solo el anillo).
-   * @param {object|boolean} [opts] point {x,y} o true = forzar reinicio de cámara
+   * @param {object|boolean} [opts] true / {hard, point}
    */
   async function refocus(opts) {
     const hard = opts === true || (opts && opts.hard);
-    const point = opts && typeof opts === "object" && !hard ? opts : (opts && opts.point) || null;
+    const point = (opts && typeof opts === "object" && opts.point)
+      || (opts && typeof opts === "object" && !opts.hard && Number.isFinite(opts.x) ? opts : null);
     if (focusing) return false;
-    const now = Date.now();
-    if (!hard && now - lastFocusAt < 500) return false;
     focusing = true;
     flashFocusHint(point);
     try {
+      // Toque / botón / auto: reinicio de cámara (es lo único fiable en la mayoría de celulares).
+      if (hard) {
+        await restartCameraTrack();
+        lastFocusAt = Date.now();
+        return true;
+      }
       const track = getActiveTrack();
-      if (!track) return false;
-
-      // 1) Barrido de distancia / single-shot / zoom (sin reiniciar).
+      if (!track) {
+        await restartCameraTrack();
+        lastFocusAt = Date.now();
+        return true;
+      }
       let ok = await focusDistanceSweep(track);
       if (!ok) ok = await singleShotFocus(track, point);
       ok = (await zoomPulse(track)) || ok;
-
-      // 2) Si el usuario pidió foco a propósito (toque / botón) o nada funcionó → reiniciar cámara.
-      if (hard || !ok) {
-        ok = (await restartCameraTrack()) || ok;
-      }
-
+      if (!ok) await restartCameraTrack();
       lastFocusAt = Date.now();
-      return ok;
+      return true;
     } catch (_) {
       try {
         await restartCameraTrack();
@@ -353,40 +355,61 @@
 
   function scheduleAutoRefocus() {
     if (focusTimer) clearInterval(focusTimer);
-    // Cada tanto un pulso suave (zoom), sin reiniciar la cámara.
     focusTimer = window.setInterval(() => {
       if (!running || focusing) return;
-      const track = getActiveTrack();
-      if (!track) return;
-      zoomPulse(track).catch(() => {});
-    }, 5000);
+      // No reiniciar debajo de un modal.
+      if (document.querySelector(".modal-back")) return;
+      refocus(true).catch(() => {});
+    }, 2000);
+  }
+
+  function ensureFocusHitLayer(stage) {
+    if (!stage) return null;
+    let hit = stage.querySelector("#scan-focus-hit");
+    if (!hit) {
+      hit = document.createElement("div");
+      hit.id = "scan-focus-hit";
+      hit.className = "scan-focus-hit";
+      hit.setAttribute("aria-label", "Tocar para reenfocar");
+      stage.appendChild(hit);
+    }
+    return hit;
   }
 
   function bindTapToFocus(rootEl) {
     unbindTapToFocus();
     const stage = (rootEl && rootEl.closest && rootEl.closest(".scan-stage")) || document.querySelector(".scan-stage") || rootEl;
     if (!stage) return;
-    tapBoundEl = stage;
+    const hit = ensureFocusHitLayer(stage);
+    tapBoundEl = hit || stage;
     const onTap = (ev) => {
       if (!running) return;
-      // No robar el click de botones debajo/al lado.
-      if (ev.target && ev.target.closest && ev.target.closest("button, a, input, select, textarea")) return;
-      const t = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
+      try { ev.preventDefault(); } catch (_) {}
+      const t = (ev.changedTouches && ev.changedTouches[0])
+        || (ev.touches && ev.touches[0])
+        || ev;
       const rect = stage.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const x = (t.clientX - rect.left) / rect.width;
       const y = (t.clientY - rect.top) / rect.height;
-      // Toque = reenfoque fuerte (puede reiniciar el track).
       refocus({ hard: true, point: { x, y } }).catch(() => {});
     };
-    stage.addEventListener("pointerdown", onTap);
-    stage._gasonorFocusTap = onTap;
+    // touchend + click: en móvil pointerdown a veces lo come el navegador.
+    ["pointerup", "touchend", "click"].forEach((name) => {
+      tapBoundEl.addEventListener(name, onTap, { passive: false });
+    });
+    tapBoundEl._gasonorFocusTap = onTap;
+    tapBoundEl._gasonorFocusEvents = ["pointerup", "touchend", "click"];
   }
 
   function unbindTapToFocus() {
     if (tapBoundEl && tapBoundEl._gasonorFocusTap) {
-      tapBoundEl.removeEventListener("pointerdown", tapBoundEl._gasonorFocusTap);
+      const evs = tapBoundEl._gasonorFocusEvents || ["pointerdown"];
+      evs.forEach((name) => {
+        try { tapBoundEl.removeEventListener(name, tapBoundEl._gasonorFocusTap); } catch (_) {}
+      });
       delete tapBoundEl._gasonorFocusTap;
+      delete tapBoundEl._gasonorFocusEvents;
     }
     tapBoundEl = null;
   }
@@ -400,8 +423,7 @@
     lastAt = now;
     beep("read");
     showLast("Leído: " + code, "read");
-    // Tras cada lectura: reenfoque fuerte para el siguiente tubo.
-    setTimeout(() => { refocus({ hard: true }).catch(() => {}); }, 450);
+    setTimeout(() => { refocus(true).catch(() => {}); }, 500);
     onCode(code);
   }
 

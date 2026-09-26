@@ -2907,19 +2907,27 @@ function gasesPorRubro(rubro) {
   return ["Oxígeno", "Nitrógeno", "Argón", "CO2", "Helio", "Athal"];
 }
 
+function capacidadesTuboOpts() {
+  return ["3/4", "1", "1.5", "2", "2.5", "3", "4", "5", "6", "8", "10"];
+}
+
 function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const leido = String(codigoLeido || "").trim();
   const contexto = opts.contexto === "cliente" ? "cliente" : "planta";
   const estadoAlta = contexto === "cliente" ? "cargado" : "vacio";
-  const labelBusca = contexto === "planta"
-    ? "Número de tubo GN (el de Gasonor)"
-    : "Número de tubo GN";
-  const hintBusca = contexto === "planta"
-    ? "Buscá el nº de tubo de Gasonor (ej. 7162). El nº de trazabilidad de planta se carga cuando vuelve, no acá."
-    : "Solo tubos de Gasonor cargados. Tocá uno de la lista para vincular el código escaneado.";
+  const caps = capacidadesTuboOpts();
   abrirModal(`
     <h2 class="modal-warn-title"><span class="warn-tri" aria-hidden="true">⚠</span> Tubo no registrado</h2>
-    <p class="lead">Escaneaste <span class="mono">${esc(leido)}</span> (código de proveedor). Podés vincularlo a un tubo GN que ya exista, crearlo, o enviarlo sin registrar.</p>
+    <p class="lead">Escaneaste <span class="mono">${esc(leido)}</span>. Por defecto vinculalo a un tubo GN existente. Solo usá <b>Crear nuevo</b> si hace falta darlo de alta.</p>
+
+    <div class="field full">
+      <label>¿Qué escaneaste?</label>
+      <div class="toolbar" id="reg-tipo-leido">
+        <label class="chip"><input type="radio" name="tipo_leido" value="proveedor" checked> Código de proveedor / barras</label>
+        <label class="chip"><input type="radio" name="tipo_leido" value="numero"> Número de tubo GN</label>
+      </div>
+    </div>
+
     <div class="tabs" id="reg-tabs">
       <button type="button" class="active" data-reg-tab="vincular">Vincular existente</button>
       <button type="button" data-reg-tab="crear">Crear nuevo</button>
@@ -2927,41 +2935,43 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
 
     <div id="reg-pane-vincular">
       <div class="field full">
-        <label>${labelBusca}</label>
+        <label id="reg-busca-label">Número de tubo GN a vincular</label>
         <div class="cli-suggest">
           <input id="reg-busca-tubo" placeholder="Ej: 7162" autocomplete="off" inputmode="search">
           <ul id="reg-lista-tubos" hidden></ul>
         </div>
-        <p class="lead" style="margin:6px 0 0">${hintBusca}</p>
+        <p class="lead" style="margin:6px 0 0" id="reg-busca-hint">Buscá el tubo de Gasonor y vinculá el código escaneado. El nº de trazabilidad de planta se carga cuando vuelve.</p>
       </div>
       <div id="reg-tubo-sel" class="card" hidden style="margin:10px 0;padding:10px"></div>
       <div class="field full toolbar">
-        <button class="btn copper" type="button" id="reg-vincular" disabled>Vincular y sumar a la lista</button>
+        <button class="btn copper" type="button" id="reg-vincular">Vincular y sumar a la lista</button>
       </div>
     </div>
 
     <form id="form-reg-scan" class="grid form" hidden>
-      <div class="field full"><label>El código leído es</label>
-        <div class="toolbar">
-          <label class="chip"><input type="radio" name="tipo_codigo" value="proveedor" checked> Código de proveedor / barras</label>
-          ${contexto === "cliente" ? `<label class="chip"><input type="radio" name="tipo_codigo" value="numero"> Número de tubo</label>` : ""}
-        </div>
+      <div class="field" id="reg-wrap-numero">
+        <label>Número de tubo GN</label>
+        <input name="numero" id="reg-numero" placeholder="Nº de tubo" autocomplete="off">
       </div>
-      ${contexto === "cliente" ? `
-      <div class="field"><label>Número de tubo</label><input name="numero" id="reg-numero" placeholder="Nº de tubo GN" autocomplete="off"></div>
-      ` : `
-      <input type="hidden" name="numero" id="reg-numero" value="">
-      <p class="lead" style="margin:0 0 8px">En despacho a planta no hace falta el nº de trazabilidad: se carga cuando el tubo vuelve. Se registra con el código de proveedor.</p>
-      `}
-      <div class="field"><label>Código proveedor</label><input name="codigo_proveedor" id="reg-codp" value="${esc(leido)}" required autocomplete="off"></div>
+      <div class="field" id="reg-wrap-codp">
+        <label>Código proveedor</label>
+        <input name="codigo_proveedor" id="reg-codp" value="${esc(leido)}" autocomplete="off">
+      </div>
       <div class="field full"><label>Uso</label>
         <div class="chip-row">
-          <label class="chip-choice"><input type="radio" name="rubro" value="industrial" checked> Industrial</label>
-          <label class="chip-choice"><input type="radio" name="rubro" value="medicinal"> Medicinal</label>
+          <label class="chip-choice"><input type="radio" name="rubro" value="medicinal" checked> Medicinal</label>
+          <label class="chip-choice"><input type="radio" name="rubro" value="industrial"> Industrial</label>
         </div>
       </div>
       <div class="field full"><label>Tipo de gas</label>
         <select name="grupo" id="reg-gas" required></select>
+      </div>
+      <div class="field full"><label>Capacidad</label>
+        <div class="chip-row" id="reg-caps">
+          ${caps.map((c) => `<label class="chip-choice"><input type="radio" name="capacidad_opt" value="${esc(c)}"> ${esc(c)}</label>`).join("")}
+          <label class="chip-choice"><input type="radio" name="capacidad_opt" value="__manual"> Otra</label>
+        </div>
+        <input name="capacidad" id="reg-capacidad" placeholder="Ej: 1.5 o 3/4" autocomplete="off" style="margin-top:8px" hidden>
       </div>
       ${contexto === "cliente" ? `
       <div class="field"><label>Lote</label><input name="lote" id="reg-lote" placeholder="Obligatorio si va cargado" autocomplete="off"></div>
@@ -2996,6 +3006,35 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const formCrear = $("#form-reg-scan");
   let tuboSel = null;
   let tubosHallados = [];
+  let tBus;
+
+  const tipoLeido = () => document.querySelector('input[name="tipo_leido"]:checked')?.value || "proveedor";
+
+  const syncTipoLeido = () => {
+    const tipo = tipoLeido();
+    const busca = $("#reg-busca-tubo");
+    const hint = $("#reg-busca-hint");
+    const label = $("#reg-busca-label");
+    if (tipo === "numero") {
+      if (label) label.textContent = "Confirmá el número de tubo GN";
+      if (hint) hint.textContent = "Escaneaste un nº de tubo. Si ya existe en la base, tocalo y vinculá. Si no, pasá a Crear nuevo.";
+      if (busca && !busca.value) busca.value = leido;
+      if ($("#reg-numero")) $("#reg-numero").value = leido;
+      if ($("#reg-codp")) { $("#reg-codp").value = ""; $("#reg-codp").placeholder = "Código proveedor (opcional)"; }
+    } else {
+      if (label) label.textContent = "Número de tubo GN a vincular";
+      if (hint) hint.textContent = "Escaneaste un código de proveedor. Buscá el tubo GN (ej. 7162) y vinculalo. El nº de trazabilidad se carga cuando vuelve de planta.";
+      if (busca && busca.value === leido) busca.value = "";
+      if ($("#reg-codp")) { $("#reg-codp").value = leido; $("#reg-codp").placeholder = "Código proveedor"; }
+      if ($("#reg-numero") && $("#reg-numero").value === leido) $("#reg-numero").value = "";
+    }
+    if (tipo === "numero" && busca?.value) {
+      clearTimeout(tBus);
+      tBus = setTimeout(() => buscarTubos().catch((e) => toast(e.message, true)), 80);
+    }
+  };
+
+  document.querySelectorAll('input[name="tipo_leido"]').forEach((r) => { r.onchange = syncTipoLeido; });
 
   $("#reg-tabs")?.querySelectorAll("[data-reg-tab]").forEach((btn) => {
     btn.onclick = () => {
@@ -3003,11 +3042,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
       const tab = btn.dataset.regTab;
       paneVinc.hidden = tab !== "vincular";
       formCrear.hidden = tab !== "crear";
+      if (tab === "crear") syncTipoLeido();
     };
   });
 
   const pintarGas = () => {
-    const rubro = document.querySelector('input[name="rubro"]:checked')?.value || "industrial";
+    const rubro = document.querySelector('input[name="rubro"]:checked')?.value || "medicinal";
     const sel = $("#reg-gas");
     if (!sel) return;
     const gases = gasesPorRubro(rubro);
@@ -3016,26 +3056,22 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   document.querySelectorAll('input[name="rubro"]').forEach((r) => { r.onchange = pintarGas; });
   pintarGas();
 
-  const syncTipo = () => {
-    const tipo = document.querySelector('input[name="tipo_codigo"]:checked')?.value || "proveedor";
-    const inpNum = $("#reg-numero");
-    if (!inpNum) return;
-    if (contexto === "planta") {
-      inpNum.value = "";
-      return;
-    }
-    if (tipo === "numero") {
-      inpNum.value = leido;
-      $("#reg-codp").value = "";
-      $("#reg-codp").placeholder = "Barras / cód. proveedor";
+  const syncCapacidad = () => {
+    const opt = document.querySelector('input[name="capacidad_opt"]:checked')?.value || "";
+    const inp = $("#reg-capacidad");
+    if (!inp) return;
+    if (opt === "__manual") {
+      inp.hidden = false;
+    } else if (opt) {
+      inp.hidden = true;
+      inp.value = opt;
     } else {
-      $("#reg-codp").value = leido;
-      inpNum.value = "";
-      inpNum.placeholder = "Nº de tubo GN";
+      inp.hidden = true;
+      inp.value = "";
     }
   };
-  document.querySelectorAll('input[name="tipo_codigo"]').forEach((r) => { r.onchange = syncTipo; });
-  syncTipo();
+  document.querySelectorAll('input[name="capacidad_opt"]').forEach((r) => { r.onchange = syncCapacidad; });
+  syncCapacidad();
 
   if ($("#reg-prop")) {
     const syncProp = () => { $("#reg-wrap-cli").hidden = $("#reg-prop").value !== "cliente"; };
@@ -3065,7 +3101,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
       ...tubo,
       nuevo: false,
       codigo_leido: leido,
-      codigo_proveedor: tubo.codigo_proveedor || leido,
+      codigo_proveedor: tubo.codigo_proveedor || (tipoLeido() === "proveedor" ? leido : (tubo.codigo_proveedor || "")),
     };
     const idx = state.scanLista.findIndex((t) => scanClave(t) === claveLista);
     if (idx >= 0) state.scanLista[idx] = actualizado;
@@ -3083,7 +3119,6 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     if (!tuboSel) {
       box.hidden = true;
       box.innerHTML = "";
-      // Permitir tocar Vincular si ya escribieron un nº (se resuelve al confirmar).
       btn.disabled = q.length < 1;
       return;
     }
@@ -3094,13 +3129,11 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     btn.disabled = false;
   };
 
-  let tBus;
   const buscarTubos = async () => {
     const q = ($("#reg-busca-tubo").value || "").trim();
     const ul = $("#reg-lista-tubos");
     if (q.length < 1) { ul.hidden = true; ul.innerHTML = ""; tubosHallados = []; return; }
     const qs = new URLSearchParams({ q, propiedad: "empresa" });
-    // En planta: cualquier estado (despacho permite salir con advertencia).
     if (contexto === "cliente") qs.set("estado", "cargado");
     const data = await api("/api/tubos?" + qs.toString());
     tubosHallados = (data.tubos || []).slice(0, 20);
@@ -3109,7 +3142,6 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
       ul.hidden = false;
       return;
     }
-    // Coincidencia exacta: preseleccionar sin exigir otro toque.
     const exacto = tubosHallados.find((t) => String(t.numero).toUpperCase() === q.toUpperCase()
       || String(t.numero).replace(/^0+/, "") === q.replace(/^0+/, ""));
     if (exacto && tubosHallados.length === 1) {
@@ -3171,11 +3203,16 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     const sel = await resolverTuboSel();
     if (!sel?.id) return toast("Elegí un tubo de la lista (tocá el resultado)", true);
     try {
+      if (tipoLeido() === "numero") {
+        // Escaneamos el nº de tubo: ya está en la base, solo sumarlo.
+        aplicarTuboLista(sel, "Tubo " + (sel.numero || "") + " sumado a la lista");
+        return;
+      }
       const r = await api("/api/tubos/vincular", {
         method: "POST",
         body: { tubo_id: sel.id, codigo_proveedor: leido, contexto },
       });
-      aplicarTuboLista(r.tubo || r, "Código vinculado al tubo " + (r.tubo?.numero || sel.numero || ""));
+      aplicarTuboLista(r.tubo || r, "Vinculado al tubo " + (r.tubo?.numero || sel.numero || ""));
     } catch (err) { toast(err.message, true); }
   };
 
@@ -3184,23 +3221,33 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     toast("Queda en la lista como no registrado");
   };
 
+  syncTipoLeido();
+
   formCrear.onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    const codigo_proveedor = String(fd.codigo_proveedor || "").trim() || leido;
-    // En planta el nº de trazabilidad no se pide: usamos el código de proveedor como nº temporal.
+    const tipo = tipoLeido();
     let numero = String(fd.numero || "").trim();
-    if (contexto === "planta" && !numero) numero = codigo_proveedor;
+    let codigo_proveedor = String(fd.codigo_proveedor || "").trim();
+    if (tipo === "proveedor") {
+      codigo_proveedor = codigo_proveedor || leido;
+      if (!numero) numero = codigo_proveedor;
+    } else {
+      numero = numero || leido;
+      if (!numero) return toast("Ingresá el número de tubo", true);
+    }
+    if (!codigo_proveedor && tipo === "proveedor") return toast("Falta el código de proveedor", true);
+    if (!codigo_proveedor) codigo_proveedor = numero;
     const grupo = String(fd.grupo || "").trim();
-    const rubro = String(fd.rubro || "industrial");
-    if (contexto === "cliente" && !numero) return toast("Ingresá el número de tubo", true);
-    if (!codigo_proveedor) return toast("Ingresá el código de proveedor", true);
+    const rubro = String(fd.rubro || "medicinal");
+    const capacidad = String(fd.capacidad || "").trim();
     if (!grupo) return toast("Elegí el tipo de gas", true);
+    if (!capacidad) return toast("Elegí o escribí la capacidad", true);
     if (fd.propiedad === "cliente" && !fd.cliente_id) return toast("Asigná el cliente propietario", true);
     const estado = String(fd.estado || estadoAlta);
     const lote = String(fd.lote || "").trim().toUpperCase();
     if (estado === "cargado" && !lote) return toast("Si va cargado, ingresá el lote", true);
-    const desc = `${grupo} ${rubro === "medicinal" ? "MEDICINAL" : "INDUSTRIAL"}`.trim().toUpperCase();
+    const desc = `${grupo} ${capacidad} ${rubro === "medicinal" ? "MEDICINAL" : "INDUSTRIAL"}`.trim().toUpperCase();
     try {
       const r = await api("/api/tubos", {
         method: "POST",
@@ -3209,6 +3256,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
           codigo: numero,
           codigo_proveedor,
           grupo,
+          capacidad,
           descripcion: desc,
           propiedad: fd.propiedad || "empresa",
           cliente_id: fd.cliente_id || null,
