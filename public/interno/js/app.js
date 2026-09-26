@@ -118,7 +118,8 @@ function esCelular() {
   return window.matchMedia("(max-width: 700px)").matches;
 }
 
-function rutaSoloCelular(seccion) {
+function rutaSoloCelular(seccion, parts) {
+  if (seccion === "planta" && parts && parts[1] === "completar") return false;
   return ["planta", "cliente", "envios", "reparto"].includes(seccion);
 }
 
@@ -145,6 +146,10 @@ function aplicarPermisos() {
   if (busq) busq.hidden = rol === "cobrador" || rol === "despacho" || rol === "reparto";
   document.querySelectorAll(".sidebar nav a").forEach((el) => {
     if (el.dataset.soloCelular === "1" && !movil) {
+      el.style.display = "none";
+      return;
+    }
+    if (el.dataset.soloPc === "1" && movil) {
       el.style.display = "none";
       return;
     }
@@ -443,7 +448,7 @@ async function vistaInicio() {
   if (rolActual() === "despacho") {
     app().innerHTML = `
       <h1>Hola, ${esc(state.usuario.nombre)}</h1>
-      <p class="lead">Escaneá en el celular. Las recepciones quedan pendientes para que administración complete los lotes en la PC.</p>
+      <p class="lead">Escaneá en el celular. Despacho y recepción quedan listos para que administración los complete en la PC.</p>
       <div class="quick-row no-print">
         <a class="quick green" href="#/planta/despacho">Despacho a planta</a>
         <a class="quick red" href="#/planta/recepcion">Recepción de planta</a>
@@ -455,37 +460,28 @@ async function vistaInicio() {
   let pendientes = [];
   if (rolActual() === "admin") {
     try {
-      pendientes = (await api("/api/planta/documentos?estado=borrador&tipo=recepcion")).documentos || [];
+      pendientes = (await api("/api/planta/documentos?estado=borrador")).documentos || [];
     } catch (_) { pendientes = []; }
   }
-  app().innerHTML = `
+    app().innerHTML = `
     <div class="quick-row no-print">
       ${esCelular() && puede("admin") ? `
         <a class="quick green" href="#/planta/despacho">Despacho a planta</a>
         <a class="quick red" href="#/planta/recepcion">Recepción (escanear)</a>
-        <a class="quick" style="background:#8a5a12" href="#/planta/completar">Completar recepciones${pendientes.length ? ` (${pendientes.length})` : ""}</a>
         <a class="quick green" href="#/cliente/despacho">Despacho a cliente</a>
         <a class="quick red" href="#/cliente/recepcion">Recepción de cliente</a>
       ` : ""}
       ${esCelular() && puede("admin", "reparto") ? `<a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/reparto">Reparto del día</a>` : ""}
-      ${!esCelular() && rolActual() === "admin" ? `
-        <a class="quick" style="background:#8a5a12" href="#/facturacion">Facturación</a>
-        <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
-        <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
-        <a class="quick" style="background:#24483e" href="#/facturar">Nueva factura</a>
-      ` : ""}
       ${esCelular() && (rolActual() === "admin" || rolActual() === "cobrador") ? `
-        <a class="quick" style="background:#8a5a12" href="#/facturar">Facturar</a>
+        <a class="quick" style="background:#8a5a12" href="#/facturar">Nueva factura</a>
         <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
         <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
         <a class="quick" style="background:#24483e" href="#/facturacion">Facturación</a>
-      ` : ""}
-      ${(rolActual() === "admin" || rolActual() === "cobrador") ? `
-        <a class="quick" style="background:#1a3a32${!esCelular() && rolActual() === "admin" ? "" : ";grid-column:1/-1"}" href="#/cobrar">Cobrar (caja)</a>
+        <a class="quick" style="background:#1a3a32;grid-column:1/-1" href="#/cobrar">Cobrar</a>
       ` : ""}
     </div>
-    ${esCelular() && pendientes.length ? `
-      <a class="banner-fact" href="#/planta/completar">${pendientes.length} recepción(es) escaneada(s) pendientes de lotes / trazabilidad</a>
+    ${!esCelular() && rolActual() === "admin" && pendientes.length ? `
+      <a class="banner-fact" href="#/planta/completar">${pendientes.length} escaneo(s) del celular pendientes de completar en la PC</a>
     ` : ""}
     <h1>Dónde están los tubos</h1>
     <p class="lead">Gasonor SRL — rotación de cilindros. Los artículos genéricos no entran en estos marcadores.</p>
@@ -3433,19 +3429,17 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
   const esAdmin = rolActual() === "admin";
   const recep = modo === "recepcion";
   const movil = esMovil();
-  // Celular / rol despacho: solo escaneo → borrador. Admin en PC completa remito, lote y vto.
-  const soloBorrador = recep && (!esAdmin || movil);
-  // En celular el remito del despacho es opcional (a veces no tienen el papel a mano).
-  const remitoOpcional = !recep && movil;
+  // Celular: solo deja el escaneo listo. La PC completa remito, lotes y factura.
+  const soloBorrador = movil || rolActual() === "despacho";
   const pideLotes = recep && esAdmin && !soloBorrador;
   app().innerHTML = `
     <h1>Confirmar ${recep ? "recepción" : "despacho"}</h1>
     <p class="lead">${esc(prov ? prov.nombre : "")} · ${state.scanLista.length} tubo(s)
       ${soloBorrador ? " · Se enviará a administración" : ""}</p>
-    ${soloBorrador ? `<p class="scan-pc-hint">No hace falta remito, lote ni vencimiento acá. Administración los completa en la PC (Completar recepciones).</p>` : ""}
+    ${soloBorrador ? `<p class="scan-pc-hint">No hace falta remito ni factura acá. Queda preparado para <b>Completar despachos</b> en la PC.</p>` : ""}
     <div class="card">
       <form id="form-doc" class="grid form">
-        ${soloBorrador ? "" : `<div class="field"><label>Nº remito${remitoOpcional ? " (opcional)" : ""}</label><input name="remito" ${remitoOpcional ? "" : "required"} placeholder="${remitoOpcional ? "Opcional" : "Como en el papel"}"></div>`}
+        ${soloBorrador ? "" : `<div class="field"><label>Nº remito</label><input name="remito" required placeholder="Como en el papel"></div>`}
         <div class="field"><label>Quién despacha / recibe</label><input value="${esc(state.usuario?.nombre || "")}" disabled></div>
         <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" ${esAdmin && !soloBorrador ? "" : "readonly"}></div>
         <div class="field"><label>Hora</label><input name="hora" type="time" value="${horaInput()}" ${esAdmin && !soloBorrador ? "" : "readonly"}></div>
@@ -3481,7 +3475,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
           </div>
         </div>
         <div class="field full">
-          <button class="btn copper" type="submit">${soloBorrador ? "Guardar escaneo (sin remito)" : `Guardar ${recep ? "recepción" : "despacho"}`}</button>
+          <button class="btn copper" type="submit">${soloBorrador ? "Enviar a completar en la PC" : `Guardar ${recep ? "recepción" : "despacho"}`}</button>
         </div>
       </form>
       <div id="lista-scan">${htmlListaScan()}</div>
@@ -3506,12 +3500,13 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
     fd.proveedor_id = Number(proveedorId);
     fd.tubo_ids = state.scanLista.filter((t) => t.id && !t.nuevo).map((t) => t.id);
     fd.codigos_nuevos = state.scanLista.filter((t) => t.nuevo || !t.id).map((t) => t.codigo_proveedor || t.numero);
+    if (soloBorrador) {
+      fd.borrador = true;
+      fd.remito = "";
+    }
     if (recep) {
       if (!fd.tubo_ids.length) return toast("Solo se recepcionan tubos ya despachados.", true);
-      if (soloBorrador) {
-        fd.borrador = true;
-        fd.remito = "";
-      } else {
+      if (!soloBorrador) {
         const igual = fd.lote_igual === "si";
         const lotes = {};
         if (igual) {
@@ -3537,7 +3532,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       const url = recep ? "/api/planta/recepcion" : "/api/planta/despacho";
       const r = await api(url, { method: "POST", body: fd });
       if (r.borrador || r.estado === "borrador") {
-        toast(`Escaneo guardado: ${r.cantidad} tubo(s). Pendiente de lotes en administración.`);
+        toast(`Escaneo guardado: ${r.cantidad} tubo(s). Quedó para completar en la PC.`);
       } else {
         toast(`Guardado: ${r.cantidad} tubo(s)`);
       }
@@ -3559,8 +3554,8 @@ async function vistaCompletarRecepciones() {
   }
   const tab = (parseHash().params.get("tab") || "pendientes");
   const [pend, hist] = await Promise.all([
-    api("/api/planta/documentos?estado=borrador&tipo=recepcion"),
-    api("/api/planta/documentos?estado=cerrado&tipo=recepcion"),
+    api("/api/planta/documentos?estado=borrador"),
+    api("/api/planta/documentos?estado=cerrado"),
   ]);
   const pendientes = pend.documentos || [];
   const historial = hist.documentos || [];
@@ -3568,6 +3563,7 @@ async function vistaCompletarRecepciones() {
     ? docs.map((d) => `
       <tr>
         <td class="mono">${fmtFecha(d.fecha)} ${esc(d.hora || "")}</td>
+        <td>${d.tipo === "despacho" ? "Despacho" : "Recepción"}</td>
         <td class="mono">${esc(d.remito || "—")}</td>
         <td>${esc(d.proveedor_nombre || "")}</td>
         <td>${esc(d.usuario_nombre || "—")}</td>
@@ -3578,30 +3574,129 @@ async function vistaCompletarRecepciones() {
              href="#/planta/completar/${d.id}">${modo === "hist" ? "Editar" : "Completar"}</a>
         </td>
       </tr>`).join("")
-    : `<tr><td colspan="7" class="empty">${modo === "hist" ? "Todavía no hay recepciones completadas." : "No hay recepciones pendientes."}</td></tr>`;
+    : `<tr><td colspan="8" class="empty">${modo === "hist" ? "Todavía no hay documentos completados." : "No hay escaneos pendientes."}</td></tr>`;
   app().innerHTML = `
-    <h1>Completar recepciones de planta</h1>
-    <p class="lead">Pendientes del celular, y historial de las ya cerradas (podés abrirlas y corregir remito, lote o trazabilidad).</p>
+    <h1>Completar despachos</h1>
+    <p class="lead">Lo que escaneó el celular queda acá. En la PC cargás remito, lotes (si es recepción) y la factura de compra.</p>
+    <p><a class="btn secondary" href="#/compras">Compras a proveedores</a></p>
     <div class="tabs">
       <button type="button" data-tab="pendientes" class="${tab === "pendientes" ? "active" : ""}">Pendientes (${pendientes.length})</button>
       <button type="button" data-tab="historial" class="${tab === "historial" ? "active" : ""}">Historial (${historial.length})</button>
     </div>
     <div class="card table-wrap" ${tab === "pendientes" ? "" : "hidden"}>
       <table>
-        <thead><tr><th>Fecha</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
         <tbody>${filas(pendientes, "pend")}</tbody>
       </table>
     </div>
     <div class="card table-wrap" ${tab === "historial" ? "" : "hidden"}>
       <table>
-        <thead><tr><th>Fecha</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
         <tbody>${filas(historial, "hist")}</tbody>
       </table>
     </div>
-    <p class="toolbar"><a class="btn ghost" href="#/planta/recepcion">Ir a escanear recepción</a></p>`;
+    <p class="lead">El escaneo se hace desde el celular. Acá solo se completa.</p>`;
   app().querySelectorAll("[data-tab]").forEach((b) => {
     b.onclick = () => { location.hash = "#/planta/completar?tab=" + b.dataset.tab; };
   });
+}
+
+function htmlCamposCompra() {
+  return `
+    <div class="field full" style="margin-top:8px"><h3 style="margin:0">Factura / comprobante de compra</h3>
+      <p class="lead" style="margin:4px 0 0">Opcional acá. Si lo cargás, queda en el historial de compras del proveedor.</p>
+    </div>
+    <div class="field"><label>Tipo</label>
+      <select name="compra_tipo">
+        <option value="factura">Factura</option>
+        <option value="remito">Remito</option>
+        <option value="ticket">Ticket</option>
+      </select>
+    </div>
+    <div class="field"><label>Nº comprobante</label><input name="compra_numero" placeholder="Ej: 0001-00001234" autocomplete="off"></div>
+    <div class="field"><label>Fecha comprobante</label><input name="compra_fecha" type="date" value="${hoyInput()}"></div>
+    <div class="field"><label>Importe</label><input name="compra_importe" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
+    <div class="field full"><label>Archivo del comprobante (foto o PDF, máx. 700 KB)</label><input name="compra_archivo" id="compra-archivo" type="file" accept="image/*,application/pdf"></div>
+    <div class="field full"><label>Nota</label><input name="compra_obs" placeholder="Opcional" autocomplete="off"></div>`;
+}
+
+function leerArchivoCompra(input) {
+  const f = input && input.files && input.files[0];
+  if (!f) return Promise.resolve(null);
+  if (f.size > 700000) return Promise.reject(new Error("El comprobante no puede pesar más de 700 KB"));
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const dataUrl = String(r.result || "");
+      const i = dataUrl.indexOf(",");
+      resolve({
+        archivo_nombre: f.name,
+        archivo_mime: f.type || "application/octet-stream",
+        archivo_b64: i >= 0 ? dataUrl.slice(i + 1) : dataUrl,
+      });
+    };
+    r.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    r.readAsDataURL(f);
+  });
+}
+
+function compraDesdeForm(fd, archivo) {
+  const numero = String(fd.compra_numero || "").trim();
+  if (!numero && !(archivo && archivo.archivo_b64)) return null;
+  return {
+    tipo_comprobante: fd.compra_tipo || "factura",
+    numero,
+    fecha: fd.compra_fecha || "",
+    importe: fd.compra_importe || "",
+    observaciones: fd.compra_obs || "",
+    ...(archivo || {}),
+  };
+}
+
+async function vistaCerrarDespacho(docId, d, items) {
+  const editando = d.estado === "cerrado";
+  app().innerHTML = `
+    <h1>${editando ? "Despacho cerrado" : "Completar despacho"} #${d.id}</h1>
+    <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)} · ${items.length} tubo(s)</p>
+    <div class="card">
+      <form id="form-cerrar-desp" class="grid form">
+        <div class="field"><label>Nº remito</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="Como en el papel" ${editando ? "readonly" : ""}></div>
+        <div class="field full">
+          <div class="table-wrap"><table>
+            <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th></tr></thead>
+            <tbody>
+              ${items.map((t) => `<tr>
+                <td class="mono">${esc(t.numero || "—")}</td>
+                <td class="mono">${esc(t.codigo_proveedor || t.codigo_leido || "—")}</td>
+                <td>${esc(t.articulo_descripcion || "")}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table></div>
+        </div>
+        ${editando ? "" : htmlCamposCompra()}
+        <div class="field full toolbar">
+          ${editando ? "" : `<button class="btn copper" type="submit">Cerrar despacho (${items.length})</button>`}
+          <a class="btn ghost" href="#/planta/completar${editando ? "?tab=historial" : ""}">Volver</a>
+        </div>
+      </form>
+    </div>`;
+  if (editando) return;
+  $("#form-cerrar-desp").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const remito = String(fd.remito || "").trim();
+    if (!remito) return toast("Ingresá el número de remito", true);
+    try {
+      const archivo = await leerArchivoCompra($("#compra-archivo"));
+      const compra = compraDesdeForm(fd, archivo);
+      await api("/api/planta/documentos/" + docId + "/cerrar", {
+        method: "POST",
+        body: { remito, compra },
+      });
+      toast("Despacho cerrado");
+      location.hash = "#/planta/completar";
+    } catch (err) { toast(err.message, true); }
+  };
 }
 
 async function vistaCerrarRecepcion(docId) {
@@ -3613,11 +3708,12 @@ async function vistaCerrarRecepcion(docId) {
   const data = await api("/api/planta/documentos/" + docId);
   const d = data.documento;
   const items = data.items || [];
-  if (!d || d.tipo !== "recepcion") {
+  if (!d) {
     toast("Documento no encontrado", true);
     location.hash = "#/planta/completar";
     return;
   }
+  if (d.tipo === "despacho") return vistaCerrarDespacho(docId, d, items);
   const editando = d.estado === "cerrado";
   if (d.estado !== "borrador" && !editando) {
     toast("Ese documento no se puede abrir", true);
@@ -3685,6 +3781,7 @@ async function vistaCerrarRecepcion(docId) {
           </div>
           <p class="hint" id="hint-lineas"></p>
         </div>
+        ${editando ? "" : htmlCamposCompra()}
         <div class="field full toolbar actions-iguales">
           <button class="btn copper btn-accion" type="submit">${editando ? `Guardar cambios (${items.length})` : `Cerrar recepción (${items.length})`}</button>
           <a class="btn ghost btn-accion" href="#/planta/completar${editando ? "?tab=historial" : ""}">Volver</a>
@@ -3755,9 +3852,11 @@ async function vistaCerrarRecepcion(docId) {
       ? "/api/planta/documentos/" + docId + "/editar"
       : "/api/planta/documentos/" + docId + "/cerrar";
     try {
+      const archivo = editando ? null : await leerArchivoCompra($("#compra-archivo"));
+      const compra = editando ? null : compraDesdeForm(fd, archivo);
       const r = await api(url, {
         method: "POST",
-        body: { lotes, numeros, lote: igual ? (fd.lote || "") : "", fecha_vto: fd.fecha_vto || "", remito },
+        body: { lotes, numeros, lote: igual ? (fd.lote || "") : "", fecha_vto: fd.fecha_vto || "", remito, compra },
       });
       toast(editando
         ? `Recepción actualizada: ${r.cantidad} tubo(s)`
@@ -5861,6 +5960,80 @@ function abrirEdicionVenta(v, desdeCobrar) {
   };
 }
 
+async function vistaCompras() {
+  setNav("compras");
+  if (rolActual() !== "admin") {
+    location.hash = "#/inicio";
+    return;
+  }
+  const [resumen, lista, provs] = await Promise.all([
+    api("/api/compras/resumen"),
+    api("/api/compras"),
+    api("/api/proveedores"),
+  ]);
+  const stats = resumen || {};
+  const compras = lista.compras || [];
+  const porProv = stats.por_proveedor || [];
+  app().innerHTML = `
+    <h1>Compras a proveedores</h1>
+    <p class="lead">Historial de facturas y comprobantes. También se pueden cargar al completar un despacho en la PC.</p>
+    <div class="grid stats">
+      <div class="card stat total"><div class="n">${money(stats.total_mes || 0)}</div><small>Compras del mes</small></div>
+      <div class="card stat cargado"><div class="n">${stats.n_mes || 0}</div><small>Comprobantes del mes</small></div>
+      <div class="card stat vacio"><div class="n">${money(stats.total || 0)}</div><small>Total cargado</small></div>
+    </div>
+    ${porProv.length ? `<div class="card" style="margin:12px 0"><h3>Por proveedor</h3>
+      <table><thead><tr><th>Proveedor</th><th>Comprobantes</th><th>Importe</th></tr></thead><tbody>
+        ${porProv.map((p) => `<tr><td>${esc(p.proveedor_nombre || "—")}</td><td class="mono">${p.n || 0}</td><td class="mono">${money(p.importe || 0)}</td></tr>`).join("")}
+      </tbody></table></div>` : ""}
+    <div class="card">
+      <h3>Cargar comprobante</h3>
+      <form id="form-compra" class="grid form">
+        <div class="field"><label>Proveedor</label>
+          <select name="proveedor_id" required>
+            <option value="">Elegir…</option>
+            ${(provs.proveedores || []).map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field"><label>Tipo</label>
+          <select name="tipo_comprobante"><option value="factura">Factura</option><option value="remito">Remito</option><option value="ticket">Ticket</option></select>
+        </div>
+        <div class="field"><label>Nº comprobante</label><input name="numero" required placeholder="0001-00001234" autocomplete="off"></div>
+        <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" required></div>
+        <div class="field"><label>Importe</label><input name="importe" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
+        <div class="field full"><label>Archivo (foto o PDF, máx. 700 KB)</label><input id="compra-archivo" type="file" accept="image/*,application/pdf"></div>
+        <div class="field full"><label>Nota</label><input name="observaciones" autocomplete="off"></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar compra</button></div>
+      </form>
+    </div>
+    <div class="card table-wrap" style="margin-top:12px">
+      <h3>Historial</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Tipo</th><th>Número</th><th>Importe</th><th>Archivo</th></tr></thead>
+        <tbody>
+          ${compras.length ? compras.map((c) => `<tr>
+            <td class="mono">${fmtFecha(c.fecha)}</td>
+            <td>${esc(c.proveedor_nombre || "—")}</td>
+            <td>${esc(c.tipo_comprobante || "")}</td>
+            <td class="mono">${esc(c.numero || "—")}</td>
+            <td class="mono">${c.importe != null && c.importe !== "" ? money(c.importe) : "—"}</td>
+            <td>${c.tiene_archivo ? `<a href="/api/compras/${c.id}/archivo" target="_blank" rel="noopener">Ver</a>` : "—"}</td>
+          </tr>`).join("") : `<tr><td colspan="6" class="empty">Todavía no hay compras cargadas.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#form-compra").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      const archivo = await leerArchivoCompra($("#compra-archivo"));
+      await api("/api/compras", { method: "POST", body: { ...fd, ...(archivo || {}) } });
+      toast("Compra guardada");
+      vistaCompras();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
 async function route() {
   try {
     if (window.GasonorScan) await GasonorScan.stop().catch(() => {});
@@ -5878,9 +6051,14 @@ async function route() {
       location.hash = "#/cobrar";
       return;
     }
-    if (!esCelular() && rutaSoloCelular(seccion)) {
-      toast("Esa función se usa desde el celular");
+    if (!esCelular() && rutaSoloCelular(seccion, parts)) {
+      toast("Despacho y recepción se usan desde el celular");
       location.hash = rolActual() === "cobrador" ? "#/cobrar" : "#/inicio";
+      return;
+    }
+    if (esCelular() && ((seccion === "planta" && parts[1] === "completar") || seccion === "compras")) {
+      toast("Completar despachos y compras se usan desde la PC");
+      location.hash = "#/inicio";
       return;
     }
     if (rolActual() === "despacho") {
@@ -5902,6 +6080,10 @@ async function route() {
     if (seccion === "deudas") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
       return vistaDeudas(params);
+    }
+    if (seccion === "compras") {
+      if (!puede("admin")) return vistaInicio();
+      return vistaCompras();
     }
     if (seccion === "cheques") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();

@@ -360,7 +360,7 @@
       // No reiniciar debajo de un modal.
       if (document.querySelector(".modal-back")) return;
       refocus(true).catch(() => {});
-    }, 2000);
+    }, 5000);
   }
 
   function ensureFocusHitLayer(stage) {
@@ -423,7 +423,6 @@
     lastAt = now;
     beep("read");
     showLast("Leído: " + code, "read");
-    setTimeout(() => { refocus(true).catch(() => {}); }, 500);
     onCode(code);
   }
 

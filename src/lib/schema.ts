@@ -162,6 +162,8 @@ export async function ensureSchema() {
     "ALTER TABLE reparto_paradas ADD COLUMN comentario TEXT",
     "ALTER TABLE proveedores ADD COLUMN cuit TEXT",
     "ALTER TABLE documentos_planta ADD COLUMN estado TEXT NOT NULL DEFAULT 'cerrado'",
+    "ALTER TABLE documentos_planta ADD COLUMN cerrado_por INTEGER",
+    "ALTER TABLE documentos_planta ADD COLUMN cerrado_en TEXT",
   ]) {
     try {
       await run(col);
@@ -169,6 +171,21 @@ export async function ensureSchema() {
       /* columna ya existe */
     }
   }
+  await run(`CREATE TABLE IF NOT EXISTS compras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proveedor_id INTEGER,
+    documento_planta_id INTEGER,
+    tipo_comprobante TEXT,
+    numero TEXT,
+    fecha TEXT,
+    importe REAL,
+    observaciones TEXT,
+    archivo_nombre TEXT,
+    archivo_mime TEXT,
+    archivo_b64 TEXT,
+    creado_en TEXT NOT NULL,
+    usuario_id INTEGER
+  )`);
   await run("UPDATE usuarios SET rol='despacho' WHERE rol IN ('despacho_total','despacho_general','despacho')");
   const nUsers = await count("SELECT COUNT(*) AS n FROM usuarios");
   if (!nUsers) {

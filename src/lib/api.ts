@@ -60,6 +60,49 @@ function parseFecha(valor?: string | null) {
   return hoy();
 }
 
+function parseImporte(valor: unknown) {
+  const raw = String(valor ?? "").trim();
+  if (!raw) return null;
+  const n = raw.includes(",") ? Number(raw.replace(/\./g, "").replace(",", ".")) : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function guardarCompra(
+  u: Usuario,
+  data: Record<string, unknown>,
+  documentoId: number | null,
+  proveedorId: number | null,
+) {
+  const numero = String(data.numero || "").trim();
+  const archivo = String(data.archivo_b64 || "");
+  if (!numero && !archivo) return null;
+  if (!numero) return "Ingresá el número de comprobante.";
+  if (archivo.length > 1_200_000) return "El comprobante es demasiado grande (máx. 700 KB).";
+  const pid = proveedorId || Number(data.proveedor_id) || null;
+  if (!pid) return "Elegí el proveedor.";
+  await run(
+    `INSERT INTO compras (
+      proveedor_id, documento_planta_id, tipo_comprobante, numero, fecha, importe, observaciones,
+      archivo_nombre, archivo_mime, archivo_b64, creado_en, usuario_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      pid,
+      documentoId,
+      String(data.tipo_comprobante || "factura"),
+      numero,
+      parseFecha(String(data.fecha || "")),
+      parseImporte(data.importe),
+      String(data.observaciones || "").trim(),
+      String(data.archivo_nombre || ""),
+      String(data.archivo_mime || ""),
+      archivo,
+      ahora(),
+      u.id,
+    ],
+  );
+  return null;
+}
+
 async function body(ctx: APIContext) {
   try {
     return (await ctx.request.json()) as Record<string, unknown>;
@@ -1515,6 +1558,204 @@ async function handleApiInner(ctx: APIContext) {
     return json({ ok: true, documentos });
   }
 
+  const docUno = path.match(/^\/api\/planta\/documentos\/(\d+)$/);
+  if (method === "GET" && docUno) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const docId = Number(docUno[1]);
+    const doc = await one(
+      `SELECT d.*, p.nombre AS proveedor_nombre, u.nombre AS usuario_nombre
+       FROM documentos_planta d JOIN proveedores p ON p.id=d.proveedor_id
+       LEFT JOIN usuarios u ON u.id=d.usuario_id WHERE d.id=?`,
+      [docId],
+    );
+    if (!doc) return err("Documento no encontrado.", 404);
+    const items = await fetchTubos(
+      "WHERE t.id IN (SELECT tubo_id FROM documento_items WHERE documento_id=?) ORDER BY t.numero",
+      [docId],
+    );
+    const lineas = await all("SELECT tubo_id, lote, codigo_leido FROM documento_items WHERE documento_id=?", [docId]);
+    const porId = new Map(lineas.map((r) => [String(r.tubo_id), r]));
+    for (const t of items) {
+      const ln = porId.get(String(t.id));
+      t.lote_doc = ln ? String(ln.lote || "") : "";
+      t.codigo_leido = ln ? String(ln.codigo_leido || "") : "";
+    }
+    return json({ ok: true, documento: doc, items });
+  }
+
+  const docCerrar = path.match(/^\/api\/planta\/documentos\/(\d+)\/cerrar$/);
+  if (method === "POST" && docCerrar) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const docId = Number(docCerrar[1]);
+    const data = await body(ctx);
+    const doc = await one("SELECT * FROM documentos_planta WHERE id=?", [docId]);
+    if (!doc) return err("Documento no encontrado.", 404);
+    if (String(doc.estado || "cerrado") !== "borrador") return err("Este documento ya está cerrado.");
+    const remito = String(data.remito || doc.remito || "").trim();
+    if (!remito) return err("El número de remito es obligatorio.");
+    const items = await all("SELECT * FROM documento_items WHERE documento_id=?", [docId]);
+    if (!items.length) return err("El documento no tiene tubos.");
+    const fecha = String(doc.fecha || hoy());
+    const proveedorId = Number(doc.proveedor_id);
+    const prov = await one("SELECT nombre FROM proveedores WHERE id=?", [proveedorId]);
+    const planta = String(prov?.nombre || "Planta");
+    let cantidad = 0;
+    if (String(doc.tipo) === "despacho") {
+      for (const it of items) {
+        const tid = Number(it.tubo_id);
+        const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
+        if (!tubo) return err(`Tubo ${tid} no encontrado.`);
+        if (String(tubo.propiedad || "empresa") === "cliente") {
+          await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, actualizado_en=? WHERE id=?", [proveedorId, ahora(), tid]);
+        } else {
+          await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, cliente_id=NULL, actualizado_en=? WHERE id=?", [proveedorId, ahora(), tid]);
+        }
+        await registrarMovimiento(tubo, "PLANSALI", String(tubo.estado), "en_planta", fecha, {
+          observaciones: `Remito ${remito} · ${planta}`,
+        });
+        cantidad += 1;
+      }
+    } else {
+      const lotesRaw = (data.lotes && typeof data.lotes === "object" ? data.lotes : {}) as Record<string, unknown>;
+      const numerosRaw = (data.numeros && typeof data.numeros === "object" ? data.numeros : {}) as Record<string, unknown>;
+      const loteComun = String(data.lote || "").trim().toUpperCase();
+      const fechaVto = data.fecha_vto ? parseFecha(String(data.fecha_vto)) : "";
+      for (const it of items) {
+        const tid = Number(it.tubo_id);
+        const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
+        if (!tubo) return err(`Tubo ${tid} no encontrado.`);
+        if (String(tubo.estado) !== "en_planta") return err(`El tubo ${tubo.numero} ya no está en planta.`);
+        const loteItem = String(lotesRaw[String(tid)] ?? loteComun ?? it.lote ?? "").trim().toUpperCase();
+        if (!loteItem) return err(`Falta el lote de carga del tubo ${tubo.numero || tubo.codigo_proveedor}.`);
+        const nuevoNumero = String(numerosRaw[String(tid)] ?? "").trim();
+        if (!nuevoNumero) return err(`El número de trazabilidad es obligatorio (tubo ${tubo.codigo_proveedor || tubo.numero || tid}).`);
+        if (nuevoNumero !== String(tubo.numero)) {
+          const existe = await one("SELECT id FROM tubos WHERE activo=1 AND numero=? AND id!=?", [nuevoNumero, tid]);
+          if (existe) return err(`Ya existe otro tubo con el número ${nuevoNumero}.`);
+        }
+        await run(
+          "UPDATE tubos SET numero=?, estado='cargado', proveedor_id=NULL, lote=?, fecha_vto=CASE WHEN ?!='' THEN ? ELSE fecha_vto END, actualizado_en=? WHERE id=?",
+          [nuevoNumero, loteItem, fechaVto, fechaVto, ahora(), tid],
+        );
+        await registrarMovimiento({ ...tubo, numero: nuevoNumero, lote: loteItem }, "PLANENTR", "en_planta", "cargado", fecha, {
+          lote: loteItem,
+          fecha_vto: fechaVto || String(tubo.fecha_vto || ""),
+          observaciones: `Remito ${remito} · ${planta}`,
+        });
+        await run("UPDATE documento_items SET lote=? WHERE documento_id=? AND tubo_id=?", [loteItem, docId, tid]);
+        cantidad += 1;
+      }
+    }
+    await run("UPDATE documentos_planta SET remito=?, estado='cerrado', cerrado_por=?, cerrado_en=? WHERE id=?", [
+      remito, u.id, ahora(), docId,
+    ]);
+    const compra = data.compra && typeof data.compra === "object" ? (data.compra as Record<string, unknown>) : null;
+    if (compra) {
+      const fallo = await guardarCompra(u, compra, docId, proveedorId);
+      if (fallo) return err(fallo);
+    }
+    return json({ ok: true, id: docId, cantidad, estado: "cerrado" });
+  }
+
+  const docEditar = path.match(/^\/api\/planta\/documentos\/(\d+)\/editar$/);
+  if (method === "POST" && docEditar) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const docId = Number(docEditar[1]);
+    const data = await body(ctx);
+    const doc = await one("SELECT * FROM documentos_planta WHERE id=?", [docId]);
+    if (!doc) return err("Documento no encontrado.", 404);
+    if (String(doc.tipo) !== "recepcion") return err("Solo se editan recepciones de planta.");
+    if (String(doc.estado || "") !== "cerrado") return err("Esta recepción todavía está pendiente.");
+    const remito = String(data.remito || doc.remito || "").trim();
+    if (!remito) return err("El número de remito es obligatorio.");
+    const lotesRaw = (data.lotes && typeof data.lotes === "object" ? data.lotes : {}) as Record<string, unknown>;
+    const numerosRaw = (data.numeros && typeof data.numeros === "object" ? data.numeros : {}) as Record<string, unknown>;
+    const loteComun = String(data.lote || "").trim().toUpperCase();
+    const fechaVto = data.fecha_vto ? parseFecha(String(data.fecha_vto)) : "";
+    const items = await all("SELECT * FROM documento_items WHERE documento_id=?", [docId]);
+    let cantidad = 0;
+    for (const it of items) {
+      const tid = Number(it.tubo_id);
+      const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
+      if (!tubo) return err(`Tubo ${tid} no encontrado.`);
+      const loteItem = String(lotesRaw[String(tid)] ?? loteComun ?? it.lote ?? tubo.lote ?? "").trim().toUpperCase();
+      if (!loteItem) return err(`Falta el lote de carga del tubo ${tubo.numero || tubo.codigo_proveedor}.`);
+      const nuevoNumero = String(numerosRaw[String(tid)] ?? tubo.numero ?? "").trim();
+      if (!nuevoNumero) return err(`Falta el número de trazabilidad del tubo ${tid}.`);
+      if (nuevoNumero !== String(tubo.numero)) {
+        const existe = await one("SELECT id FROM tubos WHERE activo=1 AND numero=? AND id!=?", [nuevoNumero, tid]);
+        if (existe) return err(`Ya existe otro tubo con el número ${nuevoNumero}.`);
+      }
+      await run(
+        "UPDATE tubos SET numero=?, lote=?, fecha_vto=CASE WHEN ?!='' THEN ? ELSE fecha_vto END, actualizado_en=? WHERE id=?",
+        [nuevoNumero, loteItem, fechaVto, fechaVto, ahora(), tid],
+      );
+      await run("UPDATE documento_items SET lote=? WHERE documento_id=? AND tubo_id=?", [loteItem, docId, tid]);
+      cantidad += 1;
+    }
+    await run("UPDATE documentos_planta SET remito=? WHERE id=?", [remito, docId]);
+    return json({ ok: true, id: docId, cantidad });
+  }
+
+  if (key === "GET /api/compras/resumen") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const mes = hoy().slice(0, 7);
+    const tot = await one("SELECT COUNT(*) AS n, COALESCE(SUM(importe),0) AS s FROM compras");
+    const mesRow = await one(
+      "SELECT COUNT(*) AS n, COALESCE(SUM(importe),0) AS s FROM compras WHERE substr(fecha,1,7)=?",
+      [mes],
+    );
+    const por = await all(
+      `SELECT p.nombre AS proveedor_nombre, COUNT(*) AS n, COALESCE(SUM(c.importe),0) AS importe
+       FROM compras c LEFT JOIN proveedores p ON p.id=c.proveedor_id
+       GROUP BY c.proveedor_id ORDER BY importe DESC LIMIT 12`,
+    );
+    return json({
+      ok: true,
+      total: Number(tot?.s || 0),
+      n: Number(tot?.n || 0),
+      total_mes: Number(mesRow?.s || 0),
+      n_mes: Number(mesRow?.n || 0),
+      por_proveedor: por,
+    });
+  }
+
+  if (key === "GET /api/compras") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const compras = await all(
+      `SELECT c.id, c.proveedor_id, c.documento_planta_id, c.tipo_comprobante, c.numero, c.fecha, c.importe,
+              c.observaciones, c.archivo_nombre, c.creado_en, p.nombre AS proveedor_nombre,
+              CASE WHEN IFNULL(c.archivo_b64,'')!='' THEN 1 ELSE 0 END AS tiene_archivo
+       FROM compras c LEFT JOIN proveedores p ON p.id=c.proveedor_id
+       ORDER BY c.fecha DESC, c.id DESC LIMIT 200`,
+    );
+    return json({ ok: true, compras });
+  }
+
+  if (key === "POST /api/compras") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const data = await body(ctx);
+    const pid = Number(data.proveedor_id);
+    if (!pid) return err("Elegí el proveedor.");
+    const fallo = await guardarCompra(u, data, data.documento_planta_id ? Number(data.documento_planta_id) : null, pid);
+    if (fallo) return err(fallo);
+    return json({ ok: true });
+  }
+
+  const compraArch = path.match(/^\/api\/compras\/(\d+)\/archivo$/);
+  if (method === "GET" && compraArch) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const row = await one("SELECT archivo_b64, archivo_mime, archivo_nombre FROM compras WHERE id=?", [Number(compraArch[1])]);
+    if (!row || !row.archivo_b64) return err("No hay archivo.", 404);
+    const bytes = Buffer.from(String(row.archivo_b64), "base64");
+    return new Response(bytes, {
+      headers: {
+        "Content-Type": String(row.archivo_mime || "application/octet-stream"),
+        "Content-Disposition": `inline; filename="${String(row.archivo_nombre || "comprobante")}"`,
+      },
+    });
+  }
+
   if (key === "GET /api/reparto/campos") {
     const raw = await one("SELECT valor FROM config WHERE clave='reparto_campos'");
     const campos = raw?.valor ? JSON.parse(String(raw.valor)) : Object.fromEntries(CAMPOS_REPARTO.map((c) => [c, true]));
@@ -1841,9 +2082,7 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
     hora = ahora().slice(11, 16);
   }
   const lotesRaw = (data.lotes && typeof data.lotes === "object" ? data.lotes : {}) as Record<string, unknown>;
-  const borrador =
-    tipo === "recepcion" &&
-    (Boolean(data.borrador) || String(u.rol || "") === "despacho");
+  const borrador = Boolean(data.borrador) || String(u.rol || "") === "despacho";
   if (tipo === "despacho" && nuevos.length) {
     const art = await asegurarNoreg();
     const tnow = ahora();
@@ -1883,6 +2122,15 @@ async function guardarDocumento(u: Usuario, tipo: string, data: Record<string, u
     const tubo = await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tid]);
     if (!tubo) return err(`Tubo ${tid} no encontrado.`);
     if (tipo === "despacho") {
+      if (borrador) {
+        await run("INSERT INTO documento_items (documento_id, tubo_id, codigo_leido) VALUES (?,?,?)", [
+          doc_id,
+          tid,
+          String(tubo.codigo_proveedor || tubo.numero),
+        ]);
+        cantidad += 1;
+        continue;
+      }
       // Cualquier estado: la UI ya pidió confirmación si no estaba vacío.
       if (String(tubo.propiedad || "empresa") === "cliente") {
         await run("UPDATE tubos SET estado='en_planta', proveedor_id=?, actualizado_en=? WHERE id=?", [
