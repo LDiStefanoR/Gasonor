@@ -865,9 +865,7 @@ async function handleApiInner(ctx: APIContext) {
     if (contexto === "cliente" && estado !== "cargado") {
       return err(`Ese tubo no está cargado en empresa (estado: ${estado}).`);
     }
-    if (contexto === "planta" && estado !== "vacio" && estado !== "cargado") {
-      return err(`Ese tubo no está disponible para despacho a planta (estado: ${estado}).`);
-    }
+    // Planta: se permite vincular en cualquier estado (el despacho ya advierte).
     await run(
       "UPDATE tubos SET codigo_proveedor=?, actualizado_en=? WHERE id=?",
       [codigo_proveedor, ahora(), Number(tuboRow.id)],

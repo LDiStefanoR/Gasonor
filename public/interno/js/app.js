@@ -108,6 +108,20 @@ function puede(...roles) {
   });
 }
 
+/** Operaciones de campo / caja avanzada: solo en celular. */
+function esCelular() {
+  const ua = navigator.userAgent || "";
+  if (/Android|iPhone|iPad|iPod|Mobile|Opera Mini/i.test(ua)) return true;
+  if ((navigator.maxTouchPoints || 0) > 1 && window.matchMedia("(max-width: 1024px)").matches) {
+    return true;
+  }
+  return window.matchMedia("(max-width: 700px)").matches;
+}
+
+function rutaSoloCelular(seccion) {
+  return ["facturar", "deudas", "cheques", "facturacion", "planta", "cliente", "envios", "reparto"].includes(seccion);
+}
+
 function etiquetaRol(rol) {
   return ({
     admin: "Administrador",
@@ -121,12 +135,19 @@ function etiquetaRol(rol) {
 
 function aplicarPermisos() {
   const rol = rolActual();
+  const movil = esCelular();
   document.body.classList.toggle("modo-cobrador", rol === "cobrador");
   document.body.classList.toggle("modo-despacho", rol === "despacho");
   document.body.classList.toggle("modo-reparto", rol === "reparto");
+  document.body.classList.toggle("es-celular", movil);
+  document.body.classList.toggle("es-pc", !movil);
   const busq = $("#busqueda-global");
   if (busq) busq.hidden = rol === "cobrador" || rol === "despacho" || rol === "reparto";
   document.querySelectorAll(".sidebar nav a").forEach((el) => {
+    if (el.dataset.soloCelular === "1" && !movil) {
+      el.style.display = "none";
+      return;
+    }
     if (!el.dataset.roles) {
       el.style.display = rol === "cobrador" ? "none" : "";
       return;
@@ -439,22 +460,25 @@ async function vistaInicio() {
   }
   app().innerHTML = `
     <div class="quick-row no-print">
-      ${puede("admin") ? `
+      ${esCelular() && puede("admin") ? `
         <a class="quick green" href="#/planta/despacho">Despacho a planta</a>
         <a class="quick red" href="#/planta/recepcion">Recepción (escanear)</a>
         <a class="quick" style="background:#8a5a12" href="#/planta/completar">Completar recepciones${pendientes.length ? ` (${pendientes.length})` : ""}</a>
         <a class="quick green" href="#/cliente/despacho">Despacho a cliente</a>
         <a class="quick red" href="#/cliente/recepcion">Recepción de cliente</a>
       ` : ""}
-      ${puede("admin", "reparto") ? `<a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/reparto">Reparto del día</a>` : ""}
-      ${rolActual() === "admin" || rolActual() === "cobrador" ? `
+      ${esCelular() && puede("admin", "reparto") ? `<a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/reparto">Reparto del día</a>` : ""}
+      ${esCelular() && (rolActual() === "admin" || rolActual() === "cobrador") ? `
         <a class="quick" style="background:#8a5a12" href="#/facturar">Facturar</a>
         <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
         <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
         <a class="quick" style="background:#24483e" href="#/facturacion">Resumen caja</a>
       ` : ""}
+      ${!esCelular() && (rolActual() === "admin" || rolActual() === "cobrador") ? `
+        <a class="quick" style="background:#24483e;grid-column:1/-1" href="#/cobrar">Cobrar</a>
+      ` : ""}
     </div>
-    ${pendientes.length ? `
+    ${esCelular() && pendientes.length ? `
       <a class="banner-fact" href="#/planta/completar">${pendientes.length} recepción(es) escaneada(s) pendientes de lotes / trazabilidad</a>
     ` : ""}
     <h1>Dónde están los tubos</h1>
@@ -2868,6 +2892,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const leido = String(codigoLeido || "").trim();
   const contexto = opts.contexto === "cliente" ? "cliente" : "planta";
   const estadoAlta = contexto === "cliente" ? "cargado" : "vacio";
+  const labelBusca = contexto === "planta"
+    ? "Número de tubo GN (el de Gasonor)"
+    : "Número de tubo GN";
+  const hintBusca = contexto === "planta"
+    ? "Buscá el nº de tubo de Gasonor (ej. 7162). El nº de trazabilidad de planta se carga cuando vuelve, no acá."
+    : "Solo tubos de Gasonor cargados. Tocá uno de la lista para vincular el código escaneado.";
   abrirModal(`
     <h2 class="modal-warn-title"><span class="warn-tri" aria-hidden="true">⚠</span> Tubo no registrado</h2>
     <p class="lead">Escaneaste <span class="mono">${esc(leido)}</span> (código de proveedor). Podés vincularlo a un tubo GN que ya exista, crearlo, o enviarlo sin registrar.</p>
@@ -2878,12 +2908,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
 
     <div id="reg-pane-vincular">
       <div class="field full">
-        <label>Número de tubo (GN / empresa)</label>
+        <label>${labelBusca}</label>
         <div class="cli-suggest">
-          <input id="reg-busca-tubo" placeholder="Escribí el nº de trazabilidad…" autocomplete="off" inputmode="search">
+          <input id="reg-busca-tubo" placeholder="Ej: 7162" autocomplete="off" inputmode="search">
           <ul id="reg-lista-tubos" hidden></ul>
         </div>
-        <p class="lead" style="margin:6px 0 0">Solo tubos de Gasonor (no de cliente). Tocá uno de la lista para vincular el código escaneado.</p>
+        <p class="lead" style="margin:6px 0 0">${hintBusca}</p>
       </div>
       <div id="reg-tubo-sel" class="card" hidden style="margin:10px 0;padding:10px"></div>
       <div class="field full toolbar">
@@ -2895,10 +2925,15 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
       <div class="field full"><label>El código leído es</label>
         <div class="toolbar">
           <label class="chip"><input type="radio" name="tipo_codigo" value="proveedor" checked> Código de proveedor / barras</label>
-          <label class="chip"><input type="radio" name="tipo_codigo" value="numero"> Número de tubo</label>
+          ${contexto === "cliente" ? `<label class="chip"><input type="radio" name="tipo_codigo" value="numero"> Número de tubo</label>` : ""}
         </div>
       </div>
-      <div class="field"><label>Número de tubo</label><input name="numero" id="reg-numero" placeholder="Nº de trazabilidad" autocomplete="off"></div>
+      ${contexto === "cliente" ? `
+      <div class="field"><label>Número de tubo</label><input name="numero" id="reg-numero" placeholder="Nº de tubo GN" autocomplete="off"></div>
+      ` : `
+      <input type="hidden" name="numero" id="reg-numero" value="">
+      <p class="lead" style="margin:0 0 8px">En despacho a planta no hace falta el nº de trazabilidad: se carga cuando el tubo vuelve. Se registra con el código de proveedor.</p>
+      `}
       <div class="field"><label>Código proveedor</label><input name="codigo_proveedor" id="reg-codp" value="${esc(leido)}" required autocomplete="off"></div>
       <div class="field full"><label>Uso</label>
         <div class="chip-row">
@@ -2941,6 +2976,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const paneVinc = $("#reg-pane-vincular");
   const formCrear = $("#form-reg-scan");
   let tuboSel = null;
+  let tubosHallados = [];
 
   $("#reg-tabs")?.querySelectorAll("[data-reg-tab]").forEach((btn) => {
     btn.onclick = () => {
@@ -2962,15 +2998,21 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   pintarGas();
 
   const syncTipo = () => {
-    const tipo = document.querySelector('input[name="tipo_codigo"]:checked')?.value;
+    const tipo = document.querySelector('input[name="tipo_codigo"]:checked')?.value || "proveedor";
+    const inpNum = $("#reg-numero");
+    if (!inpNum) return;
+    if (contexto === "planta") {
+      inpNum.value = "";
+      return;
+    }
     if (tipo === "numero") {
-      $("#reg-numero").value = leido;
+      inpNum.value = leido;
       $("#reg-codp").value = "";
       $("#reg-codp").placeholder = "Barras / cód. proveedor";
     } else {
       $("#reg-codp").value = leido;
-      $("#reg-numero").value = "";
-      $("#reg-numero").placeholder = "Nº de trazabilidad";
+      inpNum.value = "";
+      inpNum.placeholder = "Nº de tubo GN";
     }
   };
   document.querySelectorAll('input[name="tipo_codigo"]').forEach((r) => { r.onchange = syncTipo; });
@@ -3009,6 +3051,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     const idx = state.scanLista.findIndex((t) => scanClave(t) === claveLista);
     if (idx >= 0) state.scanLista[idx] = actualizado;
     else state.scanLista.unshift(actualizado);
+    persistScanLista();
     cerrarModal();
     pintarListaScan();
     toast(msg || "Tubo sumado a la lista");
@@ -3017,10 +3060,12 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const pintarSel = () => {
     const box = $("#reg-tubo-sel");
     const btn = $("#reg-vincular");
+    const q = ($("#reg-busca-tubo")?.value || "").trim();
     if (!tuboSel) {
       box.hidden = true;
       box.innerHTML = "";
-      btn.disabled = true;
+      // Permitir tocar Vincular si ya escribieron un nº (se resuelve al confirmar).
+      btn.disabled = q.length < 1;
       return;
     }
     box.hidden = false;
@@ -3034,18 +3079,25 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   const buscarTubos = async () => {
     const q = ($("#reg-busca-tubo").value || "").trim();
     const ul = $("#reg-lista-tubos");
-    if (q.length < 1) { ul.hidden = true; ul.innerHTML = ""; return; }
+    if (q.length < 1) { ul.hidden = true; ul.innerHTML = ""; tubosHallados = []; return; }
     const qs = new URLSearchParams({ q, propiedad: "empresa" });
+    // En planta: cualquier estado (despacho permite salir con advertencia).
     if (contexto === "cliente") qs.set("estado", "cargado");
-    else qs.set("estado", "vacio,cargado");
     const data = await api("/api/tubos?" + qs.toString());
-    const tubos = (data.tubos || []).slice(0, 20);
-    if (!tubos.length) {
+    tubosHallados = (data.tubos || []).slice(0, 20);
+    if (!tubosHallados.length) {
       ul.innerHTML = `<li>No hay tubos GN con ese número</li>`;
       ul.hidden = false;
       return;
     }
-    ul.innerHTML = tubos.map((t) => `
+    // Coincidencia exacta: preseleccionar sin exigir otro toque.
+    const exacto = tubosHallados.find((t) => String(t.numero).toUpperCase() === q.toUpperCase()
+      || String(t.numero).replace(/^0+/, "") === q.replace(/^0+/, ""));
+    if (exacto && tubosHallados.length === 1) {
+      tuboSel = exacto;
+      pintarSel();
+    }
+    ul.innerHTML = tubosHallados.map((t) => `
       <li data-id="${t.id}">
         <strong class="mono">${esc(t.numero)}</strong>
         · ${esc(t.articulo_descripcion || t.grupo || "")}
@@ -3054,7 +3106,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     ul.hidden = false;
     ul.querySelectorAll("li[data-id]").forEach((li) => {
       li.onclick = () => {
-        tuboSel = tubos.find((t) => String(t.id) === String(li.dataset.id)) || null;
+        tuboSel = tubosHallados.find((t) => String(t.id) === String(li.dataset.id)) || null;
         $("#reg-busca-tubo").value = tuboSel?.numero || q;
         ul.hidden = true;
         pintarSel();
@@ -3067,15 +3119,44 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     clearTimeout(tBus);
     tBus = setTimeout(() => buscarTubos().catch((e) => toast(e.message, true)), 220);
   };
+  $("#reg-busca-tubo").onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      $("#reg-vincular")?.click();
+    }
+  };
+
+  const resolverTuboSel = async () => {
+    if (tuboSel?.id) return tuboSel;
+    const q = ($("#reg-busca-tubo").value || "").trim();
+    if (!q) return null;
+    if (!tubosHallados.length) {
+      try { await buscarTubos(); } catch (_) {}
+    }
+    const exacto = tubosHallados.find((t) => String(t.numero).toUpperCase() === q.toUpperCase()
+      || String(t.numero).replace(/^0+/, "") === q.replace(/^0+/, ""));
+    if (exacto) {
+      tuboSel = exacto;
+      pintarSel();
+      return tuboSel;
+    }
+    if (tubosHallados.length === 1) {
+      tuboSel = tubosHallados[0];
+      pintarSel();
+      return tuboSel;
+    }
+    return null;
+  };
 
   $("#reg-vincular").onclick = async () => {
-    if (!tuboSel?.id) return toast("Elegí un tubo de la lista", true);
+    const sel = await resolverTuboSel();
+    if (!sel?.id) return toast("Elegí un tubo de la lista (tocá el resultado)", true);
     try {
       const r = await api("/api/tubos/vincular", {
         method: "POST",
-        body: { tubo_id: tuboSel.id, codigo_proveedor: leido, contexto },
+        body: { tubo_id: sel.id, codigo_proveedor: leido, contexto },
       });
-      aplicarTuboLista(r.tubo || r, "Código vinculado al tubo " + (r.tubo?.numero || ""));
+      aplicarTuboLista(r.tubo || r, "Código vinculado al tubo " + (r.tubo?.numero || sel.numero || ""));
     } catch (err) { toast(err.message, true); }
   };
 
@@ -3087,11 +3168,13 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
   formCrear.onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    const numero = String(fd.numero || "").trim();
-    const codigo_proveedor = String(fd.codigo_proveedor || "").trim();
+    const codigo_proveedor = String(fd.codigo_proveedor || "").trim() || leido;
+    // En planta el nº de trazabilidad no se pide: usamos el código de proveedor como nº temporal.
+    let numero = String(fd.numero || "").trim();
+    if (contexto === "planta" && !numero) numero = codigo_proveedor;
     const grupo = String(fd.grupo || "").trim();
     const rubro = String(fd.rubro || "industrial");
-    if (!numero) return toast("Ingresá el número de tubo", true);
+    if (contexto === "cliente" && !numero) return toast("Ingresá el número de tubo", true);
     if (!codigo_proveedor) return toast("Ingresá el código de proveedor", true);
     if (!grupo) return toast("Elegí el tipo de gas", true);
     if (fd.propiedad === "cliente" && !fd.cliente_id) return toast("Asigná el cliente propietario", true);
@@ -4466,12 +4549,14 @@ function pintarCobrar() {
         <div class="caja-cobro-head">
           <h1 class="caja-title">Cobrar</h1>
           <div class="caja-head-links">
-            <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
-            <a class="btn secondary btn-caja-fact" href="#/facturar">Facturar</a>
-            <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Resumen</a>
+            ${esCelular() ? `
+              <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
+              <a class="btn secondary btn-caja-fact" href="#/facturar">Facturar</a>
+              <a class="btn secondary btn-caja-fact" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Resumen</a>
+            ` : ""}
           </div>
         </div>
-        ${htmlBannerDeudas(c.alertas)}
+        ${esCelular() ? htmlBannerDeudas(c.alertas) : ""}
         ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
         <div class="caja-modos" id="caja-root-modos">
           ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
@@ -5670,6 +5755,11 @@ async function route() {
       location.hash = "#/cobrar";
       return;
     }
+    if (!esCelular() && rutaSoloCelular(seccion)) {
+      toast("Esa función se usa desde el celular");
+      location.hash = rolActual() === "cobrador" ? "#/cobrar" : "#/inicio";
+      return;
+    }
     if (rolActual() === "despacho") {
       const okPlanta = seccion === "planta" && (parts[1] === "despacho" || parts[1] === "recepcion");
       const okEnviosPlanta = seccion === "envios" && parts[1] === "planta";
@@ -5681,6 +5771,18 @@ async function route() {
     if (seccion === "cobrar") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
       return vistaCobrar();
+    }
+    if (seccion === "facturar") {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaFacturar(params);
+    }
+    if (seccion === "deudas") {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaDeudas(params);
+    }
+    if (seccion === "cheques") {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaCheques(params);
     }
     if (seccion === "facturacion") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
