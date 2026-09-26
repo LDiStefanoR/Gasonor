@@ -2828,8 +2828,11 @@ function htmlBloqueCamara(hint) {
           </div>
         </div>
         <p class="scan-hint">${hint}</p>
-        <p class="scan-hint" style="margin-top:4px;opacity:.85">Enfoque continuo activo · <b>tocá la cámara</b> si pierde el foco</p>
-        <button class="btn secondary btn-cam-lg" type="button" id="btn-stop">Detener escáner</button>
+        <div class="toolbar" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+          <button class="btn secondary" type="button" id="btn-refocus">Reenfocar</button>
+          <button class="btn secondary btn-cam-lg" type="button" id="btn-stop">Detener escáner</button>
+        </div>
+        <p class="scan-hint" style="margin-top:6px;opacity:.85">Si se ve borroso: <b>tocá la imagen</b> o el botón <b>Reenfocar</b>.</p>
       </div>
     </div>`;
 }
@@ -2838,6 +2841,7 @@ function enlazarCamaraScan(onCode) {
   if (!esMovil()) return;
   const btnCam = $("#btn-cam");
   const btnStop = $("#btn-stop");
+  const btnFocus = $("#btn-refocus");
   const wrap = $("#scan-stage-wrap");
   const panel = $("#scan-cam-panel");
   const idle = $(".scan-hint-idle");
@@ -2858,6 +2862,14 @@ function enlazarCamaraScan(onCode) {
         mostrar(false);
         toast(err.message || "No se pudo abrir la cámara. Usá carga manual.", true);
       }
+    };
+  }
+  if (btnFocus) {
+    btnFocus.onclick = async () => {
+      try {
+        toast("Reenfocando…");
+        await scanSafe("refocus", true);
+      } catch (_) {}
     };
   }
   if (btnStop) {

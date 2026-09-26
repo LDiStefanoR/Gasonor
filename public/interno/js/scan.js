@@ -14,6 +14,9 @@
   let focusTimer = 0;
   let tapBoundEl = null;
   let lastFocusAt = 0;
+  let focusing = false;
+  let preferredDeviceId = null;
+  let sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function unlockAudio() {
     try {
@@ -135,32 +138,23 @@
     }
   }
 
-  async function applyFocus(track, mode, point) {
-    if (!track) return false;
-    const caps = capsOf(track);
-    const advanced = [];
-    if (caps.focusMode && Array.isArray(caps.focusMode) && caps.focusMode.includes(mode)) {
-      advanced.push({ focusMode: mode });
+  function settingsOf(track) {
+    try {
+      return typeof track.getSettings === "function" ? track.getSettings() : {};
+    } catch (_) {
+      return {};
     }
-    if (
-      point &&
-      caps.pointsOfInterest &&
-      Number.isFinite(point.x) &&
-      Number.isFinite(point.y)
-    ) {
-      advanced.push({
-        pointsOfInterest: [{ x: Math.min(1, Math.max(0, point.x)), y: Math.min(1, Math.max(0, point.y)) }],
-      });
-    }
-    if (!advanced.length) return false;
+  }
+
+  async function tryApply(track, advanced) {
+    if (!track || !advanced || !advanced.length) return false;
     try {
       await track.applyConstraints({ advanced });
-      lastFocusAt = Date.now();
       return true;
     } catch (_) {
       try {
-        if (mode) await track.applyConstraints({ focusMode: mode });
-        lastFocusAt = Date.now();
+        // Algunos WebView solo aceptan el primer constraint suelto.
+        await track.applyConstraints(advanced[0]);
         return true;
       } catch (__) {
         return false;
@@ -172,39 +166,171 @@
     const track = getActiveTrack();
     if (!track) return;
     const caps = capsOf(track);
-    // Preferir enfoque continuo; si no, single-shot al arrancar.
+    const settings = settingsOf(track);
+    if (settings.deviceId) preferredDeviceId = settings.deviceId;
     if (caps.focusMode && caps.focusMode.includes("continuous")) {
-      await applyFocus(track, "continuous");
+      await tryApply(track, [{ focusMode: "continuous" }]);
     } else if (caps.focusMode && caps.focusMode.includes("single-shot")) {
-      await applyFocus(track, "single-shot");
-    } else {
-      await applyFocus(track, "continuous");
+      await tryApply(track, [{ focusMode: "single-shot" }]);
     }
   }
 
-  /** Reenfoca: toque en pantalla o después de leer un código. */
-  async function refocus(point) {
-    const track = getActiveTrack();
-    if (!track) return false;
-    const now = Date.now();
-    if (now - lastFocusAt < 350) return false;
+  /** Pulso de zoom: en la práctica es lo que más reenfoca en Android Chrome. */
+  async function zoomPulse(track) {
     const caps = capsOf(track);
-    let ok = false;
-    // Ciclo single-shot → continuous despierta el AF en muchos Android.
-    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
-      ok = await applyFocus(track, "single-shot", point);
-      setTimeout(() => {
-        applyFocus(track, caps.focusMode.includes("continuous") ? "continuous" : "single-shot", point).catch(() => {});
-      }, 280);
-    } else {
-      ok = await applyFocus(track, "continuous", point);
-      // Pequeño “nudge”: algunos equipos reaccionan mejor al reaplicar.
-      setTimeout(() => {
-        applyFocus(track, "continuous", point).catch(() => {});
-      }, 200);
+    if (!caps.zoom) return false;
+    const settings = settingsOf(track);
+    const min = Number(caps.zoom.min ?? 1);
+    const max = Number(caps.zoom.max ?? min);
+    const step = Number(caps.zoom.step || 0.1) || 0.1;
+    const cur = Number(settings.zoom ?? min);
+    if (!(max > min)) return false;
+    const bump = Math.min(max, cur + Math.max(step, (max - min) * 0.08));
+    const back = Math.max(min, cur);
+    if (Math.abs(bump - back) < 0.001) return false;
+    const ok1 = await tryApply(track, [{ zoom: bump }]);
+    await sleep(160);
+    const ok2 = await tryApply(track, [{ zoom: back }]);
+    return ok1 || ok2;
+  }
+
+  /** Barrido de distancia de foco (lentes que exponen focusDistance). */
+  async function focusDistanceSweep(track) {
+    const caps = capsOf(track);
+    if (!caps.focusDistance) return false;
+    const min = Number(caps.focusDistance.min ?? 0);
+    const max = Number(caps.focusDistance.max ?? min);
+    if (!(max > min)) return false;
+    const mid = min + (max - min) * 0.35;
+    const near = min + (max - min) * 0.12;
+    await tryApply(track, [{ focusMode: "manual" }, { focusDistance: max }]);
+    await sleep(120);
+    await tryApply(track, [{ focusMode: "manual" }, { focusDistance: near }]);
+    await sleep(140);
+    await tryApply(track, [{ focusMode: "manual" }, { focusDistance: mid }]);
+    await sleep(120);
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      await tryApply(track, [{ focusMode: "continuous" }]);
+    } else if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      await tryApply(track, [{ focusMode: "single-shot" }]);
     }
-    flashFocusHint(point);
+    return true;
+  }
+
+  /** Single-shot + punto de interés (si el fabricante lo implementa). */
+  async function singleShotFocus(track, point) {
+    const caps = capsOf(track);
+    const advanced = [];
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      advanced.push({ focusMode: "single-shot" });
+    } else if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      // Forzar “manual” un instante a veces reinicia el AF continuo.
+      if (caps.focusMode.includes("manual")) advanced.push({ focusMode: "manual" });
+      else advanced.push({ focusMode: "continuous" });
+    }
+    if (point && caps.pointsOfInterest) {
+      advanced.push({
+        pointsOfInterest: [{
+          x: Math.min(1, Math.max(0, point.x)),
+          y: Math.min(1, Math.max(0, point.y)),
+        }],
+      });
+    }
+    if (!advanced.length) return false;
+    const ok = await tryApply(track, advanced);
+    await sleep(220);
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      await tryApply(track, [{ focusMode: "continuous" }]);
+    }
     return ok;
+  }
+
+  /** Reinicia el track de video: lo más fiable para volver a enfocar. */
+  async function restartCameraTrack() {
+    const video = document.querySelector("#lector video");
+    const old = getActiveTrack();
+    const settings = old ? settingsOf(old) : {};
+    const deviceId = preferredDeviceId || settings.deviceId || null;
+    const constraints = {
+      audio: false,
+      video: deviceId
+        ? {
+            deviceId: { exact: deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          }
+        : {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+    };
+    let newStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (_) {
+      newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+    }
+    if (stream) {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    }
+    stream = newStream;
+    videoTrack = newStream.getVideoTracks()[0] || null;
+    const st = settingsOf(videoTrack);
+    if (st.deviceId) preferredDeviceId = st.deviceId;
+    if (video) {
+      video.srcObject = newStream;
+      try { await video.play(); } catch (_) {}
+    }
+    await sleep(80);
+    await enableContinuousFocus();
+    // Un pulso de zoom al reiniciar ayuda a “cerrar” el AF.
+    await zoomPulse(videoTrack);
+    return true;
+  }
+
+  /**
+   * Reenfoque real (no solo el anillo).
+   * @param {object|boolean} [opts] point {x,y} o true = forzar reinicio de cámara
+   */
+  async function refocus(opts) {
+    const hard = opts === true || (opts && opts.hard);
+    const point = opts && typeof opts === "object" && !hard ? opts : (opts && opts.point) || null;
+    if (focusing) return false;
+    const now = Date.now();
+    if (!hard && now - lastFocusAt < 500) return false;
+    focusing = true;
+    flashFocusHint(point);
+    try {
+      const track = getActiveTrack();
+      if (!track) return false;
+
+      // 1) Barrido de distancia / single-shot / zoom (sin reiniciar).
+      let ok = await focusDistanceSweep(track);
+      if (!ok) ok = await singleShotFocus(track, point);
+      ok = (await zoomPulse(track)) || ok;
+
+      // 2) Si el usuario pidió foco a propósito (toque / botón) o nada funcionó → reiniciar cámara.
+      if (hard || !ok) {
+        ok = (await restartCameraTrack()) || ok;
+      }
+
+      lastFocusAt = Date.now();
+      return ok;
+    } catch (_) {
+      try {
+        await restartCameraTrack();
+        lastFocusAt = Date.now();
+        return true;
+      } catch (__) {
+        return false;
+      }
+    } finally {
+      focusing = false;
+    }
   }
 
   function flashFocusHint(point) {
@@ -221,17 +347,19 @@
     ring.style.left = x + "%";
     ring.style.top = y + "%";
     ring.classList.remove("show");
-    // force reflow
     void ring.offsetWidth;
     ring.classList.add("show");
   }
 
   function scheduleAutoRefocus() {
     if (focusTimer) clearInterval(focusTimer);
+    // Cada tanto un pulso suave (zoom), sin reiniciar la cámara.
     focusTimer = window.setInterval(() => {
-      if (!running) return;
-      refocus().catch(() => {});
-    }, 4500);
+      if (!running || focusing) return;
+      const track = getActiveTrack();
+      if (!track) return;
+      zoomPulse(track).catch(() => {});
+    }, 5000);
   }
 
   function bindTapToFocus(rootEl) {
@@ -241,12 +369,15 @@
     tapBoundEl = stage;
     const onTap = (ev) => {
       if (!running) return;
+      // No robar el click de botones debajo/al lado.
+      if (ev.target && ev.target.closest && ev.target.closest("button, a, input, select, textarea")) return;
       const t = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
       const rect = stage.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const x = (t.clientX - rect.left) / rect.width;
       const y = (t.clientY - rect.top) / rect.height;
-      refocus({ x, y }).catch(() => {});
+      // Toque = reenfoque fuerte (puede reiniciar el track).
+      refocus({ hard: true, point: { x, y } }).catch(() => {});
     };
     stage.addEventListener("pointerdown", onTap);
     stage._gasonorFocusTap = onTap;
@@ -269,8 +400,8 @@
     lastAt = now;
     beep("read");
     showLast("Leído: " + code, "read");
-    // Tras cada lectura el tubo se aleja: forzar reenfoque para el siguiente.
-    setTimeout(() => { refocus().catch(() => {}); }, 400);
+    // Tras cada lectura: reenfoque fuerte para el siguiente tubo.
+    setTimeout(() => { refocus({ hard: true }).catch(() => {}); }, 450);
     onCode(code);
   }
 
@@ -281,8 +412,6 @@
         facingMode: { ideal: "environment" },
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        // Pistas avanzadas: el navegador ignora las que no soporta.
-        advanced: [{ focusMode: "continuous" }],
       },
     };
   }
@@ -306,7 +435,6 @@
             deviceId: { exact: rear.deviceId },
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            advanced: [{ focusMode: "continuous" }],
           },
         });
       }
@@ -420,8 +548,12 @@
       try {
         stream = await pickRearStream();
         videoTrack = stream.getVideoTracks()[0] || null;
+        const st0 = settingsOf(videoTrack);
+        if (st0.deviceId) preferredDeviceId = st0.deviceId;
         const video = await mountVideo(el, stream);
         await enableContinuousFocus();
+        // Primer pulso real de AF al abrir.
+        await zoomPulse(videoTrack);
         bindTapToFocus(el);
         scheduleAutoRefocus();
         await loopDetect(video, onCode);
