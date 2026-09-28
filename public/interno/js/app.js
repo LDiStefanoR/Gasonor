@@ -108,14 +108,10 @@ function puede(...roles) {
   });
 }
 
-/** Operaciones de campo / caja avanzada: solo en celular. */
+/** Teléfono o tablet. Una PC táctil o una ventana angosta sigue siendo PC. */
 function esCelular() {
   const ua = navigator.userAgent || "";
-  if (/Android|iPhone|iPad|iPod|Mobile|Opera Mini/i.test(ua)) return true;
-  if ((navigator.maxTouchPoints || 0) > 1 && window.matchMedia("(max-width: 1024px)").matches) {
-    return true;
-  }
-  return window.matchMedia("(max-width: 700px)").matches;
+  return /Android|iPhone|iPad|iPod|Mobile|Opera Mini/i.test(ua);
 }
 
 function rutaSoloCelular(seccion, parts) {
@@ -480,6 +476,12 @@ async function vistaInicio() {
         <a class="quick" style="background:#1a3a32;grid-column:1/-1" href="#/cobrar">Cobrar</a>
       ` : ""}
     </div>
+    ${!esCelular() && rolActual() === "admin" ? `
+      <div class="quick-row no-print">
+        <a class="quick" href="#/planta/completar">Completar despachos y recepciones</a>
+        <a class="quick" href="#/compras">Compras y deudas de proveedores</a>
+      </div>
+    ` : ""}
     ${!esCelular() && rolActual() === "admin" && pendientes.length ? `
       <a class="banner-fact" href="#/planta/completar">${pendientes.length} escaneo(s) del celular pendientes de completar en la PC</a>
     ` : ""}
@@ -2372,37 +2374,76 @@ function horaInput() {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+const CONDICIONES_IVA = [
+  ["", "Elegir…"],
+  ["responsable_inscripto", "Responsable inscripto"],
+  ["monotributo", "Monotributo"],
+  ["exento", "Exento"],
+  ["no_responsable", "No responsable"],
+  ["consumidor_final", "Consumidor final"],
+  ["exterior", "Proveedor del exterior"],
+];
+
+function etiquetaCondicionIva(v) {
+  return (CONDICIONES_IVA.find((x) => x[0] === v) || ["", v || "—"])[1] || "—";
+}
+
+function htmlCamposProveedor(p) {
+  p = p || {};
+  const opts = CONDICIONES_IVA.map(([v, l]) =>
+    `<option value="${esc(v)}" ${String(p.condicion_iva || "") === v ? "selected" : ""}>${esc(l)}</option>`
+  ).join("");
+  return `
+    <div class="field"><label>Razón social</label><input name="nombre" required autocomplete="organization" value="${esc(p.nombre || "")}"></div>
+    <div class="field"><label>Nombre de fantasía</label><input name="fantasia" value="${esc(p.fantasia || "")}"></div>
+    <div class="field"><label>CUIT</label><input name="cuit" inputmode="numeric" autocomplete="off" placeholder="30-00000000-0" value="${esc(p.cuit || "")}"></div>
+    <div class="field"><label>Condición frente al IVA</label><select name="condicion_iva">${opts}</select></div>
+    <div class="field full"><label>Domicilio fiscal</label><input name="direccion" autocomplete="street-address" value="${esc(p.direccion || "")}"></div>
+    <div class="field"><label>Localidad</label><input name="localidad" value="${esc(p.localidad || "")}"></div>
+    <div class="field"><label>Provincia</label><input name="provincia" value="${esc(p.provincia || "")}"></div>
+    <div class="field"><label>Código postal</label><input name="codigo_postal" value="${esc(p.codigo_postal || "")}"></div>
+    <div class="field"><label>Teléfono</label><input name="telefono" inputmode="tel" autocomplete="tel" value="${esc(p.telefono || "")}"></div>
+    <div class="field"><label>Email</label><input name="email" type="email" autocomplete="email" value="${esc(p.email || "")}"></div>
+    <div class="field"><label>Ingresos brutos</label><input name="ingresos_brutos" value="${esc(p.ingresos_brutos || "")}"></div>
+    <div class="field"><label>Inicio de actividades</label><input name="inicio_actividades" type="date" value="${esc(p.inicio_actividades || "")}"></div>
+    <p class="lead" style="grid-column:1/-1">CUIT, condición de IVA y domicilio fiscal son los datos que va a pedir AFIP. El CUIT, si lo cargás, tiene que tener 11 números.</p>`;
+}
+
 async function vistaProveedores() {
   setNav("proveedores");
-  const data = await api("/api/proveedores");
+  const [data, cuentas] = await Promise.all([
+    api("/api/proveedores"),
+    api("/api/compras/cuentas").catch(() => ({ cuentas: [] })),
+  ]);
   const rows = data.proveedores || [];
+  const deudaDe = Object.fromEntries((cuentas.cuentas || []).map((c) => [String(c.proveedor_id), c]));
   app().innerHTML = `
     <h1>Proveedores / plantas</h1>
-    <p class="lead">Cargá plantas de carga. Tocá una para ver los tubos que tiene y el historial de envíos.</p>
+    <p class="lead">Plantas de carga y ficha impositiva de cada proveedor. Las facturas y los pagos se cargan en <a href="#/compras">Compras y deudas</a>.</p>
     <div class="card">
       <h3>Nuevo proveedor</h3>
       <form id="form-prov" class="grid form">
-        <div class="field"><label>Nombre</label><input name="nombre" required autocomplete="organization"></div>
-        <div class="field"><label>CUIT (opcional)</label><input name="cuit" inputmode="numeric" autocomplete="off" placeholder="30-…"></div>
-        <div class="field full"><label>Dirección (opcional)</label><input name="direccion" autocomplete="street-address"></div>
-        <div class="field"><label>Teléfono (opcional)</label><input name="telefono" inputmode="tel" autocomplete="tel"></div>
+        ${htmlCamposProveedor()}
         <div class="field full"><button class="btn copper" type="submit">Agregar proveedor</button></div>
       </form>
     </div>
     <div class="card" style="margin-top:14px">
       ${rows.length ? `
       <div class="table-wrap"><table>
-        <thead><tr><th>Nombre</th><th>CUIT</th><th>Dirección</th><th>Teléfono</th><th>En posesión</th><th></th></tr></thead>
+        <thead><tr><th>Razón social</th><th>CUIT</th><th>IVA</th><th>Deuda</th><th>En posesión</th><th></th></tr></thead>
         <tbody>
-          ${rows.map((p) => `
+          ${rows.map((p) => {
+            const cc = deudaDe[String(p.id)] || {};
+            return `
             <tr>
-              <td><a href="#/proveedores/${p.id}"><strong>${esc(p.nombre)}</strong></a></td>
+              <td><a href="#/proveedores/${p.id}"><strong>${esc(p.nombre)}</strong></a>${p.fantasia ? `<br><small>${esc(p.fantasia)}</small>` : ""}</td>
               <td class="mono">${esc(p.cuit || "—")}</td>
-              <td>${esc(p.direccion || "—")}</td>
-              <td>${esc(p.telefono || "—")}</td>
+              <td>${esc(p.condicion_iva ? etiquetaCondicionIva(p.condicion_iva) : "—")}</td>
+              <td class="mono"><a href="#/compras/cuenta/${p.id}">${money(cc.deuda || 0)}</a></td>
               <td class="mono">${Number(p.tubos_en_planta || 0)}</td>
               <td><a class="btn" href="#/proveedores/${p.id}">Abrir</a></td>
-            </tr>`).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table></div>` : `<p class="empty">Todavía no hay proveedores cargados.</p>`}
     </div>`;
@@ -2419,7 +2460,10 @@ async function vistaProveedores() {
 async function vistaProveedorFicha(id, params) {
   setNav("proveedores");
   const tab = params.get("tab") || "tubos";
-  const data = await api("/api/proveedores/" + id);
+  const [data, cc] = await Promise.all([
+    api("/api/proveedores/" + id),
+    api("/api/compras/cuentas/" + id).catch(() => null),
+  ]);
   const p = data.proveedor;
   const r = data.resumen || {};
   const tubos = data.tubos || [];
@@ -2429,11 +2473,18 @@ async function vistaProveedorFicha(id, params) {
     <p><a href="#/proveedores">← Proveedores</a></p>
     <h1>${esc(p.nombre)}</h1>
     <p class="lead">
-      ${esc(p.direccion || "Sin dirección")}
-      ${p.cuit ? " · CUIT " + esc(p.cuit) : ""}
-      ${p.telefono ? " · " + esc(p.telefono) : ""}
+      ${p.fantasia ? esc(p.fantasia) + " · " : ""}
+      ${p.cuit ? "CUIT " + esc(p.cuit) : "Sin CUIT"}
+      ${p.condicion_iva ? " · " + esc(etiquetaCondicionIva(p.condicion_iva)) : ""}
       ${p.activo ? "" : " · <em>Inactivo</em>"}
     </p>
+    <p class="lead">
+      ${esc([p.direccion, p.localidad, p.provincia, p.codigo_postal].filter(Boolean).join(" · ") || "Sin domicilio fiscal")}
+      ${p.telefono ? " · " + esc(p.telefono) : ""}
+      ${p.email ? " · " + esc(p.email) : ""}
+      ${p.ingresos_brutos ? " · IIBB " + esc(p.ingresos_brutos) : ""}
+    </p>
+    <a class="banner-fact" href="#/compras/cuenta/${p.id}">Deuda con este proveedor: ${money(cc && cc.deuda != null ? cc.deuda : 0)}. Cargar facturas y pagos.</a>
     <div class="grid stats">
       <div class="card stat en_planta"><div class="n">${r.en_posesion ?? tubos.length}</div><small>Tubos en posesión</small></div>
       <div class="card stat vacio"><div class="n">${r.tubos_enviados || 0}</div><small>Tubos enviados (hist.)</small></div>
@@ -2442,6 +2493,8 @@ async function vistaProveedorFicha(id, params) {
     </div>
     <div class="toolbar">
       <button class="btn copper" type="button" id="btn-edit-prov">Editar datos</button>
+      <a class="btn" href="#/compras/cuenta/${p.id}">Cuenta y pagos</a>
+      <a class="btn secondary" href="#/compras">Cargar compra</a>
       <a class="btn secondary" href="#/planta/despacho/${p.id}">Despacho a esta planta</a>
       <a class="btn secondary" href="#/planta/recepcion/${p.id}">Recepción de esta planta</a>
     </div>
@@ -2515,10 +2568,7 @@ async function vistaProveedorFicha(id, params) {
     abrirModal(`
       <h2>Editar ${esc(p.nombre)}</h2>
       <form id="form-edit-prov" class="grid form">
-        <div class="field"><label>Nombre</label><input name="nombre" required value="${esc(p.nombre || "")}"></div>
-        <div class="field"><label>CUIT</label><input name="cuit" value="${esc(p.cuit || "")}" inputmode="numeric"></div>
-        <div class="field full"><label>Dirección</label><input name="direccion" value="${esc(p.direccion || "")}"></div>
-        <div class="field"><label>Teléfono</label><input name="telefono" value="${esc(p.telefono || "")}"></div>
+        ${htmlCamposProveedor(p)}
         <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
       </form>`);
     $("#form-edit-prov").onsubmit = async (e) => {
@@ -6100,7 +6150,7 @@ async function vistaCompras() {
   const porProv = stats.por_proveedor || [];
   const conDeuda = (cuentas.cuentas || []).filter((c) => Number(c.deuda) > 0);
   app().innerHTML = `
-    <h1>Compras a proveedores</h1>
+    <h1>Compras y deudas de proveedores</h1>
     ${tabsCompras("compras")}
     <p class="lead">Facturas de compra, deuda con cada proveedor y pagos. El comprobante también se puede cargar al completar un despacho.</p>
     <div class="grid stats">

@@ -37,6 +37,18 @@ function err(mensaje: string, codigo = 400) {
   return json({ ok: false, error: mensaje }, codigo);
 }
 
+function texto(v: unknown) {
+  return String(v ?? "").trim();
+}
+
+/** Vacío si no hay CUIT. null si el número no tiene 11 dígitos. */
+function cuitProveedor(v: unknown): string | null {
+  const s = texto(v).replace(/\D/g, "");
+  if (!s) return "";
+  if (s.length !== 11) return null;
+  return s;
+}
+
 function ahora() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -1287,16 +1299,30 @@ async function handleApiInner(ctx: APIContext) {
   if (key === "POST /api/proveedores") {
     if (!puede(u, "admin", "despacho")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
-    const nombre = String(data.nombre || "").trim().toUpperCase();
+    const nombre = texto(data.nombre).toUpperCase();
     if (!nombre) return err("El nombre del proveedor es obligatorio.");
+    const cuit = cuitProveedor(data.cuit);
+    if (cuit === null) return err("El CUIT tiene que tener 11 números.");
     try {
       const r = await run(
-        "INSERT INTO proveedores (nombre, direccion, telefono, cuit, activo, creado_en) VALUES (?,?,?,?,1,?)",
+        `INSERT INTO proveedores (
+          nombre, direccion, telefono, cuit, fantasia, condicion_iva, email,
+          localidad, provincia, codigo_postal, ingresos_brutos, inicio_actividades,
+          activo, creado_en
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
         [
           nombre,
-          String(data.direccion || "").trim(),
-          String(data.telefono || "").trim(),
-          String(data.cuit || "").trim(),
+          texto(data.direccion),
+          texto(data.telefono),
+          cuit,
+          texto(data.fantasia),
+          texto(data.condicion_iva),
+          texto(data.email),
+          texto(data.localidad),
+          texto(data.provincia),
+          texto(data.codigo_postal),
+          texto(data.ingresos_brutos),
+          texto(data.inicio_actividades),
           ahora(),
         ],
       );
@@ -1387,14 +1413,30 @@ async function handleApiInner(ctx: APIContext) {
     const row = await one("SELECT * FROM proveedores WHERE id=?", [pid]);
     if (!row) return err("Proveedor no encontrado.", 404);
     const data = await body(ctx);
-    await run("UPDATE proveedores SET nombre=?, direccion=?, telefono=?, cuit=?, activo=? WHERE id=?", [
-      String(data.nombre ?? row.nombre).trim().toUpperCase(),
-      String(data.direccion ?? row.direccion ?? "").trim(),
-      String(data.telefono ?? row.telefono ?? "").trim(),
-      String(data.cuit ?? row.cuit ?? "").trim(),
-      data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
-      pid,
-    ]);
+    const cuit = cuitProveedor(data.cuit ?? row.cuit);
+    if (cuit === null) return err("El CUIT tiene que tener 11 números.");
+    const prev = (k: string) => texto(data[k] ?? row[k]);
+    await run(
+      `UPDATE proveedores SET nombre=?, direccion=?, telefono=?, cuit=?, fantasia=?, condicion_iva=?,
+        email=?, localidad=?, provincia=?, codigo_postal=?, ingresos_brutos=?, inicio_actividades=?, activo=?
+       WHERE id=?`,
+      [
+        texto(data.nombre ?? row.nombre).toUpperCase(),
+        prev("direccion"),
+        prev("telefono"),
+        cuit,
+        prev("fantasia"),
+        prev("condicion_iva"),
+        prev("email"),
+        prev("localidad"),
+        prev("provincia"),
+        prev("codigo_postal"),
+        prev("ingresos_brutos"),
+        prev("inicio_actividades"),
+        data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
+        pid,
+      ],
+    );
     return json({ ok: true, proveedor: await one("SELECT * FROM proveedores WHERE id=?", [pid]) });
   }
 
