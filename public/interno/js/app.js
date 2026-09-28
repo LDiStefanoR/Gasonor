@@ -2320,6 +2320,12 @@ async function vistaConfig() {
     <div class="card" style="max-width:640px">
       <form id="form-cfg" class="grid form">
         <div class="field full"><label>Razón social</label><input name="empresa" value="${esc(cfg.empresa || "")}"></div>
+        <div class="field"><label>CUIT</label><input name="cuit" value="${esc(cfg.cuit || "")}" placeholder="30-00000000-0"></div>
+        <div class="field"><label>Condición IVA</label><input name="condicion_iva" value="${esc(cfg.condicion_iva || "")}" placeholder="Responsable inscripto"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion" value="${esc(cfg.direccion || "")}"></div>
+        <div class="field"><label>Localidad</label><input name="localidad" value="${esc(cfg.localidad || "")}"></div>
+        <div class="field"><label>Teléfono</label><input name="telefono" value="${esc(cfg.telefono || "")}"></div>
+        <div class="field full"><label>Email</label><input name="email" type="email" value="${esc(cfg.email || "")}"></div>
         <div class="field"><label>Código de informe</label><input name="codigo_informe" value="${esc(cfg.codigo_informe || "")}"></div>
         <div class="field"><label>Título del listado</label><input name="titulo_informe" value="${esc(cfg.titulo_informe || "")}"></div>
         <div class="field full"><button class="btn" type="submit">Guardar</button></div>
@@ -3393,7 +3399,7 @@ async function vistaScan(modo, proveedorId) {
       <div class="scan-count">En lista: <span id="scan-n">${state.scanLista.length}</span></div>
       <div id="lista-scan">${htmlListaScan()}</div>
       <div class="toolbar">
-        <button class="btn copper" type="button" id="btn-seguir">${modo === "recepcion" ? "Siguiente: confirmar escaneo" : "Siguiente: remito y confirmar"}</button>
+        <button class="btn copper" type="button" id="btn-seguir">${esMovil() || rolActual() === "despacho" ? "Enviar a completar en la PC" : "Siguiente: confirmar"}</button>
       </div>
     </div>`;
   pintarListaScan();
@@ -3407,12 +3413,10 @@ async function vistaScan(modo, proveedorId) {
   document.querySelectorAll("[data-add-deuda]").forEach((btn) => {
     btn.onclick = () => procesarCodigo(btn.getAttribute("data-add-deuda"), modo, proveedorId);
   });
-  $("#btn-seguir").onclick = async () => {
+  $("#btn-seguir").onclick = () => {
     if (!state.scanLista.length) return toast("La lista está vacía", true);
     persistScanLista();
-    if (movil) {
-      try { await scanSafe("stop"); } catch (_) {}
-    }
+    scanSafe("stop");
     location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
   };
 }
@@ -3436,7 +3440,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
     <h1>Confirmar ${recep ? "recepción" : "despacho"}</h1>
     <p class="lead">${esc(prov ? prov.nombre : "")} · ${state.scanLista.length} tubo(s)
       ${soloBorrador ? " · Se enviará a administración" : ""}</p>
-    ${soloBorrador ? `<p class="scan-pc-hint">No hace falta remito ni factura acá. Queda preparado para <b>Completar despachos</b> en la PC.</p>` : ""}
+    ${soloBorrador ? `<p class="scan-pc-hint">No hace falta el comprobante acá. Queda preparado para <b>Completar despachos y recepciones</b> en la PC.</p>` : ""}
     <div class="card">
       <form id="form-doc" class="grid form">
         ${soloBorrador ? "" : `<div class="field"><label>Nº remito</label><input name="remito" required placeholder="Como en el papel"></div>`}
@@ -3496,6 +3500,18 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
   }
   $("#form-doc").onsubmit = async (e) => {
     e.preventDefault();
+    const btn = e.target.querySelector("button[type=submit]");
+    if (btn && btn.disabled) return;
+    const textoBtn = btn ? btn.textContent : "";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Enviando…";
+    }
+    const restaurarBtn = () => {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.textContent = textoBtn;
+    };
     const fd = Object.fromEntries(new FormData(e.target).entries());
     fd.proveedor_id = Number(proveedorId);
     fd.tubo_ids = state.scanLista.filter((t) => t.id && !t.nuevo).map((t) => t.id);
@@ -3505,13 +3521,13 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       fd.remito = "";
     }
     if (recep) {
-      if (!fd.tubo_ids.length) return toast("Solo se recepcionan tubos ya despachados.", true);
+      if (!fd.tubo_ids.length) { restaurarBtn(); return toast("Solo se recepcionan tubos ya despachados.", true); }
       if (!soloBorrador) {
         const igual = fd.lote_igual === "si";
         const lotes = {};
         if (igual) {
           const lote = String(fd.lote || "").trim();
-          if (!lote) return toast("Ingresá el número de lote.", true);
+          if (!lote) { restaurarBtn(); return toast("Ingresá el número de lote.", true); }
           fd.tubo_ids.forEach((id) => { lotes[id] = lote.toUpperCase(); });
           fd.lote = lote.toUpperCase();
         } else {
@@ -3521,7 +3537,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
             if (!v) falta = true;
             lotes[inp.dataset.loteId] = v.toUpperCase();
           });
-          if (falta) return toast("Completá el lote de cada tubo.", true);
+          if (falta) { restaurarBtn(); return toast("Completá el lote de cada tubo.", true); }
           fd.lote = "";
         }
         fd.lotes = lotes;
@@ -3541,7 +3557,10 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       state.scanProveedor = null;
       clearScanPersist();
       location.hash = "#/inicio";
-    } catch (err) { toast(err.message, true); }
+    } catch (err) {
+      restaurarBtn();
+      toast(err.message, true);
+    }
   };
 }
 
@@ -3576,8 +3595,8 @@ async function vistaCompletarRecepciones() {
       </tr>`).join("")
     : `<tr><td colspan="8" class="empty">${modo === "hist" ? "Todavía no hay documentos completados." : "No hay escaneos pendientes."}</td></tr>`;
   app().innerHTML = `
-    <h1>Completar despachos</h1>
-    <p class="lead">Lo que escaneó el celular queda acá. En la PC cargás remito, lotes (si es recepción) y la factura de compra.</p>
+    <h1>Completar despachos y recepciones</h1>
+    <p class="lead">Despacho: solo el número de comprobante que deja el proveedor. Recepción: lote, trazabilidad y la factura, que entra en la cuenta corriente.</p>
     <p><a class="btn secondary" href="#/compras">Compras a proveedores</a></p>
     <div class="tabs">
       <button type="button" data-tab="pendientes" class="${tab === "pendientes" ? "active" : ""}">Pendientes (${pendientes.length})</button>
@@ -3585,13 +3604,13 @@ async function vistaCompletarRecepciones() {
     </div>
     <div class="card table-wrap" ${tab === "pendientes" ? "" : "hidden"}>
       <table>
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Comprobante</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
         <tbody>${filas(pendientes, "pend")}</tbody>
       </table>
     </div>
     <div class="card table-wrap" ${tab === "historial" ? "" : "hidden"}>
       <table>
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Comprobante</th><th>Planta</th><th>Escaneó</th><th>Tubos</th><th>Cerrada</th><th></th></tr></thead>
         <tbody>${filas(historial, "hist")}</tbody>
       </table>
     </div>
@@ -3601,23 +3620,29 @@ async function vistaCompletarRecepciones() {
   });
 }
 
-function htmlCamposCompra() {
+function htmlFacturaRecepcion() {
   return `
-    <div class="field full" style="margin-top:8px"><h3 style="margin:0">Factura / comprobante de compra</h3>
-      <p class="lead" style="margin:4px 0 0">Opcional acá. Si lo cargás, queda en el historial de compras del proveedor.</p>
+    <div class="field full" style="margin-top:8px"><h3 style="margin:0">Factura del proveedor</h3>
+      <p class="lead" style="margin:4px 0 0">Entra a la cuenta corriente del proveedor. Solo si la pagaron en el momento, marcalo abajo.</p>
     </div>
-    <div class="field"><label>Tipo</label>
-      <select name="compra_tipo">
-        <option value="factura">Factura</option>
-        <option value="remito">Remito</option>
-        <option value="ticket">Ticket</option>
+    <div class="field"><label>Nº de factura</label><input name="compra_numero" required placeholder="Ej: 0001-00001234" autocomplete="off"></div>
+    <div class="field"><label>Importe</label><input name="compra_importe" required inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
+    <div class="field"><label>Fecha de la factura</label><input name="compra_fecha" type="date" value="${hoyInput()}"></div>
+    <div class="field full"><label>Archivo (opcional, máx. 700 KB)</label><input id="compra-archivo" type="file" accept="image/*,application/pdf"></div>
+    <div class="field full">
+      <label>Condición</label>
+      <div class="toolbar">
+        <label class="chip"><input type="radio" name="condicion_pago" value="cuenta" checked> Cuenta corriente</label>
+        <label class="chip"><input type="radio" name="condicion_pago" value="contado"> Pagado en el momento</label>
+      </div>
+    </div>
+    <div class="field" id="wrap-pago-ya" hidden>
+      <label>Cómo se pagó</label>
+      <select name="medio_pago">
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
       </select>
-    </div>
-    <div class="field"><label>Nº comprobante</label><input name="compra_numero" placeholder="Ej: 0001-00001234" autocomplete="off"></div>
-    <div class="field"><label>Fecha comprobante</label><input name="compra_fecha" type="date" value="${hoyInput()}"></div>
-    <div class="field"><label>Importe</label><input name="compra_importe" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
-    <div class="field full"><label>Archivo del comprobante (foto o PDF, máx. 700 KB)</label><input name="compra_archivo" id="compra-archivo" type="file" accept="image/*,application/pdf"></div>
-    <div class="field full"><label>Nota</label><input name="compra_obs" placeholder="Opcional" autocomplete="off"></div>`;
+    </div>`;
 }
 
 function leerArchivoCompra(input) {
@@ -3657,10 +3682,10 @@ async function vistaCerrarDespacho(docId, d, items) {
   const editando = d.estado === "cerrado";
   app().innerHTML = `
     <h1>${editando ? "Despacho cerrado" : "Completar despacho"} #${d.id}</h1>
-    <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)} · ${items.length} tubo(s)</p>
+    <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)} · ${items.length} tubo(s). Acá no se carga deuda: solo el comprobante que deja el proveedor.</p>
     <div class="card">
       <form id="form-cerrar-desp" class="grid form">
-        <div class="field"><label>Nº remito</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="Como en el papel" ${editando ? "readonly" : ""}></div>
+        <div class="field"><label>Nº de comprobante del proveedor</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="El que deja la planta" ${editando ? "readonly" : ""}></div>
         <div class="field full">
           <div class="table-wrap"><table>
             <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th></tr></thead>
@@ -3673,7 +3698,6 @@ async function vistaCerrarDespacho(docId, d, items) {
             </tbody>
           </table></div>
         </div>
-        ${editando ? "" : htmlCamposCompra()}
         <div class="field full toolbar">
           ${editando ? "" : `<button class="btn copper" type="submit">Cerrar despacho (${items.length})</button>`}
           <a class="btn ghost" href="#/planta/completar${editando ? "?tab=historial" : ""}">Volver</a>
@@ -3685,13 +3709,11 @@ async function vistaCerrarDespacho(docId, d, items) {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
     const remito = String(fd.remito || "").trim();
-    if (!remito) return toast("Ingresá el número de remito", true);
+    if (!remito) return toast("Ingresá el número de comprobante del proveedor", true);
     try {
-      const archivo = await leerArchivoCompra($("#compra-archivo"));
-      const compra = compraDesdeForm(fd, archivo);
       await api("/api/planta/documentos/" + docId + "/cerrar", {
         method: "POST",
-        body: { remito, compra },
+        body: { remito },
       });
       toast("Despacho cerrado");
       location.hash = "#/planta/completar";
@@ -3731,10 +3753,10 @@ async function vistaCerrarRecepcion(docId) {
   app().innerHTML = `
     <h1>${editando ? "Editar recepción" : "Completar recepción"} #${d.id}</h1>
     <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)}
-      ${editando ? ` · <span class="badge empresa">Cerrada ${fmtFecha(d.cerrado_en)}</span>` : ""}</p>
+      ${editando ? ` · <span class="badge empresa">Cerrada ${fmtFecha(d.cerrado_en)}</span>` : " · La factura entra en la cuenta corriente del proveedor."}</p>
     <div class="card">
       <form id="form-cerrar" class="grid form">
-        <div class="field"><label>Nº remito</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="Como en el papel"></div>
+        ${editando ? `<div class="field"><label>Nº de factura</label><input name="remito" required value="${esc(d.remito || "")}"></div>` : ""}
         <div class="field"><label>Vto. hidráulica (opcional)</label><input name="fecha_vto" type="date" value="${esc(vtoComun)}"></div>
         <div class="field full lote-pregunta">
           <label>¿El lote de carga es el mismo para todos?</label>
@@ -3781,7 +3803,7 @@ async function vistaCerrarRecepcion(docId) {
           </div>
           <p class="hint" id="hint-lineas"></p>
         </div>
-        ${editando ? "" : htmlCamposCompra()}
+        ${editando ? "" : htmlFacturaRecepcion()}
         <div class="field full toolbar actions-iguales">
           <button class="btn copper btn-accion" type="submit">${editando ? `Guardar cambios (${items.length})` : `Cerrar recepción (${items.length})`}</button>
           <a class="btn ghost btn-accion" href="#/planta/completar${editando ? "?tab=historial" : ""}">Volver</a>
@@ -3819,6 +3841,12 @@ async function vistaCerrarRecepcion(docId) {
   };
   document.querySelectorAll('input[name="lote_igual"]').forEach((r) => { r.onchange = aplicar; });
   aplicar();
+  document.querySelectorAll('input[name="condicion_pago"]').forEach((r) => {
+    r.onchange = () => {
+      const wrap = $("#wrap-pago-ya");
+      if (wrap) wrap.hidden = r.value !== "contado" || !r.checked;
+    };
+  });
 
   $("#form-cerrar").onsubmit = async (e) => {
     e.preventDefault();
@@ -3846,21 +3874,39 @@ async function vistaCerrarRecepcion(docId) {
       else numeros[inp.dataset.numId] = v;
     });
     if (faltaNum) return toast("El número de trazabilidad es obligatorio en cada tubo", true);
-    const remito = String(fd.remito || "").trim();
-    if (!remito) return toast("Ingresá el número de remito", true);
+    const factura = String(fd.compra_numero || d.remito || "").trim();
+    if (!editando && !factura) return toast("Ingresá el número de factura del proveedor", true);
+    if (!editando && !String(fd.compra_importe || "").trim()) return toast("Ingresá el importe de la factura", true);
     const url = editando
       ? "/api/planta/documentos/" + docId + "/editar"
       : "/api/planta/documentos/" + docId + "/cerrar";
     try {
       const archivo = editando ? null : await leerArchivoCompra($("#compra-archivo"));
-      const compra = editando ? null : compraDesdeForm(fd, archivo);
-      const r = await api(url, {
-        method: "POST",
-        body: { lotes, numeros, lote: igual ? (fd.lote || "") : "", fecha_vto: fd.fecha_vto || "", remito, compra },
-      });
+      const contado = fd.condicion_pago === "contado";
+      const body = {
+        lotes,
+        numeros,
+        lote: igual ? (fd.lote || "") : "",
+        fecha_vto: fd.fecha_vto || "",
+        remito: editando ? String(fd.remito || d.remito || "").trim() : factura,
+      };
+      if (!editando) {
+        body.compra = {
+          tipo_comprobante: "factura",
+          numero: factura,
+          fecha: fd.compra_fecha || "",
+          importe: fd.compra_importe || "",
+          ...(archivo || {}),
+        };
+        body.pago_contado = contado;
+        body.medio_pago = fd.medio_pago || "efectivo";
+      }
+      const r = await api(url, { method: "POST", body });
       toast(editando
         ? `Recepción actualizada: ${r.cantidad} tubo(s)`
-        : `Recepción cerrada: ${r.cantidad} tubo(s) cargados en empresa`);
+        : contado
+          ? `Recepción cerrada. La factura quedó pagada en el momento`
+          : `Recepción cerrada. La factura quedó en cuenta corriente`);
       location.hash = editando ? "#/planta/completar?tab=historial" : "#/planta/completar";
     } catch (err) { toast(err.message, true); }
   };
@@ -5581,7 +5627,7 @@ function abrirEndoso(id) {
   box.innerHTML = `
     <div class="modal card">
       <h2>Endosar a proveedor / tercero</h2>
-      <p class="lead">El cheque sale de cartera como endosado para pago.</p>
+      <p class="lead">El cheque sale de cartera. Para que también baje la deuda del proveedor y genere el recibo, cargá el pago en Compras → Cuenta corriente.</p>
       <div class="field"><label>Endosatario (proveedor / beneficiario)</label><input id="end-nom" required placeholder="Nombre del proveedor"></div>
       <div class="field"><label>Fecha</label><input id="end-fecha" type="date" value="${hoyInput()}"></div>
       <div class="field"><label>Observaciones</label><input id="end-obs"></div>
@@ -5960,28 +6006,68 @@ function abrirEdicionVenta(v, desdeCobrar) {
   };
 }
 
+function tabsCompras(activo) {
+  const items = [
+    ["compras", "Compras", "#/compras"],
+    ["cuenta", "Cuenta corriente", "#/compras/cuenta"],
+    ["historial", "Historial", "#/compras/historial"],
+  ];
+  return `<div class="toolbar no-print">${items.map(([id, nom, href]) =>
+    `<a class="btn ${activo === id ? "" : "secondary"}" href="${href}">${nom}</a>`
+  ).join("")}</div>`;
+}
+
+function medioPagoLabel(m) {
+  if (m === "transferencia") return "Transferencia";
+  if (m === "cheque") return "Cheque endosado";
+  if (m === "echeq") return "ECHEQ endosado";
+  return "Efectivo";
+}
+
+function membreteLineas(cfg) {
+  return [
+    cfg.cuit ? "CUIT " + cfg.cuit : "",
+    cfg.condicion_iva || "",
+    [cfg.direccion, cfg.localidad].filter(Boolean).join(" · "),
+    [cfg.telefono, cfg.email].filter(Boolean).join(" · "),
+  ].filter(Boolean);
+}
+
 async function vistaCompras() {
   setNav("compras");
   if (rolActual() !== "admin") {
     location.hash = "#/inicio";
     return;
   }
-  const [resumen, lista, provs] = await Promise.all([
+  const [resumen, lista, provs, cuentas] = await Promise.all([
     api("/api/compras/resumen"),
     api("/api/compras"),
     api("/api/proveedores"),
+    api("/api/compras/cuentas"),
   ]);
   const stats = resumen || {};
   const compras = lista.compras || [];
   const porProv = stats.por_proveedor || [];
+  const conDeuda = (cuentas.cuentas || []).filter((c) => Number(c.deuda) > 0);
   app().innerHTML = `
     <h1>Compras a proveedores</h1>
-    <p class="lead">Historial de facturas y comprobantes. También se pueden cargar al completar un despacho en la PC.</p>
+    ${tabsCompras("compras")}
+    <p class="lead">Facturas de compra, deuda con cada proveedor y pagos. El comprobante también se puede cargar al completar un despacho.</p>
     <div class="grid stats">
       <div class="card stat total"><div class="n">${money(stats.total_mes || 0)}</div><small>Compras del mes</small></div>
       <div class="card stat cargado"><div class="n">${stats.n_mes || 0}</div><small>Comprobantes del mes</small></div>
       <div class="card stat vacio"><div class="n">${money(stats.total || 0)}</div><small>Total cargado</small></div>
+      <a class="card stat en_cliente" href="#/compras/cuenta"><div class="n">${money(cuentas.deuda_total || 0)}</div><small>Deuda con proveedores</small></a>
     </div>
+    ${conDeuda.length ? `<div class="card" style="margin:12px 0"><h3>Proveedores con saldo</h3>
+      <table><thead><tr><th>Proveedor</th><th>Compras</th><th>Pagos</th><th>Deuda</th></tr></thead><tbody>
+        ${conDeuda.slice(0, 8).map((c) => `<tr>
+          <td><a href="#/compras/cuenta/${c.proveedor_id}">${esc(c.nombre)}</a></td>
+          <td class="mono">${money(c.compras || 0)}</td>
+          <td class="mono">${money(c.pagos || 0)}</td>
+          <td class="mono"><strong>${money(c.deuda || 0)}</strong></td>
+        </tr>`).join("")}
+      </tbody></table></div>` : ""}
     ${porProv.length ? `<div class="card" style="margin:12px 0"><h3>Por proveedor</h3>
       <table><thead><tr><th>Proveedor</th><th>Comprobantes</th><th>Importe</th></tr></thead><tbody>
         ${porProv.map((p) => `<tr><td>${esc(p.proveedor_nombre || "—")}</td><td class="mono">${p.n || 0}</td><td class="mono">${money(p.importe || 0)}</td></tr>`).join("")}
@@ -6007,7 +6093,7 @@ async function vistaCompras() {
       </form>
     </div>
     <div class="card table-wrap" style="margin-top:12px">
-      <h3>Historial</h3>
+      <h3>Comprobantes cargados</h3>
       <table>
         <thead><tr><th>Fecha</th><th>Proveedor</th><th>Tipo</th><th>Número</th><th>Importe</th><th>Archivo</th></tr></thead>
         <tbody>
@@ -6034,9 +6120,221 @@ async function vistaCompras() {
   };
 }
 
+async function vistaCompraCuentas() {
+  setNav("compras");
+  const data = await api("/api/compras/cuentas");
+  const cuentas = data.cuentas || [];
+  app().innerHTML = `
+    <h1>Cuenta corriente de proveedores</h1>
+    ${tabsCompras("cuenta")}
+    <p class="lead">La deuda es la suma de facturas de compra menos los pagos registrados. Elegí un proveedor para ver el detalle y cargar un pago.</p>
+    <div class="grid stats">
+      <div class="card stat total"><div class="n">${money(data.deuda_total || 0)}</div><small>Deuda total</small></div>
+      <div class="card stat cargado"><div class="n">${cuentas.filter((c) => Number(c.deuda) > 0).length}</div><small>Proveedores con saldo</small></div>
+    </div>
+    <div class="card table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Proveedor</th><th>CUIT</th><th>Compras</th><th>Pagos</th><th>Deuda</th></tr></thead>
+        <tbody>
+          ${cuentas.map((c) => `<tr>
+            <td><a href="#/compras/cuenta/${c.proveedor_id}">${esc(c.nombre)}</a></td>
+            <td class="mono">${esc(c.cuit || "—")}</td>
+            <td class="mono">${money(c.compras || 0)}</td>
+            <td class="mono">${money(c.pagos || 0)}</td>
+            <td class="mono"><strong>${money(c.deuda || 0)}</strong></td>
+          </tr>`).join("") || `<tr><td colspan="5" class="empty">No hay proveedores.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function vistaCompraCuenta(pid) {
+  setNav("compras");
+  const [data, cheques] = await Promise.all([
+    api("/api/compras/cuentas/" + pid),
+    api("/api/caja/cheques?estado=en_cartera").catch(() => ({ cheques: [] })),
+  ]);
+  const prov = data.proveedor || {};
+  const movs = data.movimientos || [];
+  const cartera = cheques.cheques || [];
+  app().innerHTML = `
+    <h1>${esc(prov.nombre || "Proveedor")}</h1>
+    ${tabsCompras("cuenta")}
+    <p class="lead"><a href="#/compras/cuenta">← Todos los proveedores</a>${prov.cuit ? " · CUIT " + esc(prov.cuit) : ""}</p>
+    <div class="grid stats">
+      <div class="card stat total"><div class="n">${money(data.deuda || 0)}</div><small>${Number(data.deuda) < 0 ? "Saldo a favor" : "Deuda actual"}</small></div>
+      <div class="card stat vacio"><div class="n">${money(data.compras || 0)}</div><small>Compras</small></div>
+      <div class="card stat cargado"><div class="n">${money(data.pagos || 0)}</div><small>Pagos</small></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h3>Registrar pago</h3>
+      <p class="lead">Si pagás con un cheque de la cartera, se endosa a este proveedor y deja de estar disponible.</p>
+      <form id="form-pago" class="grid form">
+        <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" required></div>
+        <div class="field"><label>Medio</label>
+          <select name="medio" id="pago-medio">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cheque">Cheque o ECHEQ de la cartera</option>
+          </select>
+        </div>
+        <div class="field" id="wrap-importe"><label>Importe</label><input name="importe" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
+        <div class="field" id="wrap-cheque" hidden><label>Cheque en cartera</label>
+          <select name="cheque_id" id="pago-cheque">
+            <option value="">Elegir…</option>
+            ${cartera.map((c) => `<option value="${c.id}" data-tipo="${esc(c.tipo || "cheque")}">${c.tipo === "echeq" ? "ECHEQ" : "Cheque"} ${esc(c.numero)} · ${esc(c.banco || "s/banco")} · ${money(c.monto)}</option>`).join("")}
+          </select>
+          ${cartera.length ? "" : `<small>No hay cheques en cartera. Cargalos en <a href="#/cheques?estado=en_cartera">Cheques</a>.</small>`}
+        </div>
+        <div class="field full"><label>Nota</label><input name="observaciones" placeholder="Opcional. Ej: pago factura 0001-00001234" autocomplete="off"></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar pago y emitir recibo</button></div>
+      </form>
+    </div>
+    <div class="card table-wrap" style="margin-top:12px">
+      <h3>Movimientos</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Detalle</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead>
+        <tbody>
+          ${movs.length ? movs.map((m) => `<tr>
+            <td class="mono">${fmtFecha(m.fecha)}</td>
+            <td>${m.mov === "pago"
+              ? `<a href="#/compras/recibo/${m.ref_id}">Recibo ${esc(m.numero || "")}</a> · ${esc(medioPagoLabel(m.medio))}`
+              : `${esc(m.detalle || "Compra")} ${esc(m.numero || "")}`}</td>
+            <td class="mono">${m.debe ? money(m.debe) : ""}</td>
+            <td class="mono">${m.haber ? money(m.haber) : ""}</td>
+            <td class="mono">${money(m.saldo || 0)}</td>
+          </tr>`).join("") : `<tr><td colspan="5" class="empty">Todavía no hay movimientos.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  const medio = $("#pago-medio");
+  const syncMedio = () => {
+    const ch = medio.value === "cheque";
+    $("#wrap-importe").hidden = ch;
+    $("#wrap-cheque").hidden = !ch;
+  };
+  medio.onchange = syncMedio;
+  $("#form-pago").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const body = {
+      proveedor_id: Number(pid),
+      fecha: fd.fecha,
+      medio: fd.medio,
+      observaciones: fd.observaciones || "",
+    };
+    if (fd.medio === "cheque") {
+      const sel = $("#pago-cheque");
+      if (!sel.value) return toast("Elegí un cheque de la cartera", true);
+      body.cheque_id = Number(sel.value);
+      body.medio = sel.selectedOptions[0]?.dataset.tipo === "echeq" ? "echeq" : "cheque";
+    } else {
+      body.importe = fd.importe;
+      if (!String(fd.importe || "").trim()) return toast("Ingresá el importe", true);
+    }
+    try {
+      const r = await api("/api/compras/pagos", { method: "POST", body });
+      toast("Pago registrado " + (r.numero || ""));
+      location.hash = "#/compras/recibo/" + r.id;
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+async function vistaCompraHistorial(params) {
+  setNav("compras");
+  const pid = params.get("proveedor_id") || "";
+  const [data, provs] = await Promise.all([
+    api("/api/compras/historial" + (pid ? "?proveedor_id=" + encodeURIComponent(pid) : "")),
+    api("/api/proveedores"),
+  ]);
+  const movs = data.movimientos || [];
+  app().innerHTML = `
+    <h1>Historial de compras y pagos</h1>
+    ${tabsCompras("historial")}
+    <form class="toolbar" id="f-hist">
+      <div class="field"><label>Proveedor</label>
+        <select name="proveedor_id">
+          <option value="">Todos</option>
+          ${(provs.proveedores || []).map((p) => `<option value="${p.id}" ${String(p.id) === pid ? "selected" : ""}>${esc(p.nombre)}</option>`).join("")}
+        </select>
+      </div>
+      <button class="btn" type="submit">Filtrar</button>
+    </form>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Movimiento</th><th>Número</th><th>Debe</th><th>Haber</th>${pid ? "<th>Saldo</th>" : ""}</tr></thead>
+        <tbody>
+          ${movs.length ? movs.map((m) => `<tr>
+            <td class="mono">${fmtFecha(m.fecha)}</td>
+            <td><a href="#/compras/cuenta/${m.proveedor_id}">${esc(m.proveedor_nombre || "—")}</a></td>
+            <td>${m.mov === "pago" ? esc(medioPagoLabel(m.medio)) : esc(m.detalle || "Compra")}</td>
+            <td class="mono">${m.mov === "pago" ? `<a href="#/compras/recibo/${m.ref_id}">${esc(m.numero || "")}</a>` : esc(m.numero || "—")}${m.mov === "compra" && m.tiene_archivo ? ` · <a href="/api/compras/${m.ref_id}/archivo" target="_blank" rel="noopener">archivo</a>` : ""}</td>
+            <td class="mono">${m.debe ? money(m.debe) : ""}</td>
+            <td class="mono">${m.haber ? money(m.haber) : ""}</td>
+            ${pid ? `<td class="mono">${money(m.saldo || 0)}</td>` : ""}
+          </tr>`).join("") : `<tr><td colspan="${pid ? 7 : 6}" class="empty">No hay movimientos.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#f-hist").onsubmit = (e) => {
+    e.preventDefault();
+    const id = new FormData(e.target).get("proveedor_id");
+    location.hash = "#/compras/historial" + (id ? "?proveedor_id=" + encodeURIComponent(id) : "");
+  };
+}
+
+async function vistaReciboPago(id) {
+  setNav("compras");
+  const data = await api("/api/compras/pagos/" + id);
+  const pago = data.pago || {};
+  const cfg = data.empresa || {};
+  const ch = data.cheque;
+  const lineas = membreteLineas(cfg);
+  app().innerHTML = `
+    <div class="toolbar no-print">
+      <button type="button" class="btn" id="btn-print-recibo">Imprimir recibo</button>
+      <a class="btn secondary" href="#/compras/cuenta/${pago.proveedor_id}">Volver a la cuenta</a>
+      <a class="btn ghost" href="#/compras/historial">Historial</a>
+    </div>
+    <article class="recibo">
+      <div class="recibo-top">
+        <div>
+          <h2>${esc(cfg.empresa || "Gasonor SRL")}</h2>
+          ${lineas.map((l) => `<p>${esc(l)}</p>`).join("")}
+        </div>
+        <div class="recibo-num">
+          <span>RECIBO DE PAGO</span>
+          <strong>${esc(pago.numero || "")}</strong>
+          <p>${fmtFecha(pago.fecha)}</p>
+        </div>
+      </div>
+      <p>Dejamos constancia del pago efectuado a <strong>${esc(pago.proveedor_nombre || "")}</strong>${pago.proveedor_cuit ? ", CUIT " + esc(pago.proveedor_cuit) : ""}${pago.proveedor_direccion ? ", " + esc(pago.proveedor_direccion) : ""}.</p>
+      <table>
+        <tr><td>Concepto</td><td>Pago a cuenta corriente de proveedor</td></tr>
+        <tr><td>Medio</td><td>${esc(medioPagoLabel(pago.medio))}</td></tr>
+        ${ch ? `<tr><td>Cheque</td><td>${esc(ch.tipo === "echeq" ? "ECHEQ" : "Cheque")} Nº ${esc(ch.numero || "")}${ch.banco ? " · " + esc(ch.banco) : ""}${ch.librador ? " · librador " + esc(ch.librador) : ""}${ch.fecha_pago ? " · pago " + fmtFecha(ch.fecha_pago) : ""}</td></tr>` : ""}
+        <tr><td>Importe</td><td><strong>${money(pago.importe || 0)}</strong></td></tr>
+        ${pago.observaciones ? `<tr><td>Nota</td><td>${esc(pago.observaciones)}</td></tr>` : ""}
+        <tr><td>Saldo de la cuenta</td><td>${money(data.deuda || 0)}</td></tr>
+      </table>
+      <p>Emitido por ${esc(pago.usuario_nombre || "")}.</p>
+      <div class="firmas">
+        <div>Entregó<br>${esc(cfg.empresa || "")}</div>
+        <div>Recibió<br>${esc(pago.proveedor_nombre || "")}</div>
+      </div>
+    </article>`;
+  $("#btn-print-recibo").onclick = () => window.print();
+}
+
 async function route() {
   try {
-    if (window.GasonorScan) await GasonorScan.stop().catch(() => {});
+    if (window.GasonorScan) {
+      const corte = GasonorScan.stop();
+      await Promise.race([
+        Promise.resolve(corte).catch(() => {}),
+        new Promise((r) => setTimeout(r, 450)),
+      ]);
+    }
     if (!state.usuario) {
       mostrarLogin(true);
       return;
@@ -6057,7 +6355,7 @@ async function route() {
       return;
     }
     if (esCelular() && ((seccion === "planta" && parts[1] === "completar") || seccion === "compras")) {
-      toast("Completar despachos y compras se usan desde la PC");
+      toast("Completar despachos y recepciones, y compras, se usan desde la PC");
       location.hash = "#/inicio";
       return;
     }
@@ -6083,6 +6381,10 @@ async function route() {
     }
     if (seccion === "compras") {
       if (!puede("admin")) return vistaInicio();
+      if (parts[1] === "cuenta" && parts[2]) return vistaCompraCuenta(parts[2]);
+      if (parts[1] === "cuenta") return vistaCompraCuentas();
+      if (parts[1] === "historial") return vistaCompraHistorial(params);
+      if (parts[1] === "recibo" && parts[2]) return vistaReciboPago(parts[2]);
       return vistaCompras();
     }
     if (seccion === "cheques") {

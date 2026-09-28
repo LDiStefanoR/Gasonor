@@ -16,6 +16,7 @@
   let lastFocusAt = 0;
   let focusing = false;
   let preferredDeviceId = null;
+  let camGen = 0;
   let sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function unlockAudio() {
@@ -247,6 +248,8 @@
 
   /** Reinicia el track de video: lo más fiable para volver a enfocar. */
   async function restartCameraTrack() {
+    const gen = camGen;
+    if (!running) return false;
     const video = document.querySelector("#lector video");
     const old = getActiveTrack();
     const settings = old ? settingsOf(old) : {};
@@ -277,6 +280,10 @@
         audio: false,
         video: { facingMode: { ideal: "environment" } },
       });
+    }
+    if (!running || gen !== camGen) {
+      try { newStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+      return false;
     }
     stream = newStream;
     videoTrack = newStream.getVideoTracks()[0] || null;
@@ -599,8 +606,19 @@
     await startHtml5(el, onCode);
   }
 
+  function cortar(p, ms) {
+    return new Promise((resolve) => {
+      let listo = false;
+      const fin = () => { if (!listo) { listo = true; resolve(); } };
+      Promise.resolve(p).then(fin, fin);
+      setTimeout(fin, ms);
+    });
+  }
+
   async function stop() {
+    camGen += 1;
     running = false;
+    focusing = false;
     if (raf) {
       clearTimeout(raf);
       raf = 0;
@@ -611,19 +629,20 @@
     }
     unbindTapToFocus();
     if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
       stream = null;
     }
     videoTrack = null;
     detector = null;
     canvas = null;
     canvasCtx = null;
-    if (html5) {
-      try {
-        await html5.stop();
-        html5.clear();
-      } catch (_) {}
-      html5 = null;
+    const inst = html5;
+    html5 = null;
+    if (inst) {
+      await cortar((async () => {
+        try { await inst.stop(); } catch (_) {}
+        try { inst.clear(); } catch (_) {}
+      })(), 400);
     }
   }
 

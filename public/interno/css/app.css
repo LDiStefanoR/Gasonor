@@ -985,6 +985,31 @@ tr.fila-salida { background: #fdecec; }
   .precio-grid { grid-template-columns: 1fr; }
 }
 
+.recibo {
+  max-width: 760px;
+  margin: 0 auto;
+  background: #fff;
+  color: #1c1c1c;
+  padding: 28px 32px;
+  border: 1px solid #d7d0c4;
+}
+.recibo-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 3px solid #8c4a2f;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.recibo-top h2 { margin: 0 0 6px; letter-spacing: 0.04em; }
+.recibo-top p { margin: 0; line-height: 1.45; }
+.recibo-num { text-align: right; }
+.recibo-num strong { display: block; font-size: 1.35rem; }
+.recibo table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+.recibo td { padding: 8px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+.recibo .firmas { display: flex; gap: 32px; margin-top: 48px; }
+.recibo .firmas div { flex: 1; border-top: 1px solid #333; padding-top: 6px; text-align: center; }
+
 @media print {
   .sidebar, .topbar, .toolbar, .tabs, .no-print, .btn-menu, .quick-row { display: none !important; }
   body { display: block; background: #fff; }

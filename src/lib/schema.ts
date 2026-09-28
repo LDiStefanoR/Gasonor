@@ -186,6 +186,44 @@ export async function ensureSchema() {
     creado_en TEXT NOT NULL,
     usuario_id INTEGER
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS pagos_proveedor (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proveedor_id INTEGER NOT NULL,
+    fecha TEXT NOT NULL,
+    importe REAL NOT NULL DEFAULT 0,
+    medio TEXT NOT NULL,
+    numero TEXT NOT NULL,
+    cheque_id INTEGER,
+    observaciones TEXT,
+    usuario_id INTEGER,
+    creado_en TEXT NOT NULL
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS cheques (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL DEFAULT 'cheque',
+    banco TEXT,
+    numero TEXT NOT NULL,
+    monto REAL NOT NULL DEFAULT 0,
+    librador TEXT,
+    fecha_emision TEXT,
+    fecha_pago TEXT,
+    estado TEXT NOT NULL DEFAULT 'en_cartera',
+    cliente_id INTEGER,
+    cobro_id INTEGER,
+    observaciones TEXT,
+    usuario_id INTEGER,
+    creado_en TEXT NOT NULL,
+    actualizado_en TEXT NOT NULL
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS cheque_endosos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cheque_id INTEGER NOT NULL,
+    fecha TEXT NOT NULL,
+    endosatario TEXT NOT NULL,
+    observaciones TEXT,
+    usuario_id INTEGER,
+    creado_en TEXT NOT NULL
+  )`);
   await run("UPDATE usuarios SET rol='despacho' WHERE rol IN ('despacho_total','despacho_general','despacho')");
   const nUsers = await count("SELECT COUNT(*) AS n FROM usuarios");
   if (!nUsers) {

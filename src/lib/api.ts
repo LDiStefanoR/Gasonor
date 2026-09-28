@@ -103,6 +103,43 @@ async function guardarCompra(
   return null;
 }
 
+async function movimientosProveedor(proveedorId: number | null) {
+  const args: Array<number> = [];
+  let where = "";
+  if (proveedorId) {
+    where = " WHERE proveedor_id=?";
+    args.push(proveedorId);
+  }
+  const rows = await all(
+    `SELECT * FROM (
+       SELECT 'compra' AS mov, c.id AS ref_id, c.fecha, c.numero,
+              c.tipo_comprobante AS detalle, COALESCE(c.importe, 0) AS importe,
+              c.observaciones, c.proveedor_id, p.nombre AS proveedor_nombre,
+              CASE WHEN IFNULL(c.archivo_b64,'')!='' THEN 1 ELSE 0 END AS tiene_archivo,
+              NULL AS medio, NULL AS cheque_id
+       FROM compras c LEFT JOIN proveedores p ON p.id=c.proveedor_id
+       UNION ALL
+       SELECT 'pago', g.id, g.fecha, g.numero, g.medio, g.importe, g.observaciones,
+              g.proveedor_id, p.nombre, 0, g.medio, g.cheque_id
+       FROM pagos_proveedor g LEFT JOIN proveedores p ON p.id=g.proveedor_id
+     )${where}
+     ORDER BY fecha ASC, CASE mov WHEN 'compra' THEN 0 ELSE 1 END, ref_id ASC`,
+    args,
+  );
+  let saldo = 0;
+  return rows.map((item) => {
+    const imp = Math.round(Number(item.importe || 0) * 100) / 100;
+    const pago = item.mov === "pago";
+    saldo += pago ? -imp : imp;
+    return {
+      ...item,
+      debe: pago ? 0 : imp,
+      haber: pago ? imp : 0,
+      saldo: proveedorId ? Math.round(saldo * 100) / 100 : null,
+    };
+  });
+}
+
 async function body(ctx: APIContext) {
   try {
     return (await ctx.request.json()) as Record<string, unknown>;
@@ -295,7 +332,7 @@ async function handleApiInner(ctx: APIContext) {
   if (key === "PUT /api/config") {
     if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
-    for (const clave of ["empresa", "titulo_informe", "codigo_informe"]) {
+    for (const clave of ["empresa", "cuit", "condicion_iva", "direccion", "localidad", "telefono", "email", "titulo_informe", "codigo_informe"]) {
       if (clave in data) {
         await run(
           "INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
@@ -1592,7 +1629,19 @@ async function handleApiInner(ctx: APIContext) {
     if (!doc) return err("Documento no encontrado.", 404);
     if (String(doc.estado || "cerrado") !== "borrador") return err("Este documento ya está cerrado.");
     const remito = String(data.remito || doc.remito || "").trim();
-    if (!remito) return err("El número de remito es obligatorio.");
+    if (!remito) {
+      return err(
+        String(doc.tipo) === "despacho"
+          ? "Ingresá el número de comprobante que deja el proveedor."
+          : "Ingresá el número de factura del proveedor.",
+      );
+    }
+    const compraIn = data.compra && typeof data.compra === "object" ? (data.compra as Record<string, unknown>) : null;
+    if (String(doc.tipo) !== "despacho") {
+      if (!compraIn || !String(compraIn.numero || "").trim()) return err("Ingresá el número de factura del proveedor.");
+      const impFact = Number(parseImporte(compraIn.importe) || 0);
+      if (impFact <= 0) return err("Ingresá el importe de la factura.");
+    }
     const items = await all("SELECT * FROM documento_items WHERE documento_id=?", [docId]);
     if (!items.length) return err("El documento no tiene tubos.");
     const fecha = String(doc.fecha || hoy());
@@ -1649,10 +1698,21 @@ async function handleApiInner(ctx: APIContext) {
     await run("UPDATE documentos_planta SET remito=?, estado='cerrado', cerrado_por=?, cerrado_en=? WHERE id=?", [
       remito, u.id, ahora(), docId,
     ]);
-    const compra = data.compra && typeof data.compra === "object" ? (data.compra as Record<string, unknown>) : null;
-    if (compra) {
-      const fallo = await guardarCompra(u, compra, docId, proveedorId);
+    if (String(doc.tipo) !== "despacho" && compraIn) {
+      const fallo = await guardarCompra(u, compraIn, docId, proveedorId);
       if (fallo) return err(fallo);
+      if (data.pago_contado) {
+        const medio = String(data.medio_pago || "efectivo") === "transferencia" ? "transferencia" : "efectivo";
+        const importe = Number(parseImporte(compraIn.importe) || 0);
+        const nxt = await one("SELECT COALESCE(MAX(id),0)+1 AS n FROM pagos_proveedor");
+        const numero = `R-${String(Number(nxt?.n || 1)).padStart(6, "0")}`;
+        await run(
+          `INSERT INTO pagos_proveedor (
+            proveedor_id, fecha, importe, medio, numero, cheque_id, observaciones, usuario_id, creado_en
+          ) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [proveedorId, parseFecha(String(compraIn.fecha || "")), importe, medio, numero, null, `Pago al recibir factura ${remito}`, u.id, ahora()],
+        );
+      }
     }
     return json({ ok: true, id: docId, cantidad, estado: "cerrado" });
   }
@@ -1754,6 +1814,123 @@ async function handleApiInner(ctx: APIContext) {
         "Content-Disposition": `inline; filename="${String(row.archivo_nombre || "comprobante")}"`,
       },
     });
+  }
+
+  if (key === "GET /api/compras/cuentas") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const provs = await all("SELECT id, nombre, cuit FROM proveedores WHERE activo=1 ORDER BY nombre");
+    const cuentas = [];
+    let deudaTotal = 0;
+    for (const p of provs) {
+      const pid = Number(p.id);
+      const comp = await one("SELECT COALESCE(SUM(importe),0) AS s FROM compras WHERE proveedor_id=?", [pid]);
+      const pag = await one("SELECT COALESCE(SUM(importe),0) AS s FROM pagos_proveedor WHERE proveedor_id=?", [pid]);
+      const comprasN = Number(comp?.s || 0);
+      const pagosN = Number(pag?.s || 0);
+      const deuda = Math.round((comprasN - pagosN) * 100) / 100;
+      deudaTotal += deuda;
+      cuentas.push({ proveedor_id: pid, nombre: p.nombre, cuit: p.cuit, compras: comprasN, pagos: pagosN, deuda });
+    }
+    cuentas.sort((a, b) => b.deuda - a.deuda || String(a.nombre).localeCompare(String(b.nombre)));
+    return json({ ok: true, cuentas, deuda_total: Math.round(deudaTotal * 100) / 100 });
+  }
+
+  const cuentaUna = path.match(/^\/api\/compras\/cuentas\/(\d+)$/);
+  if (method === "GET" && cuentaUna) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const pid = Number(cuentaUna[1]);
+    const prov = await one("SELECT * FROM proveedores WHERE id=?", [pid]);
+    if (!prov) return err("Proveedor no encontrado.", 404);
+    const comp = await one("SELECT COALESCE(SUM(importe),0) AS s FROM compras WHERE proveedor_id=?", [pid]);
+    const pag = await one("SELECT COALESCE(SUM(importe),0) AS s FROM pagos_proveedor WHERE proveedor_id=?", [pid]);
+    const comprasN = Number(comp?.s || 0);
+    const pagosN = Number(pag?.s || 0);
+    const movimientos = await movimientosProveedor(pid);
+    return json({
+      ok: true,
+      proveedor: prov,
+      compras: comprasN,
+      pagos: pagosN,
+      deuda: Math.round((comprasN - pagosN) * 100) / 100,
+      movimientos,
+    });
+  }
+
+  if (key === "GET /api/compras/historial") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const pid = Number(q.get("proveedor_id") || 0) || null;
+    const rows = await movimientosProveedor(pid);
+    rows.reverse();
+    return json({ ok: true, movimientos: rows.slice(0, 400) });
+  }
+
+  if (key === "POST /api/compras/pagos") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const data = await body(ctx);
+    const pid = Number(data.proveedor_id);
+    if (!pid) return err("Elegí el proveedor.");
+    const prov = await one("SELECT * FROM proveedores WHERE id=? AND activo=1", [pid]);
+    if (!prov) return err("Proveedor no encontrado.");
+    let medio = String(data.medio || "efectivo").trim().toLowerCase();
+    if (!["efectivo", "transferencia", "cheque", "echeq"].includes(medio)) return err("Medio de pago inválido.");
+    const fecha = parseFecha(String(data.fecha || ""));
+    const obs = String(data.observaciones || "").trim();
+    let chequeId: number | null = null;
+    let importe = 0;
+    if (medio === "cheque" || medio === "echeq") {
+      chequeId = Number(data.cheque_id);
+      if (!chequeId) return err("Elegí el cheque de la cartera.");
+      const cheque = await one("SELECT * FROM cheques WHERE id=?", [chequeId]);
+      if (!cheque || String(cheque.estado) !== "en_cartera") return err("Ese cheque no está en cartera.");
+      medio = String(cheque.tipo) === "echeq" ? "echeq" : "cheque";
+      importe = Math.round(Number(cheque.monto || 0) * 100) / 100;
+      if (importe <= 0) return err("El cheque no tiene importe.");
+    } else {
+      importe = Number(parseImporte(data.importe) || 0);
+      if (importe <= 0) return err("Ingresá el importe del pago.");
+    }
+    const nxt = await one("SELECT COALESCE(MAX(id),0)+1 AS n FROM pagos_proveedor");
+    const numero = `R-${String(Number(nxt?.n || 1)).padStart(6, "0")}`;
+    const ins = await run(
+      `INSERT INTO pagos_proveedor (
+        proveedor_id, fecha, importe, medio, numero, cheque_id, observaciones, usuario_id, creado_en
+      ) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [pid, fecha, importe, medio, numero, chequeId, obs, u.id, ahora()],
+    );
+    const pagoId = Number(ins.lastInsertRowid);
+    if (chequeId) {
+      await run(
+        `INSERT INTO cheque_endosos (cheque_id, fecha, endosatario, observaciones, usuario_id, creado_en)
+         VALUES (?,?,?,?,?,?)`,
+        [chequeId, fecha, String(prov.nombre), `Pago ${numero}`, u.id, ahora()],
+      );
+      await run("UPDATE cheques SET estado='endosado', actualizado_en=? WHERE id=?", [ahora(), chequeId]);
+    }
+    return json({ ok: true, id: pagoId, numero });
+  }
+
+  const pagoUno = path.match(/^\/api\/compras\/pagos\/(\d+)$/);
+  if (method === "GET" && pagoUno) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const pago = await one(
+      `SELECT g.*, p.nombre AS proveedor_nombre, p.cuit AS proveedor_cuit,
+              p.direccion AS proveedor_direccion, p.telefono AS proveedor_telefono,
+              u.nombre AS usuario_nombre
+       FROM pagos_proveedor g
+       JOIN proveedores p ON p.id=g.proveedor_id
+       LEFT JOIN usuarios u ON u.id=g.usuario_id
+       WHERE g.id=?`,
+      [Number(pagoUno[1])],
+    );
+    if (!pago) return err("Recibo no encontrado.", 404);
+    const cheque = pago.cheque_id ? await one("SELECT * FROM cheques WHERE id=?", [Number(pago.cheque_id)]) : null;
+    const comp = await one("SELECT COALESCE(SUM(importe),0) AS s FROM compras WHERE proveedor_id=?", [Number(pago.proveedor_id)]);
+    const pag = await one("SELECT COALESCE(SUM(importe),0) AS s FROM pagos_proveedor WHERE proveedor_id=?", [Number(pago.proveedor_id)]);
+    const deuda = Math.round((Number(comp?.s || 0) - Number(pag?.s || 0)) * 100) / 100;
+    const rows = await all("SELECT clave, valor FROM config");
+    const empresa: Record<string, string> = {};
+    for (const r of rows) empresa[String(r.clave)] = String(r.valor ?? "");
+    return json({ ok: true, pago, cheque, deuda, empresa });
   }
 
   if (key === "GET /api/reparto/campos") {
