@@ -3413,11 +3413,61 @@ async function vistaScan(modo, proveedorId) {
   document.querySelectorAll("[data-add-deuda]").forEach((btn) => {
     btn.onclick = () => procesarCodigo(btn.getAttribute("data-add-deuda"), modo, proveedorId);
   });
-  $("#btn-seguir").onclick = () => {
+  $("#btn-seguir").onclick = async () => {
     if (!state.scanLista.length) return toast("La lista está vacía", true);
-    persistScanLista();
+    const directo = movil || rolActual() === "despacho";
+    if (!directo) {
+      persistScanLista();
+      scanSafe("stop");
+      location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
+      return;
+    }
+    const btn = $("#btn-seguir");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "Enviando a la PC…";
     scanSafe("stop");
-    location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
+    persistScanLista();
+    const tubo_ids = [];
+    const codigos_nuevos = [];
+    for (const t of state.scanLista) {
+      if (t.id && !t.nuevo) tubo_ids.push(Number(t.id));
+      else {
+        const c = String(t.codigo_proveedor || t.numero || t.codigo_leido || "").trim();
+        if (c) codigos_nuevos.push(c);
+      }
+    }
+    if (!tubo_ids.length && !codigos_nuevos.length) {
+      btn.disabled = false;
+      btn.textContent = "Enviar a completar en la PC";
+      toast("No hay tubos para enviar", true);
+      return;
+    }
+    try {
+      const url = modo === "recepcion" ? "/api/planta/recepcion" : "/api/planta/despacho";
+      const r = await api(url, {
+        method: "POST",
+        body: {
+          proveedor_id: Number(proveedorId),
+          tubo_ids,
+          codigos_nuevos,
+          borrador: true,
+          remito: "",
+          fecha: hoyInput(),
+          hora: horaInput(),
+        },
+      });
+      toast(`Enviado: ${r.cantidad || tubo_ids.length} tubo(s). En la PC entrá a Completar despachos y recepciones.`);
+      state.scanLista = [];
+      state.scanModo = null;
+      state.scanProveedor = null;
+      clearScanPersist();
+      location.hash = "#/inicio";
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "Enviar a completar en la PC";
+      toast(err.message || "No se pudo enviar", true);
+    }
   };
 }
 
@@ -3442,7 +3492,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       ${soloBorrador ? " · Se enviará a administración" : ""}</p>
     ${soloBorrador ? `<p class="scan-pc-hint">No hace falta el comprobante acá. Queda preparado para <b>Completar despachos y recepciones</b> en la PC.</p>` : ""}
     <div class="card">
-      <form id="form-doc" class="grid form">
+      <form id="form-doc" class="grid form" novalidate>
         ${soloBorrador ? "" : `<div class="field"><label>Nº remito</label><input name="remito" required placeholder="Como en el papel"></div>`}
         <div class="field"><label>Quién despacha / recibe</label><input value="${esc(state.usuario?.nombre || "")}" disabled></div>
         <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" ${esAdmin && !soloBorrador ? "" : "readonly"}></div>
@@ -3472,7 +3522,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
                   <tr>
                     <td class="mono">${esc(t.numero || "—")}${t.codigo_proveedor && t.codigo_proveedor !== t.numero ? ` · ${esc(t.codigo_proveedor)}` : ""}</td>
                     <td>${esc(t.articulo_descripcion || "")}</td>
-                    <td><input data-lote-id="${t.id}" required placeholder="Lote" autocomplete="off"></td>
+                    <td><input data-lote-id="${t.id}" placeholder="Lote" autocomplete="off"></td>
                   </tr>`).join("")}
               </tbody>
             </table>
