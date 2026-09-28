@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS proveedores (
   codigo_postal TEXT,
   ingresos_brutos TEXT,
   inicio_actividades TEXT,
+  clase TEXT NOT NULL DEFAULT 'planta',
   activo INTEGER NOT NULL DEFAULT 1,
   creado_en TEXT NOT NULL
 );
@@ -177,6 +178,7 @@ export async function ensureSchema() {
     "ALTER TABLE proveedores ADD COLUMN codigo_postal TEXT",
     "ALTER TABLE proveedores ADD COLUMN ingresos_brutos TEXT",
     "ALTER TABLE proveedores ADD COLUMN inicio_actividades TEXT",
+    "ALTER TABLE proveedores ADD COLUMN clase TEXT",
     "ALTER TABLE documentos_planta ADD COLUMN estado TEXT NOT NULL DEFAULT 'cerrado'",
     "ALTER TABLE documentos_planta ADD COLUMN cerrado_por INTEGER",
     "ALTER TABLE documentos_planta ADD COLUMN cerrado_en TEXT",
@@ -187,6 +189,7 @@ export async function ensureSchema() {
       /* columna ya existe */
     }
   }
+  await run("UPDATE proveedores SET clase='planta' WHERE clase IS NULL OR TRIM(clase)=''");
   await run(`CREATE TABLE IF NOT EXISTS compras (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     proveedor_id INTEGER,

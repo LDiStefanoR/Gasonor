@@ -2462,28 +2462,81 @@ function htmlCamposProveedor(p) {
     <p class="lead" style="grid-column:1/-1">CUIT, condición de IVA y domicilio fiscal son los datos que va a pedir AFIP. El CUIT, si lo cargás, tiene que tener 11 números.</p>`;
 }
 
-async function vistaProveedores() {
+function htmlClaseProveedor(actual) {
+  const v = actual === "generico" ? "generico" : (actual === "planta" ? "planta" : "");
+  return `
+    <div class="field full">
+      <label>Qué es</label>
+      <div class="chip-row">
+        <label class="chip-choice"><input type="radio" name="clase" value="planta" ${v === "planta" ? "checked" : ""} required> Planta de carga</label>
+        <label class="chip-choice"><input type="radio" name="clase" value="generico" ${v === "generico" ? "checked" : ""}> Proveedor de compra</label>
+      </div>
+      <small class="hint">La planta recibe y devuelve tubos (despacho y recepción). El proveedor de compra es para insumos, por ejemplo una tijera, y no entra en el circuito de tubos.</small>
+    </div>`;
+}
+
+function esPlantaProveedor(p) {
+  return String(p?.clase || "planta") !== "generico";
+}
+
+async function vistaProveedoresMenu() {
   setNav("proveedores");
+  app().innerHTML = `
+    <h1>Proveedores</h1>
+    <p class="lead">Una <b>planta</b> carga tubos y tiene que seguir el circuito de despacho y recepción. Un <b>proveedor de compra</b> es cualquiera al que le compramos otra cosa, y solo lleva cuenta corriente.</p>
+    <div class="quick-row no-print">
+      <a class="quick" href="#/proveedores/lista?clase=planta">Plantas de carga</a>
+      <a class="quick" href="#/proveedores/lista?clase=generico">Proveedores de compra</a>
+      <a class="quick" href="#/proveedores/nuevo" style="grid-column:1/-1">Cargar uno nuevo</a>
+    </div>`;
+}
+
+async function vistaProveedorNuevo() {
+  setNav("proveedores");
+  app().innerHTML = `
+    <p><a href="#/proveedores">← Proveedores</a></p>
+    <h1>Cargar proveedor</h1>
+    <p class="lead">Elegí primero si es una planta de tubos o un proveedor de compra. Después completá la ficha.</p>
+    <div class="card">
+      <form id="form-prov" class="grid form">
+        ${htmlClaseProveedor("")}
+        ${htmlCamposProveedor()}
+        <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
+      </form>
+    </div>`;
+  $("#form-prov").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    if (body.clase !== "planta" && body.clase !== "generico") return toast("Elegí si es planta o proveedor de compra", true);
+    try {
+      const r = await api("/api/proveedores", { method: "POST", body });
+      toast(body.clase === "planta" ? "Planta cargada" : "Proveedor de compra cargado");
+      location.hash = "#/proveedores/" + r.proveedor.id;
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+async function vistaProveedoresLista(params) {
+  setNav("proveedores");
+  const clase = params.get("clase") === "generico" ? "generico" : "planta";
   const [data, cuentas] = await Promise.all([
-    api("/api/proveedores"),
+    api("/api/proveedores?clase=" + clase),
     api("/api/compras/cuentas").catch(() => ({ cuentas: [] })),
   ]);
   const rows = data.proveedores || [];
   const deudaDe = Object.fromEntries((cuentas.cuentas || []).map((c) => [String(c.proveedor_id), c]));
+  const titulo = clase === "planta" ? "Plantas de carga" : "Proveedores de compra";
   app().innerHTML = `
-    <h1>Proveedores / plantas</h1>
-    <p class="lead">Plantas de carga y ficha impositiva de cada proveedor. Las facturas y los pagos se cargan en <a href="#/compras">Compras y deudas</a>.</p>
-    <div class="card">
-      <h3>Nuevo proveedor</h3>
-      <form id="form-prov" class="grid form">
-        ${htmlCamposProveedor()}
-        <div class="field full"><button class="btn copper" type="submit">Agregar proveedor</button></div>
-      </form>
-    </div>
+    <p><a href="#/proveedores">← Proveedores</a></p>
+    <h1>${titulo}</h1>
+    <p class="lead">${clase === "planta"
+      ? "Estas plantas mueven tubos. Tocá una para abrir la ficha."
+      : "Compras de insumos y otros. No aparecen en despacho ni recepción de tubos."}</p>
+    <p><a class="btn copper" href="#/proveedores/nuevo">Cargar uno nuevo</a></p>
     <div class="card" style="margin-top:14px">
       ${rows.length ? `
       <div class="table-wrap"><table>
-        <thead><tr><th>Razón social</th><th>CUIT</th><th>IVA</th><th>Deuda</th><th>En posesión</th><th></th></tr></thead>
+        <thead><tr><th>Razón social</th><th>CUIT</th><th>IVA</th><th>Deuda</th>${clase === "planta" ? "<th>Tubos en planta</th>" : ""}<th></th></tr></thead>
         <tbody>
           ${rows.map((p) => {
             const cc = deudaDe[String(p.id)] || {};
@@ -2493,21 +2546,13 @@ async function vistaProveedores() {
               <td class="mono">${esc(p.cuit || "—")}</td>
               <td>${esc(p.condicion_iva ? etiquetaCondicionIva(p.condicion_iva) : "—")}</td>
               <td class="mono"><a href="#/compras/cuenta/${p.id}">${money(cc.deuda || 0)}</a></td>
-              <td class="mono">${Number(p.tubos_en_planta || 0)}</td>
-              <td><a class="btn" href="#/proveedores/${p.id}">Abrir</a></td>
+              ${clase === "planta" ? `<td class="mono">${Number(p.tubos_en_planta || 0)}</td>` : ""}
+              <td><a class="btn" href="#/proveedores/${p.id}">Abrir ficha</a></td>
             </tr>`;
           }).join("")}
         </tbody>
-      </table></div>` : `<p class="empty">Todavía no hay proveedores cargados.</p>`}
+      </table></div>` : `<p class="empty">Todavía no hay ${clase === "planta" ? "plantas" : "proveedores de compra"}.</p>`}
     </div>`;
-  $("#form-prov").onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const r = await api("/api/proveedores", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
-      toast("Proveedor cargado");
-      location.hash = "#/proveedores/" + r.proveedor.id;
-    } catch (err) { toast(err.message, true); }
-  };
 }
 
 async function vistaProveedorFicha(id, params) {
@@ -2525,6 +2570,7 @@ async function vistaProveedorFicha(id, params) {
   app().innerHTML = `
     <p><a href="#/proveedores">← Proveedores</a></p>
     <h1>${esc(p.nombre)}</h1>
+    <p><span class="badge ${esPlantaProveedor(p) ? "en_planta" : "empresa"}">${esPlantaProveedor(p) ? "Planta de carga" : "Proveedor de compra"}</span></p>
     <p class="lead">
       ${p.fantasia ? esc(p.fantasia) + " · " : ""}
       ${p.cuit ? "CUIT " + esc(p.cuit) : "Sin CUIT"}
@@ -2538,32 +2584,33 @@ async function vistaProveedorFicha(id, params) {
       ${p.ingresos_brutos ? " · IIBB " + esc(p.ingresos_brutos) : ""}
     </p>
     <a class="banner-fact" href="#/compras/cuenta/${p.id}">Deuda con este proveedor: ${money(cc && cc.deuda != null ? cc.deuda : 0)}. Cargar facturas y pagos.</a>
+    ${esPlantaProveedor(p) ? "" : `<p class="lead">Este proveedor no mueve tubos. Sirve para compras (insumos, herramientas) y su deuda está en Compras.</p>`}
+    <div class="toolbar">
+      <button class="btn copper" type="button" id="btn-edit-prov">Editar datos</button>
+      <a class="btn" href="#/compras/cuenta/${p.id}">Cuenta y pagos</a>
+      <a class="btn secondary" href="#/compras">Cargar compra</a>
+      ${esPlantaProveedor(p) ? `<a class="btn secondary" href="#/planta/despacho/${p.id}">Despacho a esta planta</a><a class="btn secondary" href="#/planta/recepcion/${p.id}">Recepción de esta planta</a>` : ""}
+    </div>
+    ${esPlantaProveedor(p) ? `
     <div class="grid stats">
       <div class="card stat en_planta"><div class="n">${r.en_posesion ?? tubos.length}</div><small>Tubos en posesión</small></div>
       <div class="card stat vacio"><div class="n">${r.tubos_enviados || 0}</div><small>Tubos enviados (hist.)</small></div>
       <div class="card stat cargado"><div class="n">${r.tubos_recibidos || 0}</div><small>Tubos recibidos (hist.)</small></div>
       <div class="card stat total"><div class="n">${(r.documentos_despacho || 0) + (r.documentos_recepcion || 0)}</div><small>Documentos planta</small></div>
     </div>
-    <div class="toolbar">
-      <button class="btn copper" type="button" id="btn-edit-prov">Editar datos</button>
-      <a class="btn" href="#/compras/cuenta/${p.id}">Cuenta y pagos</a>
-      <a class="btn secondary" href="#/compras">Cargar compra</a>
-      <a class="btn secondary" href="#/planta/despacho/${p.id}">Despacho a esta planta</a>
-      <a class="btn secondary" href="#/planta/recepcion/${p.id}">Recepción de esta planta</a>
-    </div>
     <div class="tabs">
       <button data-tab="tubos" class="${tab === "tubos" ? "active" : ""}">En posesión (${tubos.length})</button>
       <button data-tab="docs" class="${tab === "docs" ? "active" : ""}">Documentos (${docs.length})</button>
       <button data-tab="movs" class="${tab === "movs" ? "active" : ""}">Movimientos</button>
     </div>
-    <div id="prov-tab" class="card"></div>`;
+    <div id="prov-tab" class="card"></div>` : ""}`;
 
   app().querySelectorAll("[data-tab]").forEach((b) => {
     b.onclick = () => { location.hash = "#/proveedores/" + id + "?tab=" + b.dataset.tab; };
   });
 
   const box = $("#prov-tab");
-  if (tab === "docs") {
+  if (box && tab === "docs") {
     box.innerHTML = docs.length ? `
       <h3>Documentos de planta</h3>
       <table>
@@ -2580,7 +2627,7 @@ async function vistaProveedorFicha(id, params) {
             </tr>`).join("")}
         </tbody>
       </table>` : `<p class="empty">Todavía no hay documentos con esta planta.</p>`;
-  } else if (tab === "movs") {
+  } else if (box && tab === "movs") {
     box.innerHTML = movs.length ? `
       <h3>Últimos movimientos (envío / retorno)</h3>
       <table>
@@ -2595,7 +2642,7 @@ async function vistaProveedorFicha(id, params) {
             </tr>`).join("")}
         </tbody>
       </table>` : `<p class="empty">Sin movimientos registrados para esta planta.</p>`;
-  } else {
+  } else if (box) {
     box.innerHTML = `
       <h3>Tubos actualmente en esta planta</h3>
       <p class="lead">Cilindros con estado <b>en planta</b> asignados a ${esc(p.nombre)}.</p>
@@ -2621,6 +2668,7 @@ async function vistaProveedorFicha(id, params) {
     abrirModal(`
       <h2>Editar ${esc(p.nombre)}</h2>
       <form id="form-edit-prov" class="grid form">
+        ${htmlClaseProveedor(p.clase || "planta")}
         ${htmlCamposProveedor(p)}
         <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
       </form>`);
@@ -2747,7 +2795,7 @@ async function elegirProveedor(modo) {
       ${puede("admin") ? `<p><a href="#/proveedores">Administrar proveedores</a> · <a href="#/envios/planta">← Volver</a></p>` : `<p><a href="#/envios/planta">← Volver</a></p>`}`;
     return;
   }
-  const data = await api("/api/proveedores");
+  const data = await api("/api/proveedores?clase=planta");
   app().innerHTML = `
     <h1>Despacho a planta</h1>
     <p class="lead">Seleccione el proveedor al que envía los tubos.</p>
@@ -3744,6 +3792,7 @@ async function vistaCompletarRecepciones() {
         <td>
           <a class="btn ${modo === "hist" ? "secondary" : "copper"} btn-accion"
              href="#/planta/completar/${d.id}">${modo === "hist" ? "Editar" : "Completar"}</a>
+          ${modo === "hist" ? "" : `<button type="button" class="btn danger" data-del-doc="${d.id}">Eliminar</button>`}
         </td>
       </tr>`).join("")
     : `<tr><td colspan="8" class="empty">${modo === "hist" ? "Todavía no hay documentos completados." : "No hay escaneos pendientes."}</td></tr>`;
@@ -3770,6 +3819,16 @@ async function vistaCompletarRecepciones() {
     <p class="lead">El escaneo se hace desde el celular. Acá solo se completa.</p>`;
   app().querySelectorAll("[data-tab]").forEach((b) => {
     b.onclick = () => { location.hash = "#/planta/completar?tab=" + b.dataset.tab; };
+  });
+  app().querySelectorAll("[data-del-doc]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("¿Eliminar este comprobante pendiente? Los tubos no se mueven.")) return;
+      try {
+        await api("/api/planta/documentos/" + b.dataset.delDoc, { method: "DELETE" });
+        toast("Comprobante eliminado");
+        vistaCompletarRecepciones();
+      } catch (err) { toast(err.message, true); }
+    };
   });
 }
 
@@ -3841,23 +3900,104 @@ async function vistaCerrarDespacho(docId, d, items) {
         <div class="field"><label>Nº de comprobante del proveedor</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="El que deja la planta" ${editando ? "readonly" : ""}></div>
         <div class="field full">
           <div class="table-wrap"><table>
-            <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th><th>Capacidad</th></tr></thead>
+            <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th><th>Capacidad</th>${editando ? "" : "<th></th>"}</tr></thead>
             <tbody>
-              ${items.map((t) => `<tr>
-                <td class="mono"><a href="#/tubo/${t.id}">${esc(t.numero || "—")}</a></td>
-                <td class="mono">${esc(t.codigo_proveedor || t.codigo_leido || "—")}</td>
+              ${items.map((t) => `<tr data-tubo="${t.id}">
+                <td>${editando ? `<span class="mono"><a href="#/tubo/${t.id}">${esc(t.numero || "—")}</a></span>` : `<input class="fila-numero" value="${esc(t.numero || "")}" autocomplete="off">`}</td>
+                <td>${editando ? `<span class="mono">${esc(t.codigo_proveedor || t.codigo_leido || "—")}</span>` : `<input class="fila-codp" value="${esc(t.codigo_proveedor || t.codigo_leido || "")}" autocomplete="off">`}</td>
                 <td>${t.articulo_codigo ? `<a href="#/tubo/${t.id}">${esc(t.articulo_codigo)}</a>` : "—"} ${esc(t.articulo_descripcion || "")}</td>
                 <td class="mono">${esc(t.capacidad || "—")}</td>
+                ${editando ? "" : `<td class="toolbar">
+                  <button type="button" class="btn secondary" data-guardar-fila="${t.id}">Guardar</button>
+                  <button type="button" class="btn danger" data-quitar-fila="${t.id}">Quitar</button>
+                </td>`}
               </tr>`).join("")}
             </tbody>
           </table></div>
         </div>
+        ${editando ? "" : `
+        <div class="field full">
+          <label>Agregar un tubo que no se escaneó</label>
+          <div class="toolbar">
+            <input id="agregar-tubo" placeholder="Número de tubo o código de proveedor" autocomplete="off">
+            <button type="button" class="btn" id="btn-agregar-tubo">Agregar</button>
+          </div>
+          <ul id="agregar-tubo-lista" hidden></ul>
+        </div>`}
         <div class="field full toolbar">
           ${editando ? "" : `<button class="btn copper" type="submit">Cerrar despacho (${items.length})</button>`}
+          ${editando ? "" : `<button type="button" class="btn danger" id="btn-borrar-doc">Eliminar comprobante</button>`}
           <a class="btn ghost" href="#/planta/completar${editando ? "?tab=historial" : ""}">Volver</a>
         </div>
       </form>
     </div>`;
+  if (!editando) {
+    const recargar = () => vistaCerrarRecepcion(docId);
+    app().querySelectorAll("[data-guardar-fila]").forEach((b) => {
+      b.onclick = async () => {
+        const tr = b.closest("tr");
+        const numero = tr.querySelector(".fila-numero")?.value.trim() || "";
+        const codigo_proveedor = tr.querySelector(".fila-codp")?.value.trim() || "";
+        if (!numero) return toast("El número de tubo es obligatorio", true);
+        try {
+          await api("/api/planta/documentos/" + docId + "/items/" + b.dataset.guardarFila, {
+            method: "PUT",
+            body: { numero, codigo_proveedor },
+          });
+          toast("Fila actualizada");
+          recargar();
+        } catch (err) { toast(err.message, true); }
+      };
+    });
+    app().querySelectorAll("[data-quitar-fila]").forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm("¿Quitar este tubo del comprobante?")) return;
+        try {
+          await api("/api/planta/documentos/" + docId + "/items/" + b.dataset.quitarFila, { method: "DELETE" });
+          toast("Tubo quitado");
+          recargar();
+        } catch (err) { toast(err.message, true); }
+      };
+    });
+    const buscarAgregar = async () => {
+      const q = ($("#agregar-tubo")?.value || "").trim();
+      const ul = $("#agregar-tubo-lista");
+      if (!q) return toast("Escribí un número o un código de proveedor", true);
+      try {
+        const data = await api("/api/tubos?q=" + encodeURIComponent(q));
+        const tubos = (data.tubos || []).slice(0, 12);
+        if (!tubos.length) return toast("No hay un tubo con ese código", true);
+        const exacto = tubos.find((t) => String(t.numero).toUpperCase() === q.toUpperCase() || String(t.codigo_proveedor || "").toUpperCase() === q.toUpperCase());
+        const elegido = exacto || (tubos.length === 1 ? tubos[0] : null);
+        if (elegido) {
+          await api("/api/planta/documentos/" + docId + "/items", { method: "POST", body: { tubo_id: elegido.id } });
+          toast("Tubo agregado");
+          recargar();
+          return;
+        }
+        ul.hidden = false;
+        ul.innerHTML = tubos.map((t) => `<li data-id="${t.id}"><strong class="mono">${esc(t.numero)}</strong> · prov ${esc(t.codigo_proveedor || "—")} · ${esc(t.articulo_descripcion || "")}</li>`).join("");
+        ul.querySelectorAll("li[data-id]").forEach((li) => {
+          li.onclick = async () => {
+            try {
+              await api("/api/planta/documentos/" + docId + "/items", { method: "POST", body: { tubo_id: Number(li.dataset.id) } });
+              toast("Tubo agregado");
+              recargar();
+            } catch (err) { toast(err.message, true); }
+          };
+        });
+      } catch (err) { toast(err.message, true); }
+    };
+    $("#btn-agregar-tubo").onclick = buscarAgregar;
+    $("#btn-borrar-doc").onclick = async () => {
+      if (!confirm("¿Eliminar este comprobante? Los tubos escaneados no se mueven.")) return;
+      try {
+        await api("/api/planta/documentos/" + docId, { method: "DELETE" });
+        toast("Comprobante eliminado");
+        location.hash = "#/planta/completar";
+      } catch (err) { toast(err.message, true); }
+    };
+  }
   if (editando) return;
   $("#form-cerrar-desp").onsubmit = async (e) => {
     e.preventDefault();
@@ -6232,7 +6372,7 @@ async function vistaCompras() {
         <div class="field"><label>Proveedor</label>
           <select name="proveedor_id" required>
             <option value="">Elegir…</option>
-            ${(provs.proveedores || []).map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}
+            ${(provs.proveedores || []).map((p) => `<option value="${p.id}">${esc(p.nombre)} · ${p.clase === "generico" ? "compra" : "planta"}</option>`).join("")}
           </select>
         </div>
         <div class="field"><label>Tipo</label>
@@ -6579,8 +6719,10 @@ async function route() {
     if (seccion === "config") return vistaConfig();
     if (seccion === "proveedores") {
       if (!puede("admin")) return vistaInicio();
+      if (parts[1] === "nuevo") return vistaProveedorNuevo();
+      if (parts[1] === "lista") return vistaProveedoresLista(params);
       if (parts[1] && /^\d+$/.test(parts[1])) return vistaProveedorFicha(parts[1], params);
-      return vistaProveedores();
+      return vistaProveedoresMenu();
     }
     if (seccion === "usuarios") {
       if (!puede("admin")) return vistaInicio();

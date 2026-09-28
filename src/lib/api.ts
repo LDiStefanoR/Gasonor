@@ -49,6 +49,12 @@ function cuitProveedor(v: unknown): string | null {
   return s;
 }
 
+function claseProveedor(v: unknown): string | null {
+  const s = texto(v).toLowerCase();
+  if (s === "planta" || s === "generico") return s;
+  return null;
+}
+
 function ahora() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -1286,12 +1292,16 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   if (key === "GET /api/proveedores") {
+    const clase = String(q.get("clase") || "");
+    let filtro = "p.activo=1";
+    if (clase === "planta" || clase === "generico") filtro += " AND IFNULL(p.clase,'planta')=?";
     const rows = await all(
       `SELECT p.*,
         (SELECT COUNT(*) FROM tubos t WHERE t.proveedor_id=p.id AND t.activo=1 AND t.estado='en_planta') AS tubos_en_planta,
         (SELECT COUNT(*) FROM documentos_planta d WHERE d.proveedor_id=p.id AND d.tipo='despacho') AS despachos,
         (SELECT COUNT(*) FROM documentos_planta d WHERE d.proveedor_id=p.id AND d.tipo='recepcion' AND IFNULL(d.estado,'cerrado')!='borrador') AS recepciones
-       FROM proveedores p WHERE p.activo=1 ORDER BY p.nombre`,
+       FROM proveedores p WHERE ${filtro} ORDER BY p.nombre`,
+      clase === "planta" || clase === "generico" ? [clase] : [],
     );
     return json({ ok: true, proveedores: rows });
   }
@@ -1303,13 +1313,15 @@ async function handleApiInner(ctx: APIContext) {
     if (!nombre) return err("El nombre del proveedor es obligatorio.");
     const cuit = cuitProveedor(data.cuit);
     if (cuit === null) return err("El CUIT tiene que tener 11 números.");
+    const clase = claseProveedor(data.clase);
+    if (!clase) return err("Indicá si es una planta de carga o un proveedor de compra.");
     try {
       const r = await run(
         `INSERT INTO proveedores (
           nombre, direccion, telefono, cuit, fantasia, condicion_iva, email,
           localidad, provincia, codigo_postal, ingresos_brutos, inicio_actividades,
-          activo, creado_en
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
+          clase, activo, creado_en
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
         [
           nombre,
           texto(data.direccion),
@@ -1323,6 +1335,7 @@ async function handleApiInner(ctx: APIContext) {
           texto(data.codigo_postal),
           texto(data.ingresos_brutos),
           texto(data.inicio_actividades),
+          clase,
           ahora(),
         ],
       );
@@ -1415,10 +1428,12 @@ async function handleApiInner(ctx: APIContext) {
     const data = await body(ctx);
     const cuit = cuitProveedor(data.cuit ?? row.cuit);
     if (cuit === null) return err("El CUIT tiene que tener 11 números.");
+    const claseIn = data.clase === undefined ? String(row.clase || "planta") : claseProveedor(data.clase);
+    if (!claseIn) return err("Indicá si es una planta de carga o un proveedor de compra.");
     const prev = (k: string) => texto(data[k] ?? row[k]);
     await run(
       `UPDATE proveedores SET nombre=?, direccion=?, telefono=?, cuit=?, fantasia=?, condicion_iva=?,
-        email=?, localidad=?, provincia=?, codigo_postal=?, ingresos_brutos=?, inicio_actividades=?, activo=?
+        email=?, localidad=?, provincia=?, codigo_postal=?, ingresos_brutos=?, inicio_actividades=?, clase=?, activo=?
        WHERE id=?`,
       [
         texto(data.nombre ?? row.nombre).toUpperCase(),
@@ -1433,6 +1448,7 @@ async function handleApiInner(ctx: APIContext) {
         prev("codigo_postal"),
         prev("ingresos_brutos"),
         prev("inicio_actividades"),
+        claseIn,
         data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
         pid,
       ],
@@ -1594,7 +1610,7 @@ async function handleApiInner(ctx: APIContext) {
       `SELECT p.id, p.nombre, p.telefono, COUNT(t.id) AS cantidad
        FROM proveedores p
        LEFT JOIN tubos t ON t.proveedor_id=p.id AND t.activo=1 AND t.estado='en_planta'
-       WHERE p.activo=1
+       WHERE p.activo=1 AND IFNULL(p.clase,'planta')='planta'
        GROUP BY p.id
        ORDER BY cantidad DESC, p.nombre`,
     );
@@ -1638,6 +1654,65 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   const docUno = path.match(/^\/api\/planta\/documentos\/(\d+)$/);
+  if (method === "DELETE" && docUno) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const docId = Number(docUno[1]);
+    const doc = await one("SELECT * FROM documentos_planta WHERE id=?", [docId]);
+    if (!doc) return err("Documento no encontrado.", 404);
+    if (String(doc.estado || "cerrado") !== "borrador") return err("Solo se puede eliminar un comprobante que todavía no se cerró.");
+    await run("DELETE FROM documento_items WHERE documento_id=?", [docId]);
+    await run("DELETE FROM documentos_planta WHERE id=?", [docId]);
+    return json({ ok: true, id: docId });
+  }
+
+  const docItem = path.match(/^\/api\/planta\/documentos\/(\d+)\/items(?:\/(\d+))?$/);
+  if (docItem && (method === "POST" || method === "PUT" || method === "DELETE")) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const docId = Number(docItem[1]);
+    const doc = await one("SELECT * FROM documentos_planta WHERE id=?", [docId]);
+    if (!doc) return err("Documento no encontrado.", 404);
+    if (String(doc.estado || "cerrado") !== "borrador") return err("Este comprobante ya está cerrado.");
+    if (method === "DELETE") {
+      const tid = Number(docItem[2]);
+      if (!tid) return err("Falta el tubo a quitar.");
+      await run("DELETE FROM documento_items WHERE documento_id=? AND tubo_id=?", [docId, tid]);
+      return json({ ok: true });
+    }
+    const data = await body(ctx);
+    if (method === "PUT") {
+      const tid = Number(docItem[2]);
+      if (!tid) return err("Falta el tubo a modificar.");
+      const linea = await one("SELECT id FROM documento_items WHERE documento_id=? AND tubo_id=?", [docId, tid]);
+      if (!linea) return err("Ese tubo no está en el comprobante.", 404);
+      const numero = texto(data.numero);
+      const codp = texto(data.codigo_proveedor);
+      if (!numero) return err("El número de tubo es obligatorio.");
+      const existe = await one("SELECT id FROM tubos WHERE activo=1 AND numero=? AND id!=?", [numero, tid]);
+      if (existe) return err(`Ya existe otro tubo con el número ${numero}.`);
+      await run("UPDATE tubos SET numero=?, codigo_proveedor=?, actualizado_en=? WHERE id=?", [numero, codp, ahora(), tid]);
+      await run("UPDATE documento_items SET codigo_leido=? WHERE documento_id=? AND tubo_id=?", [codp || numero, docId, tid]);
+      return json({ ok: true });
+    }
+    const tuboId = Number(data.tubo_id || 0);
+    const codigo = texto(data.codigo);
+    let tubo = tuboId ? await one("SELECT * FROM tubos WHERE id=? AND activo=1", [tuboId]) : null;
+    if (!tubo && codigo) {
+      tubo = await one(
+        "SELECT * FROM tubos WHERE activo=1 AND (numero=? OR IFNULL(codigo_proveedor,'')=?) ORDER BY id DESC",
+        [codigo, codigo],
+      );
+    }
+    if (!tubo) return err("No hay un tubo con ese número o código de proveedor.");
+    const ya = await one("SELECT id FROM documento_items WHERE documento_id=? AND tubo_id=?", [docId, Number(tubo.id)]);
+    if (ya) return err("Ese tubo ya está en el comprobante.");
+    await run("INSERT INTO documento_items (documento_id, tubo_id, codigo_leido) VALUES (?,?,?)", [
+      docId,
+      Number(tubo.id),
+      texto(tubo.codigo_proveedor) || texto(tubo.numero),
+    ]);
+    return json({ ok: true, tubo_id: Number(tubo.id) });
+  }
+
   if (method === "GET" && docUno) {
     if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
     const docId = Number(docUno[1]);
