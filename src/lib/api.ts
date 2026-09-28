@@ -1706,6 +1706,14 @@ async function handleApiInner(ctx: APIContext) {
         });
         cantidad += 1;
       }
+      const falloDesp = await guardarCompra(u, {
+        tipo_comprobante: "comprobante",
+        numero: remito,
+        fecha,
+        importe: "",
+        observaciones: `Comprobante de despacho a ${planta}`,
+      }, docId, proveedorId);
+      if (falloDesp) return err(falloDesp);
     } else {
       const lotesRaw = (data.lotes && typeof data.lotes === "object" ? data.lotes : {}) as Record<string, unknown>;
       const numerosRaw = (data.numeros && typeof data.numeros === "object" ? data.numeros : {}) as Record<string, unknown>;

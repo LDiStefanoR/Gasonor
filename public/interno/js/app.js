@@ -215,6 +215,54 @@ function optsArticulos(selected) {
     .join("");
 }
 
+function htmlBuscaArticulo(art) {
+  art = art || {};
+  const label = art.codigo ? `${art.codigo}${art.descripcion ? " — " + art.descripcion : ""}` : "";
+  return `
+    <div class="field full">
+      <label>Artículo (código nuestro)</label>
+      <div class="cli-suggest">
+        <input id="art-busca" value="${esc(label)}" placeholder="Escribí el código del artículo…" autocomplete="off">
+        <input type="hidden" name="articulo_id" id="art-id" value="${esc(art.id || "")}">
+        <ul id="art-lista" hidden></ul>
+      </div>
+      <small class="hint">Escribí el código de Gasonor y elegí el artículo. El código del proveedor no asigna el artículo.</small>
+    </div>`;
+}
+
+function bindBuscaArticulo() {
+  const input = $("#art-busca");
+  const hidden = $("#art-id");
+  const ul = $("#art-lista");
+  if (!input || !hidden || !ul) return;
+  let timer;
+  let rows = [];
+  input.oninput = () => {
+    hidden.value = "";
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = input.value.trim();
+      if (q.length < 1) { ul.hidden = true; ul.innerHTML = ""; return; }
+      try {
+        const data = await api("/api/articulos?tipo=tubo&q=" + encodeURIComponent(q));
+        rows = (data.articulos || []).slice(0, 20);
+        ul.innerHTML = rows.length
+          ? rows.map((a) => `<li data-id="${a.id}"><strong class="mono">${esc(a.codigo)}</strong> · ${esc(a.descripcion || "")}${a.capacidad ? ` · ${esc(a.capacidad)}` : ""}</li>`).join("")
+          : `<li>Sin artículos con ese código</li>`;
+        ul.hidden = false;
+        ul.querySelectorAll("li[data-id]").forEach((li) => {
+          li.onclick = () => {
+            const a = rows.find((x) => String(x.id) === li.dataset.id);
+            hidden.value = li.dataset.id;
+            input.value = a ? `${a.codigo}${a.descripcion ? " — " + a.descripcion : ""}` : (li.textContent || "");
+            ul.hidden = true;
+          };
+        });
+      } catch (err) { toast(err.message, true); }
+    }, 200);
+  };
+}
+
 function optsClientes(selected) {
   return state.clientes
     .map((c) => `<option value="${c.id}" ${String(c.id) === String(selected) ? "selected" : ""}>${esc(c.nombre)}</option>`)
@@ -660,6 +708,7 @@ function modalEditarCatalogoItem(it, onSaved) {
         <div class="field"><label>Capacidad</label><input name="capacidad" value="${esc(it.capacidad || "")}"></div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1" ${Number(it.retener) ? "checked" : ""}> Retener</label></div>
       ` : `
+        ${htmlBuscaArticulo({ id: it.articulo_id, codigo: it.articulo_codigo, descripcion: it.articulo_descripcion })}
         <div class="field"><label>Número de tubo</label><input name="numero" required value="${esc(it.numero || "")}"></div>
         <div class="field"><label>Estado</label>
           <select name="estado" id="edit-estado">
@@ -673,7 +722,6 @@ function modalEditarCatalogoItem(it, onSaved) {
           </select>
           <small class="hint">Obligatorio si el estado es “En planta”: el tubo queda a cargo de ese proveedor.</small>
         </div>
-        <div class="field"><label>Código artículo</label><input name="articulo_codigo" value="${esc(it.articulo_codigo || "")}"></div>
         <div class="field"><label>Cód. proveedor</label><input name="codigo_proveedor" value="${esc(it.codigo_proveedor || it.articulo_codigo_proveedor || "")}"></div>
         <div class="field"><label>Descripción / gas</label><input name="descripcion" value="${esc(it.articulo_descripcion || it.grupo || "")}"></div>
         <div class="field"><label>Capacidad</label><input name="capacidad" value="${esc(it.capacidad || "")}"></div>
@@ -726,6 +774,7 @@ function modalEditarCatalogoItem(it, onSaved) {
     syncPlanta();
     syncPropiedad();
     bindBusquedaClienteSimple("#edit-cli-busca", "#edit-cli-id", "#edit-cli-lista");
+    bindBuscaArticulo();
     api("/api/proveedores").then((data) => {
       listaProveedores = data.proveedores || [];
       pintarOptsProv($("#edit-proveedor"), it.proveedor_id);
@@ -741,8 +790,9 @@ function modalEditarCatalogoItem(it, onSaved) {
       lote: fd.lote || "",
       estado: fd.estado || it.estado,
       retener: fd.retener === "1" ? 1 : 0,
-      articulo_id: it.articulo_id,
+      articulo_id: Number(fd.articulo_id || it.articulo_id || 0),
     };
+    if (!body.articulo_id) throw new Error("Elegí el artículo escribiendo el código nuestro");
     if (body.propiedad === "cliente") {
       const cid = Number(fd.cliente_id || $("#edit-cli-id")?.value || 0);
       if (!cid) throw new Error("Asigná el cliente propietario");
@@ -758,15 +808,15 @@ function modalEditarCatalogoItem(it, onSaved) {
       body.proveedor_id = null;
     }
     await api("/api/tubos/" + it.id, { method: "PUT", body });
-    if (it.articulo_id) {
+    if (String(body.articulo_id) === String(it.articulo_id) && it.articulo_id) {
       await api("/api/articulos/" + it.articulo_id, {
         method: "PUT",
         body: {
-          codigo: fd.articulo_codigo || it.articulo_codigo,
+          codigo: it.articulo_codigo,
           descripcion: fd.descripcion || it.articulo_descripcion,
           grupo: fd.descripcion || it.grupo || "",
           capacidad: fd.capacidad || "",
-          codigo_proveedor: fd.codigo_proveedor || fd.articulo_codigo || it.articulo_codigo,
+          codigo_proveedor: fd.codigo_proveedor || it.articulo_codigo,
           retener: fd.retener === "1" ? 1 : 0,
           es_tubo: 1,
           activo: 1,
@@ -1380,7 +1430,7 @@ async function vistaTubo(id) {
     abrirModal(`
       <h2>Editar tubo ${esc(t.numero)}</h2>
       <form id="form-edit" class="grid form">
-        <div class="field"><label>Artículo</label><select name="articulo_id">${optsArticulos(t.articulo_id)}</select></div>
+        ${htmlBuscaArticulo({ id: t.articulo_id, codigo: t.articulo_codigo, descripcion: t.articulo_descripcion })}
         <div class="field"><label>Número</label><input name="numero" value="${esc(t.numero)}" required></div>
         <div class="field"><label>Estado</label>
           <select name="estado" id="ficha-estado">
@@ -1433,10 +1483,13 @@ async function vistaTubo(id) {
     sync();
     syncProp();
     bindBusquedaClienteSimple("#ficha-cli-busca", "#ficha-cli-id", "#ficha-cli-lista");
+    bindBuscaArticulo();
     $("#form-edit").onsubmit = async (e) => {
       e.preventDefault();
       const body = Object.fromEntries(new FormData(e.target).entries());
       body.retener = e.target.retener?.checked ? 1 : 0;
+      body.articulo_id = Number($("#art-id")?.value || body.articulo_id || 0);
+      if (!body.articulo_id) return toast("Elegí el artículo escribiendo el código nuestro", true);
       body.cliente_id = body.cliente_id || $("#ficha-cli-id")?.value || "";
       const guardar = async () => {
         if (body.propiedad === "cliente") {
@@ -2293,8 +2346,8 @@ async function vistaMovimientos(params) {
             <tr>
               <td class="mono">${fmtFecha(m.fecha)}</td>
               <td>${esc(TIPOS[m.tipo] || m.tipo)}</td>
-              <td class="mono">${esc(m.articulo_codigo || "")}</td>
-              <td class="mono"><a href="#/tubo/${m.tubo_id}">${esc(m.numero)}</a></td>
+              <td class="mono">${m.tubo_id && m.articulo_codigo ? `<a href="#/tubo/${m.tubo_id}">${esc(m.articulo_codigo)}</a>` : esc(m.articulo_codigo || "—")}</td>
+              <td class="mono">${m.tubo_id ? `<a href="#/tubo/${m.tubo_id}">${esc(m.numero || "—")}</a>` : esc(m.numero || "—")}</td>
               <td>${esc(m.cliente_nombre || (["PLANSALI", "PLANENTR"].includes(m.tipo) ? (m.observaciones || "").split(" · ").slice(0, 2).join(" · ") : "") || "—")}</td>
               <td class="mono">${esc(m.lote || "—")}</td>
               <td>${esc(m.observaciones || "—")}</td>
@@ -3003,7 +3056,8 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     <form id="form-reg-scan" class="grid form" hidden>
       <div class="field" id="reg-wrap-numero">
         <label>Número de tubo GN</label>
-        <input name="numero" id="reg-numero" placeholder="Nº de tubo" autocomplete="off">
+        <input name="numero" id="reg-numero" required placeholder="Obligatorio. No uses el código del proveedor" autocomplete="off">
+        <small class="hint">Si el tubo no está en la base, el número nuestro es obligatorio.</small>
       </div>
       <div class="field" id="reg-wrap-codp">
         <label>Código proveedor</label>
@@ -3283,11 +3337,10 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
     let codigo_proveedor = String(fd.codigo_proveedor || "").trim();
     if (tipo === "proveedor") {
       codigo_proveedor = codigo_proveedor || leido;
-      if (!numero) numero = codigo_proveedor;
     } else {
       numero = numero || leido;
-      if (!numero) return toast("Ingresá el número de tubo", true);
     }
+    if (!numero) return toast("Ingresá el número de tubo GN. No se usa el código del proveedor.", true);
     if (!codigo_proveedor && tipo === "proveedor") return toast("Falta el código de proveedor", true);
     if (!codigo_proveedor) codigo_proveedor = numero;
     const grupo = String(fd.grupo || "").trim();
@@ -3696,7 +3749,7 @@ async function vistaCompletarRecepciones() {
     : `<tr><td colspan="8" class="empty">${modo === "hist" ? "Todavía no hay documentos completados." : "No hay escaneos pendientes."}</td></tr>`;
   app().innerHTML = `
     <h1>Completar despachos y recepciones</h1>
-    <p class="lead">Despacho: solo el número de comprobante que deja el proveedor. Recepción: lote, trazabilidad y la factura, que entra en la cuenta corriente.</p>
+    <p class="lead">Despacho: el número de comprobante que deja el proveedor queda cargado en Compras. Recepción: lote, trazabilidad y la factura con importe, que entra en la cuenta corriente.</p>
     <p><a class="btn secondary" href="#/compras">Compras a proveedores</a></p>
     <div class="tabs">
       <button type="button" data-tab="pendientes" class="${tab === "pendientes" ? "active" : ""}">Pendientes (${pendientes.length})</button>
@@ -3782,18 +3835,19 @@ async function vistaCerrarDespacho(docId, d, items) {
   const editando = d.estado === "cerrado";
   app().innerHTML = `
     <h1>${editando ? "Despacho cerrado" : "Completar despacho"} #${d.id}</h1>
-    <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)} · ${items.length} tubo(s). Acá no se carga deuda: solo el comprobante que deja el proveedor.</p>
+    <p class="lead">${esc(d.proveedor_nombre || "")} · Escaneó ${esc(d.usuario_nombre || "")} el ${fmtFecha(d.fecha)} · ${items.length} tubo(s). El número del comprobante queda en Compras. El importe de la factura se carga ahí, no acá.</p>
     <div class="card">
       <form id="form-cerrar-desp" class="grid form">
         <div class="field"><label>Nº de comprobante del proveedor</label><input name="remito" required value="${esc(d.remito || "")}" placeholder="El que deja la planta" ${editando ? "readonly" : ""}></div>
         <div class="field full">
           <div class="table-wrap"><table>
-            <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th></tr></thead>
+            <thead><tr><th>Nº tubo</th><th>Cód. proveedor</th><th>Artículo</th><th>Capacidad</th></tr></thead>
             <tbody>
               ${items.map((t) => `<tr>
-                <td class="mono">${esc(t.numero || "—")}</td>
+                <td class="mono"><a href="#/tubo/${t.id}">${esc(t.numero || "—")}</a></td>
                 <td class="mono">${esc(t.codigo_proveedor || t.codigo_leido || "—")}</td>
-                <td>${esc(t.articulo_descripcion || "")}</td>
+                <td>${t.articulo_codigo ? `<a href="#/tubo/${t.id}">${esc(t.articulo_codigo)}</a>` : "—"} ${esc(t.articulo_descripcion || "")}</td>
+                <td class="mono">${esc(t.capacidad || "—")}</td>
               </tr>`).join("")}
             </tbody>
           </table></div>
@@ -3815,7 +3869,7 @@ async function vistaCerrarDespacho(docId, d, items) {
         method: "POST",
         body: { remito },
       });
-      toast("Despacho cerrado");
+      toast("Despacho cerrado. El comprobante quedó en Compras.");
       location.hash = "#/planta/completar";
     } catch (err) { toast(err.message, true); }
   };
