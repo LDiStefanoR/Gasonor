@@ -526,8 +526,10 @@ async function vistaInicio() {
     </div>
     ${!esCelular() && rolActual() === "admin" ? `
       <div class="quick-row no-print">
-        <a class="quick" href="#/planta/completar">Completar despachos y recepciones</a>
+        <a class="quick" href="#/proveedores">Proveedores</a>
         <a class="quick" href="#/compras">Compras y deudas de proveedores</a>
+        <a class="quick" href="#/empleados">Empleados</a>
+        <a class="quick" href="#/planta/completar">Completar despachos y recepciones</a>
       </div>
     ` : ""}
     ${!esCelular() && rolActual() === "admin" && pendientes.length ? `
@@ -2485,9 +2487,9 @@ async function vistaProveedoresMenu() {
     <h1>Proveedores</h1>
     <p class="lead">Una <b>planta</b> carga tubos y tiene que seguir el circuito de despacho y recepción. Un <b>proveedor de compra</b> es cualquiera al que le compramos otra cosa, y solo lleva cuenta corriente.</p>
     <div class="quick-row no-print">
-      <a class="quick" href="#/proveedores/lista?clase=planta">Plantas de carga</a>
-      <a class="quick" href="#/proveedores/lista?clase=generico">Proveedores de compra</a>
-      <a class="quick" href="#/proveedores/nuevo" style="grid-column:1/-1">Cargar uno nuevo</a>
+      <a class="quick" style="background:#1f7a45" href="#/proveedores/lista?clase=planta">Plantas de carga</a>
+      <a class="quick" style="background:#c45c26" href="#/proveedores/lista?clase=generico">Proveedores de compra</a>
+      <a class="quick" style="background:#2b5d8a;grid-column:1/-1" href="#/proveedores/nuevo">Cargar uno nuevo</a>
     </div>`;
 }
 
@@ -4880,6 +4882,11 @@ function leerCajaDom() {
     const raw = String(t.value || "").trim();
     c.totalOverride = raw || null;
   }
+  const cant = $("#caja-cant");
+  if (cant && (c.modo === "gas" || c.modo === "regulador")) {
+    const n = parseMonto(cant.value);
+    if (Number.isFinite(n) && n > 0) c.cantidad = n;
+  }
 }
 
 function htmlGases(tipo) {
@@ -4916,7 +4923,10 @@ function htmlCantidad(esGas) {
     </div>
     <div class="metro-box metro-box-compact">
       <button type="button" class="btn big-soft" data-act="cant" data-d="${-step}" aria-label="Menos">−</button>
-      <div class="n">${fmtCantCaja(n)}${unidad ? `<small>${sufijo}</small>` : ""}</div>
+      <label class="cant-manual">
+        <input id="caja-cant" class="cant-input" inputmode="decimal" value="${esc(fmtCantCaja(n))}" aria-label="Cantidad">
+        ${unidad ? `<small>${esc(unidad)}</small>` : ""}
+      </label>
       <button type="button" class="btn big-soft" data-act="cant" data-d="${step}" aria-label="Más">+</button>
     </div>`;
 }
@@ -5074,7 +5084,7 @@ function pintarCobrar() {
       </div>
       <div class="card caja-historial">
         <div class="caja-hist-head">
-          <h3>Historial del día</h3>
+          <h3>Historial del día <small>(${todas.length} · ${money(todas.filter((v) => v.tipo !== "salida").reduce((s, v) => s + Number(v.total || 0), 0) - todas.filter((v) => v.tipo === "salida").reduce((s, v) => s + Number(v.total || 0), 0))})</small></h3>
           <div class="cant-rapida filtro-hoy">
             <button type="button" class="btn secondary ${!c.filtroHoy ? "on" : ""}" data-act="filtro-hoy" data-filtro="">Todas (${todas.length})</button>
             <button type="button" class="btn secondary ${c.filtroHoy === "pendiente" ? "on" : ""}" data-act="filtro-hoy" data-filtro="pendiente">A facturar (${pendientes.length})</button>
@@ -5115,6 +5125,18 @@ function pintarCobrar() {
     </div>`;
   const root = app();
   root.onclick = onCajaClick;
+  const cantInp = $("#caja-cant");
+  if (cantInp) {
+    cantInp.addEventListener("click", (ev) => ev.stopPropagation());
+    cantInp.addEventListener("input", () => {
+      const n = parseMonto(cantInp.value);
+      if (!Number.isFinite(n) || n <= 0) return;
+      state.caja.cantidad = n;
+      state.caja.totalOverride = null;
+      const tot = $("#caja-total");
+      if (tot) tot.value = String(totalCaja()).replace(".", ",");
+    });
+  }
   const q = $("#cli-q");
   if (q) {
     let timer;
@@ -6620,6 +6642,206 @@ async function vistaReciboPago(id) {
   $("#btn-print-recibo").onclick = () => window.print();
 }
 
+async function vistaEmpleados(params) {
+  setNav("empleados");
+  const q = params.get("q") || "";
+  const data = await api("/api/empleados" + (q ? "?q=" + encodeURIComponent(q) : ""));
+  const rows = data.empleados || [];
+  app().innerHTML = `
+    <h1>Empleados</h1>
+    <p class="lead">Ficha, notas, deudas que tenemos con ellos y control de horario.</p>
+    <div class="toolbar">
+      <div class="field" style="flex:1"><label>Buscar</label><input id="emp-q" value="${esc(q)}" placeholder="Nombre, DNI o puesto"></div>
+      <button type="button" class="btn secondary" id="emp-buscar">Buscar</button>
+      <a class="btn copper" href="#/empleados/nuevo">Cargar empleado</a>
+    </div>
+    <div class="card"><small>Deuda con empleados</small><div class="n" style="font-size:1.5rem">${money(data.deuda_total || 0)}</div></div>
+    <div class="card table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Nombre</th><th>Puesto</th><th>Teléfono</th><th>Saldo</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map((e) => `
+            <tr>
+              <td><strong>${esc(e.nombre_completo)}</strong>${e.dni ? `<br><small>DNI ${esc(e.dni)}</small>` : ""}</td>
+              <td>${esc(e.puesto || "—")}</td>
+              <td>${esc(e.telefono || "—")}</td>
+              <td class="mono">${money(e.saldo || 0)}</td>
+              <td><a class="btn" href="#/empleados/${e.id}">Abrir</a></td>
+            </tr>`).join("") || `<tr><td colspan="5" class="empty">Todavía no hay empleados.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#emp-buscar").onclick = () => {
+    const term = $("#emp-q").value.trim();
+    location.hash = "#/empleados" + (term ? "?q=" + encodeURIComponent(term) : "");
+  };
+}
+
+async function vistaEmpleadoNuevo() {
+  setNav("empleados");
+  app().innerHTML = `
+    <p><a href="#/empleados">← Empleados</a></p>
+    <h1>Cargar empleado</h1>
+    <div class="card">
+      <form id="form-emp" class="grid form">
+        <div class="field"><label>Nombre</label><input name="nombre" required></div>
+        <div class="field"><label>Apellido</label><input name="apellido"></div>
+        <div class="field"><label>DNI</label><input name="dni"></div>
+        <div class="field"><label>CUIL</label><input name="cuil"></div>
+        <div class="field"><label>Teléfono</label><input name="telefono"></div>
+        <div class="field"><label>Puesto</label><input name="puesto"></div>
+        <div class="field"><label>Fecha de ingreso</label><input name="fecha_ingreso" type="date"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion"></div>
+        <div class="field full"><label>Notas</label><textarea name="notas" rows="3"></textarea></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
+      </form>
+    </div>`;
+  $("#form-emp").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api("/api/empleados", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
+      toast("Empleado cargado");
+      location.hash = "#/empleados/" + r.empleado.id;
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+async function vistaEmpleadoFicha(id, params) {
+  setNav("empleados");
+  const tab = params.get("tab") || "datos";
+  const data = await api("/api/empleados/" + id);
+  const e = data.empleado;
+  const movs = data.movimientos || [];
+  const hors = data.horarios || [];
+  const total = data.saldo || 0;
+  app().innerHTML = `
+    <p><a href="#/empleados">← Empleados</a></p>
+    <h1>${esc(e.nombre_completo)}</h1>
+    <p class="lead">${esc(e.puesto || "Sin puesto")}${e.dni ? " · DNI " + esc(e.dni) : ""} · saldo ${money(total)}</p>
+    <div class="tabs">
+      <a class="btn ${tab === "datos" ? "" : "secondary"}" href="#/empleados/${id}?tab=datos">Datos y notas</a>
+      <a class="btn ${tab === "cuenta" ? "" : "secondary"}" href="#/empleados/${id}?tab=cuenta">Deudas y pagos</a>
+      <a class="btn ${tab === "horario" ? "" : "secondary"}" href="#/empleados/${id}?tab=horario">Horario</a>
+    </div>
+    ${tab === "datos" ? `
+      <div class="card">
+        <form id="form-emp-edit" class="grid form">
+          <div class="field"><label>Nombre</label><input name="nombre" value="${esc(e.nombre || "")}" required></div>
+          <div class="field"><label>Apellido</label><input name="apellido" value="${esc(e.apellido || "")}"></div>
+          <div class="field"><label>DNI</label><input name="dni" value="${esc(e.dni || "")}"></div>
+          <div class="field"><label>CUIL</label><input name="cuil" value="${esc(e.cuil || "")}"></div>
+          <div class="field"><label>Teléfono</label><input name="telefono" value="${esc(e.telefono || "")}"></div>
+          <div class="field"><label>Puesto</label><input name="puesto" value="${esc(e.puesto || "")}"></div>
+          <div class="field"><label>Fecha de ingreso</label><input name="fecha_ingreso" type="date" value="${esc(e.fecha_ingreso || "")}"></div>
+          <div class="field full"><label>Dirección</label><input name="direccion" value="${esc(e.direccion || "")}"></div>
+          <div class="field full"><label>Notas</label><textarea name="notas" rows="4">${esc(e.notas || "")}</textarea></div>
+          <div class="field full"><button class="btn copper" type="submit">Guardar ficha</button></div>
+        </form>
+      </div>
+    ` : ""}
+    ${tab === "cuenta" ? `
+      <div class="card">
+        <h3 style="margin-top:0">Cargar deuda o pago</h3>
+        <p class="lead">Debe: lo que le debemos. Haber: lo que le pagamos. El subtotal es el saldo después de cada línea.</p>
+        <form id="form-emp-mov" class="grid form">
+          <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}"></div>
+          <div class="field" style="grid-column: span 1"><label>Concepto</label><input name="concepto" required placeholder="Adelanto, sueldo, pago…"></div>
+          <div class="field"><label>Debe</label><input name="debe" inputmode="decimal" placeholder="0"></div>
+          <div class="field"><label>Haber</label><input name="haber" inputmode="decimal" placeholder="0"></div>
+          <div class="field full"><button class="btn copper" type="submit">Agregar</button></div>
+        </form>
+      </div>
+      <div class="card table-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th>Debe</th><th>Haber</th><th>Subtotal</th><th></th></tr></thead>
+          <tbody>
+            ${movs.map((m) => `
+              <tr>
+                <td class="mono">${esc(fmtFecha(m.fecha))}</td>
+                <td>${esc(m.concepto)}</td>
+                <td class="mono">${Number(m.debe) ? money(m.debe) : ""}</td>
+                <td class="mono">${Number(m.haber) ? money(m.haber) : ""}</td>
+                <td class="mono"><strong>${money(m.subtotal)}</strong></td>
+                <td><button type="button" class="btn ghost" data-del-mov="${m.id}">Quitar</button></td>
+              </tr>`).join("") || `<tr><td colspan="6" class="empty">Sin movimientos.</td></tr>`}
+            ${movs.length ? `<tr><td colspan="4"></td><td class="mono"><strong>Total ${money(total)}</strong></td><td></td></tr>` : ""}
+          </tbody>
+        </table>
+      </div>
+    ` : ""}
+    ${tab === "horario" ? `
+      <div class="card">
+        <h3 style="margin-top:0">Cargar entrada y salida</h3>
+        <form id="form-emp-hor" class="grid form">
+          <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" required></div>
+          <div class="field"><label>Entrada</label><input name="hora_entrada" type="time"></div>
+          <div class="field"><label>Salida</label><input name="hora_salida" type="time"></div>
+          <div class="field full"><label>Observaciones</label><input name="observaciones" placeholder="Falta, extra, llegada tarde…"></div>
+          <div class="field full"><button class="btn copper" type="submit">Guardar horario</button></div>
+        </form>
+      </div>
+      <div class="card table-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Notas</th><th></th></tr></thead>
+          <tbody>
+            ${hors.map((h) => `
+              <tr>
+                <td class="mono">${esc(fmtFecha(h.fecha))}</td>
+                <td class="mono">${esc(h.hora_entrada || "—")}</td>
+                <td class="mono">${esc(h.hora_salida || "—")}</td>
+                <td>${esc(h.observaciones || "")}</td>
+                <td><button type="button" class="btn ghost" data-del-hor="${h.id}">Quitar</button></td>
+              </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin horarios cargados.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    ` : ""}`;
+  $("#form-emp-edit") && ($("#form-emp-edit").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/empleados/" + id, { method: "PUT", body: Object.fromEntries(new FormData(ev.target)) });
+      toast("Ficha guardada");
+      route();
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#form-emp-mov") && ($("#form-emp-mov").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/empleados/" + id + "/movimientos", { method: "POST", body: Object.fromEntries(new FormData(ev.target)) });
+      toast("Movimiento cargado");
+      location.hash = "#/empleados/" + id + "?tab=cuenta";
+      route();
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#form-emp-hor") && ($("#form-emp-hor").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/empleados/" + id + "/horarios", { method: "POST", body: Object.fromEntries(new FormData(ev.target)) });
+      toast("Horario cargado");
+      location.hash = "#/empleados/" + id + "?tab=horario";
+      route();
+    } catch (err) { toast(err.message, true); }
+  });
+  document.querySelectorAll("[data-del-mov]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api("/api/empleados/" + id + "/movimientos/" + b.dataset.delMov, { method: "DELETE" });
+        toast("Línea quitada");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+  document.querySelectorAll("[data-del-hor]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api("/api/empleados/" + id + "/horarios/" + b.dataset.delHor, { method: "DELETE" });
+        toast("Horario quitado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+}
+
 async function route() {
   try {
     if (window.GasonorScan) {
@@ -6723,6 +6945,12 @@ async function route() {
       if (parts[1] === "lista") return vistaProveedoresLista(params);
       if (parts[1] && /^\d+$/.test(parts[1])) return vistaProveedorFicha(parts[1], params);
       return vistaProveedoresMenu();
+    }
+    if (seccion === "empleados") {
+      if (!puede("admin")) return vistaInicio();
+      if (parts[1] === "nuevo") return vistaEmpleadoNuevo();
+      if (parts[1] && /^\d+$/.test(parts[1])) return vistaEmpleadoFicha(parts[1], params);
+      return vistaEmpleados(params);
     }
     if (seccion === "usuarios") {
       if (!puede("admin")) return vistaInicio();

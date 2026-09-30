@@ -38,7 +38,10 @@ a { color: inherit; }
 
 .sidebar {
   width: 250px;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto;
   background: linear-gradient(180deg, var(--forest) 0%, #122821 100%);
   color: #f4efe4;
   padding: 22px 16px;
@@ -46,7 +49,7 @@ a { color: inherit; }
   top: 0;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 14px;
 }
 .brand { display: flex; flex-direction: column; gap: 10px; }
 .brand-logo {
@@ -265,7 +268,7 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   display: flex; align-items: center; justify-content: center; text-align: center;
   min-height: 92px; border-radius: 14px; color: #fff; font-weight: 800;
   font-size: 1.15rem; text-decoration: none; letter-spacing: .02em;
-  box-shadow: var(--shadow);
+  background: var(--forest); box-shadow: var(--shadow);
 }
 .quick.green { background: #1f7a45; }
 .quick.red { background: #b42318; }
@@ -619,7 +622,15 @@ tr.fila-editando .cell-view { vertical-align: middle; }
 .login-screen[hidden] { display: none !important; }
 .login-card { width: min(420px, 100%); }
 .login-card img { width: 100%; border-radius: 10px; margin-bottom: 10px; }
-.sidebar.open { display: flex; position: fixed; z-index: 40; height: 100%; }
+.sidebar.open {
+  display: flex;
+  position: fixed;
+  z-index: 40;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto;
+}
 
 /* Pantallas angostas o cuadradas: menú hamburguesa y más ancho útil */
 @media (max-width: 1280px), (max-aspect-ratio: 5/4) {
@@ -753,14 +764,38 @@ body.es-celular .sidebar nav a[data-solo-pc="1"] { display: none !important; }
 .gas-grid-mini .gas-card { min-height: 72px; padding: 8px; }
 #ch-modal[hidden] { display: none !important; }
 .btn.big-soft.on, .btn.secondary.on { outline: 2px solid var(--copper); background: #fff3e8; }
-.caja-cobro {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  background: var(--bg, #f4efe6);
-  padding-bottom: 4px;
-  margin: 0 -2px;
+.caja-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 12px;
+  align-items: start;
 }
+.caja-cobro { min-width: 0; }
+.caja-historial {
+  max-height: calc(100dvh - 96px);
+  overflow: auto;
+  position: sticky;
+  top: 8px;
+}
+@media (max-width: 980px) {
+  .caja-screen { grid-template-columns: 1fr; }
+  .caja-historial {
+    position: static;
+    max-height: min(46vh, 420px);
+  }
+}
+.cant-input {
+  width: 7.2rem;
+  text-align: center;
+  font-size: 1.7rem;
+  font-weight: 800;
+  padding: 8px 6px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: #fff;
+}
+.cant-manual { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cant-manual small { color: var(--muted); font-weight: 700; }
 .caja-cobro-head {
   display: flex;
   align-items: center;
