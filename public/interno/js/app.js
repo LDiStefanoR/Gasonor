@@ -116,7 +116,187 @@ function esCelular() {
 
 function rutaSoloCelular(seccion, parts) {
   if (seccion === "planta" && parts && parts[1] === "completar") return false;
-  return ["planta", "cliente", "envios", "reparto"].includes(seccion);
+  if (seccion === "reparto") return false;
+  return ["planta", "cliente", "envios"].includes(seccion);
+}
+
+function textoErrorGps(err) {
+  if (!window.isSecureContext) return "La ubicación solo funciona en https. Entrá por gasonorsrl.com.";
+  if (!navigator.geolocation) return "Este navegador no puede tomar la ubicación.";
+  const code = err && err.code;
+  if (code === 1) return "El celular bloqueó la ubicación. Permitila para este sitio y tocá de nuevo.";
+  if (code === 2) return "No se pudo ubicar. Activá el GPS del celular y tocá de nuevo.";
+  if (code === 3) return "Tardó demasiado. Salí a un lugar con señal y tocá de nuevo.";
+  return (err && err.message) || "No se pudo tomar la ubicación.";
+}
+
+function ponerEstadoGps(texto, malo) {
+  const el = $("#estado-ubicacion");
+  if (el) el.textContent = texto;
+  if (malo) toast(texto, true);
+  else if (texto.indexOf("guardada") >= 0) toast(texto);
+}
+
+function pedirUbicacion(manual) {
+  if (rolActual() !== "reparto") return;
+  if (!window.isSecureContext || !navigator.geolocation) {
+    ponerEstadoGps(textoErrorGps(), !!manual);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      await api("/api/reparto/tracking", {
+        method: "POST",
+        body: {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          precision: Math.round(pos.coords.accuracy || 0),
+        },
+      });
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, "0");
+      ponerEstadoGps("Ubicación guardada a las " + p(d.getHours()) + ":" + p(d.getMinutes()), false);
+      if (!state._trackTimer) state._trackTimer = setInterval(() => pedirUbicacion(false), 60000);
+    } catch (err) {
+      ponerEstadoGps(err.message || "No se pudo guardar", true);
+    }
+  }, (err) => ponerEstadoGps(textoErrorGps(err), !!manual), { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+}
+
+function seguirRepartidor() {
+  if (rolActual() !== "reparto" || state._usoEnviado) return;
+  state._usoEnviado = true;
+  api("/api/reparto/tracking", { method: "POST", body: { uso: 1 } }).catch(() => {});
+  pedirUbicacion(false);
+}
+
+function limpiarMapaReparto() {
+  if (state._mapaTimer) {
+    clearInterval(state._mapaTimer);
+    state._mapaTimer = null;
+  }
+  if (state._mapaLeaflet) {
+    state._mapaLeaflet.remove();
+    state._mapaLeaflet = null;
+  }
+}
+
+function cargarLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (!document.querySelector("link[data-leaflet]")) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.dataset.leaflet = "1";
+    document.head.appendChild(link);
+  }
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("No se pudo cargar el mapa"));
+    document.head.appendChild(s);
+  });
+}
+
+function dibujarRecorrido(map, chofer, fecha) {
+  if (state._capaRec) {
+    map.removeLayer(state._capaRec);
+    state._capaRec = null;
+  }
+  const capa = L.layerGroup();
+  const puntos = chofer?.puntos || [];
+  const linea = puntos.map((p) => [Number(p.lat), Number(p.lng)]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (linea.length >= 2) L.polyline(linea, { color: "#1f6b4a", weight: 5, opacity: 0.9 }).addTo(capa);
+  if (linea.length) {
+    const ini = puntos[0];
+    L.circleMarker(linea[0], { radius: 8, color: "#1f6b4a", fillColor: "#b7e4a8", fillOpacity: 1, weight: 2 })
+      .bindPopup("Inicio " + esc(String(ini.registrado_en || "").slice(11, 16)))
+      .addTo(capa);
+    const fin = puntos[puntos.length - 1];
+    L.circleMarker(linea[linea.length - 1], { radius: 10, color: "#9a3412", fillColor: "#f4a261", fillOpacity: 1, weight: 2 })
+      .bindPopup("Último punto " + esc(String(fin.registrado_en || "").slice(11, 16)))
+      .addTo(capa);
+  }
+  const u = chofer?.ultimo;
+  const ultimoEsDelDia = u && String(u.registrado_en || "").slice(0, 10) === String(fecha || "");
+  if (u && !ultimoEsDelDia && Number.isFinite(Number(u.lat)) && Number.isFinite(Number(u.lng))) {
+    L.circleMarker([Number(u.lat), Number(u.lng)], { radius: 11, color: "#1d4e89", fillColor: "#7eb6ff", fillOpacity: 1, weight: 2 })
+      .bindPopup("Última ubicación " + esc(fmtFecha(u.registrado_en)) + " " + esc(String(u.registrado_en).slice(11, 16)))
+      .addTo(capa);
+  }
+  capa.addTo(map);
+  state._capaRec = capa;
+  const bounds = linea.slice();
+  if (u && Number.isFinite(Number(u.lat)) && Number.isFinite(Number(u.lng))) bounds.push([Number(u.lat), Number(u.lng)]);
+  if (bounds.length === 1) map.setView(bounds[0], 16);
+  else if (bounds.length > 1) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 16 });
+  else map.setView([-32.946, -60.65], 12);
+}
+
+async function vistaRepartoMapa(params) {
+  setNav("reparto");
+  const gen = (state._mapaGen = (state._mapaGen || 0) + 1);
+  const fecha0 = params.get("fecha") || hoyInput();
+  const chofer0 = params.get("chofer") || "";
+  let data = await api("/api/reparto/tracking?fecha=" + encodeURIComponent(fecha0));
+  if (gen !== state._mapaGen) return;
+  const lista = data.choferes || [];
+  const elegido = String(chofer0 || (lista[0] && lista[0].id) || "");
+  app().innerHTML = `
+    <p><a href="#/reparto">← Repartos</a></p>
+    <h1>Recorrido del chofer</h1>
+    <p class="lead">La línea es el camino del día. El punto naranja es el último del recorrido.</p>
+    <form id="form-mapa" class="toolbar">
+      <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${esc(data.fecha || fecha0)}"></div>
+      <div class="field"><label>Chofer</label>
+        <select name="chofer">${lista.map((c) => `<option value="${c.id}" ${String(c.id) === elegido ? "selected" : ""}>${esc(c.nombre)}</option>`).join("") || `<option value="">Sin choferes</option>`}</select>
+      </div>
+      <button class="btn" type="submit">Ver</button>
+    </form>
+    <div id="mapa-info" class="card" style="margin-bottom:12px"></div>
+    <div id="mapa-recorrido"></div>`;
+  $("#form-mapa").onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    location.hash = `#/reparto/mapa?fecha=${encodeURIComponent(fd.get("fecha") || hoyInput())}&chofer=${encodeURIComponent(fd.get("chofer") || "")}`;
+  };
+  const info = (chofer) => {
+    const box = $("#mapa-info");
+    if (!box) return;
+    if (!chofer) {
+      box.innerHTML = `<p class="empty">No hay usuarios con rol reparto.</p>`;
+      return;
+    }
+    const u = chofer.ultimo;
+    const n = Number(chofer.n || 0);
+    const mapa = u ? `https://www.google.com/maps?q=${encodeURIComponent(u.lat + "," + u.lng)}` : "";
+    box.innerHTML = `
+      <strong>${esc(chofer.nombre)}</strong>
+      <p class="lead" style="margin:6px 0">${chofer.uso ? `Abrió la app: ${esc(fmtFecha(chofer.uso.registrado_en))} ${esc(String(chofer.uso.registrado_en).slice(11, 16))}` : "Todavía no abrió la app."}</p>
+      <p class="lead" style="margin:6px 0">${u ? `Última ubicación: ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}` : "Sin posición. En el celular, tocá Activar mi ubicación."}</p>
+      <p class="lead" style="margin:0">${n ? `${n} punto${n === 1 ? "" : "s"} en el recorrido de este día.` : "Sin recorrido en esta fecha."} Se actualiza solo.</p>
+      ${mapa ? `<p><a class="btn secondary" href="${esc(mapa)}" target="_blank" rel="noopener">Abrir última ubicación en Maps</a></p>` : ""}`;
+  };
+  await cargarLeaflet();
+  if (gen !== state._mapaGen) return;
+  const el = $("#mapa-recorrido");
+  if (!el || !window.L) return;
+  state._mapaLeaflet = L.map(el).setView([-32.946, -60.65], 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(state._mapaLeaflet);
+  const pintar = async () => {
+    const fd = new FormData($("#form-mapa"));
+    const fecha = fd.get("fecha") || fecha0;
+    const fresco = await api("/api/reparto/tracking?fecha=" + encodeURIComponent(fecha));
+    const id = String(fd.get("chofer") || elegido);
+    const chofer = (fresco.choferes || []).find((c) => String(c.id) === id) || (fresco.choferes || [])[0];
+    info(chofer);
+    if (state._mapaLeaflet) dibujarRecorrido(state._mapaLeaflet, chofer, fresco.fecha);
+  };
+  await pintar();
+  setTimeout(() => state._mapaLeaflet && state._mapaLeaflet.invalidateSize(), 200);
+  if (gen !== state._mapaGen) return;
+  state._mapaTimer = setInterval(() => pintar().catch(() => {}), 25000);
 }
 
 function etiquetaRol(rol) {
@@ -466,7 +646,9 @@ async function vistaInicio() {
     })();
     app().innerHTML = `
       <h1>${saludo}, ${esc(state.usuario.nombre)}</h1>
-      <p class="lead">Acá tenés tu ruta y las entregas / retiros de cliente.</p>
+      <p class="lead">Acá tenés tu ruta y las entregas / retiros de cliente. Tocá el botón para que en la oficina vean dónde estás.</p>
+      <button class="btn copper" type="button" id="btn-ubicacion" style="width:100%;margin-bottom:8px">Activar mi ubicación</button>
+      <p class="lead" id="estado-ubicacion">Todavía no se guardó la posición.</p>
       <div class="grid stats reparto-inicio-stats">
         <div class="card stat vacio"><div class="n">${pendientes}</div><small>Lugares pendientes</small></div>
         <div class="card stat cargado"><div class="n">${hechas}</div><small>Hechos</small></div>
@@ -487,6 +669,8 @@ async function vistaInicio() {
             ${av.ok ? "" : ` <span class="badge badge-warn-rep">${esc(av.texto)}</span>`}</p>`;
         }).join("") || "<p class='empty'>Todavía no tenés hoja de ruta asignada.</p>"}
       </div>`;
+    const btnUbi = $("#btn-ubicacion");
+    if (btnUbi) btnUbi.onclick = () => pedirUbicacion(true);
     return;
   }
   if (rolActual() === "despacho") {
@@ -507,7 +691,7 @@ async function vistaInicio() {
       pendientes = (await api("/api/planta/documentos?estado=borrador")).documentos || [];
     } catch (_) { pendientes = []; }
   }
-    app().innerHTML = `
+  app().innerHTML = `
     <div class="quick-row no-print">
       ${esCelular() && puede("admin") ? `
         <a class="quick green" href="#/planta/despacho">Despacho a planta</a>
@@ -1272,12 +1456,12 @@ function modalAltaCatalogo() {
         <div class="field full"><label class="check-inline"><input type="checkbox" name="g_retener" value="1"> Retener</label></div>
       </div>
       <div id="alta-tubo">
-        <div class="field"><label>Propiedad</label>
+      <div class="field"><label>Propiedad</label>
           <select name="propiedad" id="alta-prop">
             <option value="empresa">GN (Gasonor)</option>
             <option value="cliente">Del cliente</option>
-          </select>
-        </div>
+        </select>
+      </div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1"> Retener (nuestro / robado)</label></div>
         <div class="field"><label>Número de tubo</label><input name="numero" placeholder="Nº de trazabilidad"></div>
         <div class="field"><label>Tipo de gas</label><input name="grupo" placeholder="Oxígeno, Nitrógeno…"></div>
@@ -1508,8 +1692,8 @@ async function vistaTubo(id) {
         }
         try {
           await api("/api/tubos/" + t.id, { method: "PUT", body });
-          cerrarModal(); toast("Tubo actualizado"); route();
-        } catch (err) { toast(err.message, true); }
+        cerrarModal(); toast("Tubo actualizado"); route();
+      } catch (err) { toast(err.message, true); }
       };
       if (body.estado === "en_planta" && t.estado !== "en_planta") {
         const box = $("#aviso-ficha-estado");
@@ -1597,18 +1781,18 @@ async function vistaClienteFicha(id, params) {
       <div class="card stat en_cliente"><div class="n">${r.en_cliente_gn ?? tubosGn.length}</div><small>GN en su poder</small></div>
       <div class="card stat cliente"><div class="n">${r.propios_en_poder ?? propiosEnPoder.length}</div><small>Propios en su poder</small></div>
       <div class="card stat vacio"><div class="n">${r.registrados_propios ?? tubosPropios.length}</div><small>Propios registrados (total)</small></div>
-    </div>
+        </div>
     <div class="toolbar">
       <button class="btn copper" type="button" id="btn-asig-tubo">Asignar tubo existente</button>
       <button class="btn ghost" type="button" data-edit-cli="${c.id}">Editar datos</button>
       <a class="btn secondary" href="#/cliente/despacho">Despacho a cliente</a>
       <a class="btn secondary" href="#/cliente/recepcion">Recepción de cliente</a>
-    </div>
+        </div>
     <div class="tabs">
       <button data-tab="gn" class="${tab === "gn" ? "active" : ""}">GN en poder (${tubosGn.length})</button>
       <button data-tab="propios" class="${tab === "propios" ? "active" : ""}">Envases propios (${tubosPropios.length})</button>
       <button data-tab="historial" class="${tab === "historial" ? "active" : ""}">Historial</button>
-    </div>
+        </div>
     <div id="cli-tab" class="card"></div>`;
 
   app().querySelectorAll("[data-tab]").forEach((b) => {
@@ -1696,15 +1880,15 @@ async function vistaClienteFicha(id, params) {
         <div class="field full"><button class="btn copper" type="submit">Asignar</button></div>
       </form>`);
     $("#form-asig").onsubmit = async (e) => {
-      e.preventDefault();
+    e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
       try {
         const res = await api("/api/clientes/" + id + "/asignar-tubos", { method: "POST", body: fd });
         cerrarModal();
         toast("Asignados: " + res.cantidad);
         route();
-      } catch (err) { toast(err.message, true); }
-    };
+    } catch (err) { toast(err.message, true); }
+  };
   };
 
   const btnEdit = app().querySelector("[data-edit-cli]");
@@ -1796,24 +1980,24 @@ async function vistaClientes(params) {
     location.hash = "#/clientes" + (parts.length ? "?" + parts.join("&") : "");
   };
   $("#btn-nuevo-cli").onclick = () => {
-    abrirModal(`
+      abrirModal(`
       <h2>Nuevo cliente</h2>
       <form id="form-cli-nuevo" class="grid form">
         <div class="field full"><label>Nombre</label><input name="nombre" required autocomplete="organization"></div>
         <div class="field full"><label>Dirección</label><input name="direccion" required autocomplete="street-address"></div>
         <div class="field full"><label>CUIT</label><input name="cuit" required inputmode="numeric" autocomplete="off"></div>
         <div class="field full"><button class="btn copper" type="submit">Crear cliente</button></div>
-      </form>`);
+        </form>`);
     $("#form-cli-nuevo").onsubmit = async (e) => {
-      e.preventDefault();
+        e.preventDefault();
       try {
         const r = await api("/api/clientes", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
         cerrarModal();
         toast("Cliente creado");
         await cargarCatalogos();
         location.hash = "#/clientes/" + r.cliente.id;
-      } catch (err) { toast(err.message, true); }
-    };
+        } catch (err) { toast(err.message, true); }
+      };
   };
   app().querySelectorAll("[data-del-cli]").forEach((btn) => {
     btn.onclick = async () => {
@@ -1925,12 +2109,12 @@ async function vistaOperaciones(params) {
             <tbody></tbody>
           </table>
         </div>
-        <button class="btn copper" type="submit">Registrar envío a planta</button>
+          <button class="btn copper" type="submit">Registrar envío a planta</button>
         <details style="margin-top:16px">
           <summary>Elegir de la lista (en empresa)</summary>
           <div class="toolbar" style="margin-top:8px">
             <div class="field"><label>Filtrar</label><input id="op-q" value="${esc(q)}" placeholder="Número / lote"></div>
-          </div>
+        </div>
           ${tablaTubos(lista, { check: true })}
         </details>
       </form>`;
@@ -2776,7 +2960,7 @@ async function elegirProveedor(modo) {
   setNav("envios");
   if (modo === "recepcion") {
     const data = await api("/api/planta/resumen");
-    app().innerHTML = `
+  app().innerHTML = `
       <h1>Recepción de planta</h1>
       <p class="lead">${rolActual() === "despacho"
         ? "En el celular: escaneá los tubos que vuelven. Se guarda un registro pendiente; administración completa los lotes en la PC."
@@ -3309,7 +3493,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
         <strong class="mono">${esc(t.numero)}</strong>
         · ${esc(t.articulo_descripcion || t.grupo || "")}
         <small style="display:block;opacity:.75">${esc(ESTADOS[t.estado] || t.estado)} · prov ${esc(t.codigo_proveedor || "—")}</small>
-      </li>`).join("");
+    </li>`).join("");
     ul.hidden = false;
     ul.querySelectorAll("li[data-id]").forEach((li) => {
       li.onclick = () => {
@@ -3451,8 +3635,8 @@ async function procesarCodigo(codigo, modo, proveedorId) {
         codigo,
       );
       if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "planta" });
-      return;
-    }
+        return;
+      }
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
       if (modo === "despacho" && debeConfirmarDespacho(r)) {
         const sigue = await confirmarAdvertenciaDespacho(r);
@@ -3478,16 +3662,16 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       return;
     }
     scanSafe("beep", "fail");
-    const msgs = {
+      const msgs = {
       no_encontrado: modo === "recepcion"
         ? "No está despachado a planta. Solo se recepcionan tubos que ya se enviaron."
         : "No está en el sistema",
-      ya_en_planta: "Ese tubo ya está en planta",
-      estado_invalido: "El tubo no está en empresa",
+        ya_en_planta: "Ese tubo ya está en planta",
+        estado_invalido: "El tubo no está en empresa",
       no_en_planta: "Ese tubo no figura en planta: hay que despacharlo primero",
       otro_proveedor: "Está en " + (r.tubo?.proveedor_nombre || "otra planta") + ". Entrá a recepción de esa planta.",
       ya_escaneado: "Ya está en un escaneo pendiente" + (r.remito ? " (remito " + r.remito + ")" : "") + ". Administración debe completar los lotes.",
-    };
+      };
     const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
     scanSafe("showLast", codigo + " — " + msg, "fail");
     toast(msg, true);
@@ -3502,7 +3686,7 @@ async function vistaScan(modo, proveedorId) {
   setNav("envios");
   restoreScanLista({ modo, proveedor: proveedorId });
   if (state.scanModo !== modo || String(state.scanProveedor) !== String(proveedorId)) {
-    state.scanLista = [];
+  state.scanLista = [];
     state.scanModo = modo;
     state.scanProveedor = proveedorId;
     clearScanPersist();
@@ -3572,7 +3756,7 @@ async function vistaScan(modo, proveedorId) {
     if (!directo) {
       persistScanLista();
       scanSafe("stop");
-      location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
+    location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
       return;
     }
     const btn = $("#btn-seguir");
@@ -3753,7 +3937,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       if (r.borrador || r.estado === "borrador") {
         toast(`Escaneo guardado: ${r.cantidad} tubo(s). Quedó para completar en la PC.`);
       } else {
-        toast(`Guardado: ${r.cantidad} tubo(s)`);
+      toast(`Guardado: ${r.cantidad} tubo(s)`);
       }
       state.scanLista = [];
       state.scanModo = null;
@@ -3829,7 +4013,7 @@ async function vistaCompletarRecepciones() {
         await api("/api/planta/documentos/" + b.dataset.delDoc, { method: "DELETE" });
         toast("Comprobante eliminado");
         vistaCompletarRecepciones();
-      } catch (err) { toast(err.message, true); }
+    } catch (err) { toast(err.message, true); }
     };
   });
 }
@@ -4526,6 +4710,7 @@ async function vistaReparto(params) {
   app().innerHTML = `
     <h1>Reparto</h1>
     ${puede("admin") ? `<div class="toolbar"><a class="btn copper" href="#/reparto/nuevo">Armar reparto del día</a>
+      <a class="btn" href="#/reparto/mapa">Recorrido del chofer</a>
       <a class="btn ghost" href="#/reparto/permisos">Qué puede ver el chofer</a></div>` : ""}
     ${incompletos.length
       ? `<div class="alerta-reparto" role="alert">⚠ ${incompletos.length} reparto(s) con paradas sin marcar como hechas por el chofer.</div>`
@@ -4593,8 +4778,8 @@ async function vistaRepartoDetalle(id) {
     const total = (data.paradas || []).length;
     const faltan = Math.max(0, total - hechas);
     const completo = total > 0 && faltan === 0;
-    app().innerHTML = `
-      <h1>Hoja de ruta ${fmtFecha(r.fecha)}</h1>
+  app().innerHTML = `
+    <h1>Hoja de ruta ${fmtFecha(r.fecha)}</h1>
       <p class="lead">${esc(r.chofer || "Sin chofer asignado")}${r.observaciones ? " · " + esc(r.observaciones) : ""}</p>
       <p class="lead"><strong>${hechas}/${total}</strong> paradas hechas · ${esc(r.estado || "")}</p>
       ${total && !completo
@@ -4606,14 +4791,14 @@ async function vistaRepartoDetalle(id) {
       ${(data.paradas || []).map((p, i) => `
         <div class="card parada-card ${p.completada ? "hecha" : "pendiente"}" style="margin-bottom:12px">
           <div class="parada-top">
-            <h3>${i + 1}. ${esc(p.nombre)}</h3>
+        <h3>${i + 1}. ${esc(p.nombre)}</h3>
             ${p.completada
               ? `<span class="badge badge-okfact">Hecha ${horaCorta(p.completada_en)}</span>`
               : `<span class="badge badge-warn-rep">Pendiente</span>`}
           </div>
           ${!p.completada ? `<p class="parada-aviso-pend">Esta parada aún no fue marcada como completada.</p>` : ""}
           ${htmlResumenTubosParada(p)}
-          ${p.direccion ? `<p>${esc(p.direccion)} ${esc(p.localidad || "")}</p>` : ""}
+        ${p.direccion ? `<p>${esc(p.direccion)} ${esc(p.localidad || "")}</p>` : ""}
           ${p.telefono ? `<p>Tel: <a href="tel:${esc(p.telefono)}">${esc(p.telefono)}</a></p>` : ""}
           ${htmlMapaParada(p)}
           ${p.cliente_id && puede("admin", "reparto") ? `
@@ -4623,7 +4808,7 @@ async function vistaRepartoDetalle(id) {
                 ? `<a class="btn btn-parada-recepcion" href="#/cliente/recepcion/${p.cliente_id}">Recepción de este cliente</a>`
                 : `<span class="btn btn-parada-recepcion off" title="Sin tubos en su poder">Sin tubos para recibir</span>`}
             </div>` : ""}
-          <ul>${(p.tareas || []).map((t) => `<li>${esc({ recarga_propios: "Recarga envases propios", recambio_gn: "Recambio GN", retiro_equipo: "Retiro de equipo", entrega_equipo: "Entrega de equipo", tarea: "Tarea" }[t.tipo] || t.tipo)}${t.detalle ? " — " + esc(t.detalle) : ""}</li>`).join("")}</ul>
+        <ul>${(p.tareas || []).map((t) => `<li>${esc({ recarga_propios: "Recarga envases propios", recambio_gn: "Recambio GN", retiro_equipo: "Retiro de equipo", entrega_equipo: "Entrega de equipo", tarea: "Tarea" }[t.tipo] || t.tipo)}${t.detalle ? " — " + esc(t.detalle) : ""}</li>`).join("")}</ul>
           ${p.tubos && p.tubos.length ? `<p class="lead">Detalle: ${p.tubos.map((t) => esc(t.numero)).join(", ")}</p>` : ""}
           <div class="field parada-comentario">
             <label>Comentario / nota (opcional)</label>
@@ -4635,7 +4820,7 @@ async function vistaRepartoDetalle(id) {
                 <button type="button" class="btn ghost" data-parada="${p.id}" data-ok="0">Desmarcar</button>
                </div>`
             : `<button type="button" class="btn btn-parada-ok" data-parada="${p.id}" data-ok="1">✓ Ya pasé · Hecho</button>`}
-        </div>`).join("") || `<p class="empty">Sin paradas.</p>`}`;
+      </div>`).join("") || `<p class="empty">Sin paradas.</p>`}`;
     const leerNota = (pid) => {
       const ta = app().querySelector(`textarea[data-comentario="${pid}"]`);
       return ta ? String(ta.value || "").trim() : "";
@@ -4684,6 +4869,7 @@ async function vistaRepartoNuevo() {
   state._paradas = [];
   app().innerHTML = `
     <h1>Armar reparto del día</h1>
+    <p><a href="#/reparto">← Repartos</a> · <a href="#/reparto/mapa">Ver recorrido en el mapa</a></p>
     <form id="form-rep" class="card grid form">
       <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}"></div>
       <div class="field"><label>Chofer / reparto</label>
@@ -4791,6 +4977,8 @@ function cajaInicial() {
     monto: "",
     totalOverride: null,
     medioPago: "efectivo",
+    chequeId: null,
+    chequesCartera: null,
     filtroHoy: "",
     ultimaId: null,
     precios: [],
@@ -4813,20 +5001,39 @@ function etiquetaMedio(m) {
 
 function htmlMedioPago() {
   const c = state.caja;
-  if (c.modo === "salida") return "";
-  const medios = [
-    ["efectivo", "Efectivo"],
-    ["transferencia", "Transfer."],
-    ["tarjeta", "Tarjeta"],
-    ["cheque", "Cheque"],
-    ["echeq", "ECHEQ"],
-  ];
+  const medios = c.modo === "salida"
+    ? [
+        ["efectivo", "Efectivo"],
+        ["transferencia", "Transfer."],
+        ["cheque", "Cheque en cartera"],
+      ]
+    : [
+        ["efectivo", "Efectivo"],
+        ["transferencia", "Transfer."],
+        ["tarjeta", "Tarjeta"],
+        ["cheque", "Cheque"],
+        ["echeq", "ECHEQ"],
+      ];
   return `
     <div class="caja-medios-inline">
       ${medios.map(([id, nom]) => `
         <button type="button" class="btn big-soft ${c.medioPago === id ? "on" : ""}" data-act="medio" data-medio="${id}">${nom}</button>
       `).join("")}
     </div>`;
+}
+
+function htmlChequesSalida() {
+  const c = state.caja;
+  const lista = c.chequesCartera || [];
+  const elegido = lista.find((ch) => Number(ch.id) === Number(c.chequeId));
+  return `
+    <p class="caja-label">Cheque en cartera</p>
+    ${lista.length ? `<div class="cant-rapida clientes-rapidos">${lista.map((ch) => `
+      <button type="button" class="btn big-soft ${Number(c.chequeId) === Number(ch.id) ? "on" : ""}" data-act="cheque-salida" data-id="${ch.id}" data-monto="${esc(ch.monto)}">
+        ${esc(ch.tipo === "echeq" ? "ECHEQ" : "Cheque")} ${esc(ch.numero)} · ${money(ch.monto)}
+        ${ch.cliente_nombre ? `<br><small>${esc(ch.cliente_nombre)}</small>` : ""}
+      </button>`).join("")}</div>` : `<p class="empty">No hay cheques en cartera.</p>`}
+    ${elegido ? `<p class="lead">Sale ${money(elegido.monto)} con el cheque ${esc(elegido.numero)}.</p>` : `<p class="lead">Elegí cuál cheque se entrega.</p>`}`;
 }
 
 function precioCaja(tipo, gas) {
@@ -5006,6 +5213,8 @@ function htmlAccionCobrar() {
   }
   return `
     <div class="caja-accion-bar">
+      ${htmlMedioPago()}
+      ${c.medioPago === "cheque" ? htmlChequesSalida() : ""}
       <button type="button" class="btn btn-grabar" style="background:#9b2c2c" data-act="grabar">Grabar salida</button>
     </div>`;
 }
@@ -5035,8 +5244,7 @@ function htmlPanelCaja() {
     <div class="field"><label>Otro motivo</label>
       <input id="caja-desc" value="${esc(c.descripcion)}" style="font-size:1.1rem">
     </div>
-    <p class="caja-label">Importe ${c.monto ? money(totalCaja()) : ""}</p>
-    ${htmlPad()}
+    ${c.medioPago === "cheque" ? "" : `<p class="caja-label">Importe ${c.monto ? money(totalCaja()) : ""}</p>${htmlPad()}`}
     ${htmlAccionCobrar()}`;
 }
 
@@ -5106,7 +5314,7 @@ function pintarCobrar() {
                   ${esUltima ? `<span class="badge badge-ultima">Última</span> ` : ""}
                   <strong>${esc(v.hora)}</strong> · ${esc(v.descripcion)}
                   ${v.cliente_nombre ? `<br><small>${esc(v.cliente_nombre)}</small>` : ""}
-                  ${v.tipo !== "salida" ? `<br><small>${esc(etiquetaMedio(v.medio_pago))}</small>` : ""}
+                  ${v.medio_pago ? `<br><small>${esc(etiquetaMedio(v.medio_pago))}</small>` : ""}
                 </div>
                 <div class="venta-dia-monto">
                   ${etiquetaMov(v)}
@@ -5174,9 +5382,18 @@ function onCajaClick(e) {
     c.monto = "";
     c.descripcion = "";
     c.totalOverride = null;
+    c.chequeId = null;
+    if (c.modo === "salida" && !["efectivo", "transferencia", "cheque"].includes(c.medioPago)) c.medioPago = "efectivo";
     pintarCobrar();
   } else if (act === "medio") {
     c.medioPago = btn.dataset.medio || "efectivo";
+    if (c.medioPago !== "cheque") c.chequeId = null;
+    pintarCobrar();
+    if (c.modo === "salida" && c.medioPago === "cheque") cargarChequesSalida();
+  } else if (act === "cheque-salida") {
+    c.chequeId = Number(btn.dataset.id);
+    const monto = btn.dataset.monto;
+    if (monto != null && monto !== "") c.monto = String(monto).replace(".", ",");
     pintarCobrar();
   } else if (act === "filtro-hoy") {
     c.filtroHoy = btn.dataset.filtro || "";
@@ -5261,6 +5478,15 @@ function onCajaClick(e) {
   }
 }
 
+async function cargarChequesSalida() {
+  try {
+    const r = await api("/api/caja/cheques?estado=en_cartera");
+    if (!state.caja) return;
+    state.caja.chequesCartera = r.cheques || [];
+    if (state.caja.modo === "salida" && state.caja.medioPago === "cheque") pintarCobrar();
+  } catch (err) { toast(err.message, true); }
+}
+
 async function grabarCaja() {
   leerCajaDom();
   const c = state.caja;
@@ -5274,9 +5500,20 @@ async function grabarCaja() {
     cantidad: c.cantidad,
     facturar: c.facturar && c.modo !== "salida",
     descripcion: c.descripcion,
-    medio_pago: c.modo === "salida" ? "" : (c.medioPago || "efectivo"),
+    medio_pago: c.medioPago || "efectivo",
   };
+  if (c.modo === "salida" && c.medioPago === "cheque") {
+    if (!c.chequeId) {
+      toast("Elegí el cheque de la cartera", true);
+      return;
+    }
+    body.cheque_id = c.chequeId;
+  }
   if (c.modo === "general" || c.modo === "salida") body.total = c.monto;
+  if (c.modo === "salida" && c.medioPago === "cheque") {
+    const ch = (c.chequesCartera || []).find((x) => Number(x.id) === Number(c.chequeId));
+    if (ch) body.total = String(ch.monto).replace(".", ",");
+  }
   if ((c.modo === "gas" || c.modo === "regulador") && c.gas) {
     const tot = totalCaja();
     if (tot <= 0) {
@@ -5992,7 +6229,15 @@ async function vistaFacturacion(params) {
   const precios = data.precios || [];
   const gases = precios.filter((p) => p.tipo === "gas");
   const r = data.resumen || {};
-  const esHoy = desde === hoyInput() && hasta === hoyInput();
+  const hoy = hoyInput();
+  let ventasHoy = (data.ventas || []).filter((v) => v.fecha === hoy);
+  if (desde !== hoy || hasta !== hoy || estado) {
+    try {
+      const hoyData = await api("/api/caja/ventas?desde=" + encodeURIComponent(hoy) + "&hasta=" + encodeURIComponent(hoy));
+      ventasHoy = hoyData.ventas || [];
+    } catch (e) { /* si falla, queda lo que ya vino en el período */ }
+  }
+  const esHoy = desde === hoy && hasta === hoy;
   const nVentas = (data.ventas || []).filter((v) => v.tipo !== "salida").length;
   const listaDeudas = (deudas.deudas || []).slice(0, 8);
   const listaCheques = (cheques.cheques || []).slice(0, 8);
@@ -6007,6 +6252,29 @@ async function vistaFacturacion(params) {
   app().innerHTML = `
     <h1>Facturación</h1>
     <p class="lead">Estadísticas de ventas, deudas, facturas y cheques. <a href="#/cobrar">Cobrar</a> es solo para quien atiende la caja.</p>
+
+    <h2 style="margin:8px 0">Ventas de hoy <small>(${ventasHoy.length})</small></h2>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Hora</th><th>Detalle</th><th>Cliente</th><th>Pago</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${ventasHoy.map((v) => `
+            <tr class="${claseFilaVenta(v)}">
+              <td class="mono">${esc(v.hora || "")}</td>
+              <td>${esc(v.descripcion)}</td>
+              <td>${esc(v.cliente_nombre || "—")}</td>
+              <td>${v.tipo === "salida" ? "—" : esc(etiquetaMedio(v.medio_pago))}</td>
+              <td class="mono">${v.tipo === "salida" ? "−" : ""}${money(v.total)}</td>
+              <td>${etiquetaMov(v)}</td>
+              <td>
+                <button type="button" class="btn ghost" data-edit-v="${v.id}">Editar</button>
+                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
+                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">A cuenta corriente</button>` : ""}
+              </td>
+            </tr>`).join("") || `<tr><td colspan="7" class="empty">Hoy no hay cobros grabados.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
 
     <div class="toolbar fact-acciones">
       <a class="btn copper" href="#/facturar">Nueva factura / comprobante</a>
@@ -6858,6 +7126,8 @@ async function route() {
     mostrarLogin(false);
     if (app()) app().onclick = null;
     aplicarPermisos();
+    seguirRepartidor();
+    limpiarMapaReparto();
     const { path, params } = parseHash();
     const parts = path.split("/").filter(Boolean);
     const seccion = parts[0] || "inicio";
@@ -6988,6 +7258,10 @@ async function route() {
     if (seccion === "reparto") {
       if (parts[1] === "nuevo") return vistaRepartoNuevo();
       if (parts[1] === "permisos") return vistaRepartoPermisos();
+      if (parts[1] === "mapa") {
+        if (!puede("admin")) return vistaInicio();
+        return vistaRepartoMapa(params);
+      }
       return vistaReparto(params);
     }
     return vistaInicio();

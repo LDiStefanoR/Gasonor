@@ -182,6 +182,9 @@ export async function ensureSchema() {
     "ALTER TABLE documentos_planta ADD COLUMN estado TEXT NOT NULL DEFAULT 'cerrado'",
     "ALTER TABLE documentos_planta ADD COLUMN cerrado_por INTEGER",
     "ALTER TABLE documentos_planta ADD COLUMN cerrado_en TEXT",
+    "ALTER TABLE usuarios ADD COLUMN ultima_vez TEXT",
+    "ALTER TABLE usuarios ADD COLUMN ultima_lat REAL",
+    "ALTER TABLE usuarios ADD COLUMN ultima_lng REAL",
   ]) {
     try {
       await run(col);
@@ -190,6 +193,15 @@ export async function ensureSchema() {
     }
   }
   await run("UPDATE proveedores SET clase='planta' WHERE clase IS NULL OR TRIM(clase)=''");
+  await run(`CREATE TABLE IF NOT EXISTS reparto_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    precision_m REAL,
+    registrado_en TEXT NOT NULL
+  )`);
+  await run("CREATE INDEX IF NOT EXISTS idx_track_user ON reparto_tracking(usuario_id, registrado_en)");
   await run(`CREATE TABLE IF NOT EXISTS compras (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     proveedor_id INTEGER,

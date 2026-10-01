@@ -669,6 +669,22 @@ tr.fila-editando .cell-view { vertical-align: middle; }
   }
   .brand-logo { max-height: 56px; }
 }
+html.monitor-viejo {
+  zoom: var(--escala-monitor, 0.8);
+}
+html.monitor-viejo .quick {
+  min-height: 72px;
+  font-size: 1rem;
+}
+html.monitor-viejo .page { padding: 4px 12px 24px; }
+html.monitor-viejo h1 { font-size: 1.25rem; }
+html.monitor-viejo .topbar { padding: 8px 12px 4px; }
+html.monitor-viejo .sidebar { width: 210px; padding: 12px 10px; }
+html.monitor-viejo .sidebar nav a { padding: 8px 10px; }
+html.monitor-viejo .gas-card,
+html.monitor-viejo .btn.big-soft,
+html.monitor-viejo .btn-grabar,
+html.monitor-viejo .pad button { min-height: 42px; }
 body.modo-despacho .quick { min-height: 130px; font-size: 1.35rem; }
 body.modo-despacho h1 { font-size: 1.75rem; }
 body.modo-reparto .quick { min-height: 120px; font-size: 1.3rem; }
@@ -973,6 +989,7 @@ tr.fila-salida { background: #fdecec; }
   background: #fff1d6; border: 2px solid #e0a84a; color: #6b3d00;
   border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; font-weight: 700;
 }
+#mapa-recorrido { height: 480px; border-radius: 12px; border: 1px solid var(--line); }
 .ok-reparto {
   background: #e8f6ee; border: 2px solid #6aaa86; color: #1f5a3c;
   border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; font-weight: 700;

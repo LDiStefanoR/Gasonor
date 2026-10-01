@@ -302,6 +302,14 @@ async function handleApiInner(ctx: APIContext) {
     if (!u) return err("Debe iniciar sesión.", 401);
   }
 
+  if (u && u.rol === "reparto" && path.startsWith("/api/") && path !== "/api/logout") {
+    try {
+      await run("UPDATE usuarios SET ultima_vez=? WHERE id=?", [ahora(), u.id]);
+    } catch {
+      /* la columna se crea en ensureSchema */
+    }
+  }
+
   if (method === "OPTIONS") return new Response(null, { status: 204 });
 
   if (u && path.startsWith("/api/caja/")) {
@@ -323,6 +331,13 @@ async function handleApiInner(ctx: APIContext) {
       }
     }
     setSession(ctx, Number(row.id));
+    if (String(row.rol) === "reparto") {
+      try {
+        await run("UPDATE usuarios SET ultima_vez=? WHERE id=?", [ahora(), Number(row.id)]);
+      } catch {
+        /* columna nueva */
+      }
+    }
     return json({
       ok: true,
       usuario: { id: row.id, usuario: row.usuario, nombre: row.nombre, rol: row.rol },
@@ -2056,6 +2071,72 @@ async function handleApiInner(ctx: APIContext) {
     const empresa: Record<string, string> = {};
     for (const r of rows) empresa[String(r.clave)] = String(r.valor ?? "");
     return json({ ok: true, pago, cheque, deuda, empresa });
+  }
+
+  if (key === "POST /api/reparto/tracking") {
+    if (u.rol !== "reparto") return err("Solo el rol reparto registra la ubicación.", 403);
+    const data = await body(ctx);
+    if (data.uso && (data.lat == null || data.lat === "")) {
+      await run("UPDATE usuarios SET ultima_vez=? WHERE id=?", [ahora(), u.id]);
+      return json({ ok: true, uso: true });
+    }
+    const lat = Number(data.lat);
+    const lng = Number(data.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return err("Ubicación inválida.");
+    }
+    const precision = Number.isFinite(Number(data.precision)) ? Number(data.precision) : 0;
+    const ahoraTxt = ahora();
+    const ultimo = await one(
+      "SELECT registrado_en FROM reparto_tracking WHERE usuario_id=? ORDER BY id DESC LIMIT 1",
+      [u.id],
+    );
+    if (ultimo && String(ultimo.registrado_en).slice(0, 16) === ahoraTxt.slice(0, 16)) {
+      return json({ ok: true, omitido: true });
+    }
+    await run(
+      "INSERT INTO reparto_tracking (usuario_id, lat, lng, precision_m, registrado_en) VALUES (?,?,?,?,?)",
+      [u.id, Math.round(lat * 1e6) / 1e6, Math.round(lng * 1e6) / 1e6, Math.round(precision * 10) / 10, ahoraTxt],
+    );
+    await run("UPDATE usuarios SET ultima_vez=?, ultima_lat=?, ultima_lng=? WHERE id=?", [
+      ahoraTxt,
+      Math.round(lat * 1e6) / 1e6,
+      Math.round(lng * 1e6) / 1e6,
+      u.id,
+    ]);
+    return json({ ok: true });
+  }
+
+  if (key === "GET /api/reparto/tracking") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const fecha = parseFecha(q.get("fecha") || hoy());
+    const choferes = [];
+    const usuarios = await all(
+      "SELECT id, nombre, ultima_vez, ultima_lat, ultima_lng FROM usuarios WHERE rol='reparto' AND activo=1 ORDER BY nombre",
+    );
+    for (const chofer of usuarios) {
+      const ultimo = await one(
+        "SELECT lat, lng, precision_m, registrado_en FROM reparto_tracking WHERE usuario_id=? ORDER BY id DESC LIMIT 1",
+        [Number(chofer.id)],
+      );
+      const puntos = await all(
+        `SELECT lat, lng, precision_m, registrado_en FROM reparto_tracking
+         WHERE usuario_id=? AND substr(registrado_en,1,10)=? ORDER BY id`,
+        [Number(chofer.id), fecha],
+      );
+      const lista = puntos.slice(-500);
+      choferes.push({
+        id: chofer.id,
+        nombre: chofer.nombre,
+        ultimo: ultimo || null,
+        uso: chofer.ultima_vez
+          ? { registrado_en: chofer.ultima_vez, lat: chofer.ultima_lat, lng: chofer.ultima_lng }
+          : null,
+        puntos: lista,
+        n: puntos.length,
+      });
+    }
+    return json({ ok: true, fecha, choferes });
   }
 
   if (key === "GET /api/reparto/campos") {
