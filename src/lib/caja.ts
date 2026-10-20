@@ -10,7 +10,18 @@ const GASES: [string, string, number][] = [
   ["argon", "Argón", 5],
   ["athal", "Athal", 6],
   ["helio", "Helio", 7],
+  ["acetileno", "Acetileno", 8],
 ];
+
+function slugGas(nombre: string): string {
+  return String(nombre || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 40);
+}
 
 function ahora() {
   const d = new Date();
@@ -351,36 +362,191 @@ export async function handleCaja(
     return json({ ok: true, precios: await preciosLista() });
   }
 
+  if (key === "POST /api/caja/precios/gas") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
+    const nombre = String(data.nombre || "").trim();
+    if (nombre.length < 2) return err("Escribí el nombre del gas.");
+    const clave = slugGas(String(data.clave || nombre));
+    if (!clave) return err("El nombre no da una clave válida.");
+    let unidad = String(data.unidad || "m3").trim().toLowerCase();
+    if (["kg", "kilo", "kilos"].includes(unidad)) unidad = "kg";
+    else if (["m", "m3", "m³", "metro", "metros"].includes(unidad)) unidad = "m3";
+    else return err("Unidad inválida. Usá kg o m3.");
+    let precio = 0;
+    let precioReg = 0;
+    try {
+      precio = data.precio != null && data.precio !== "" ? parseMonto(data.precio) : 0;
+      precioReg =
+        data.precio_regulador != null && data.precio_regulador !== ""
+          ? parseMonto(data.precio_regulador)
+          : 0;
+    } catch {
+      return err("Precio inválido.");
+    }
+    const existe = await one("SELECT 1 AS n FROM precios_caja WHERE clave=?", [`gas:${clave}`]);
+    if (existe) return err(`Ya existe el gas «${clave}».`);
+    const maxOrd = await one("SELECT COALESCE(MAX(orden),0) AS m FROM precios_caja WHERE tipo='gas'");
+    const orden = Number(maxOrd?.m || 0) + 1;
+    await run(
+      "INSERT INTO precios_caja (clave, nombre, tipo, precio, unidad, orden) VALUES (?,?,?,?,?,?)",
+      [`gas:${clave}`, nombre, "gas", precio, unidad, orden],
+    );
+    await run(
+      "INSERT INTO precios_caja (clave, nombre, tipo, precio, unidad, orden) VALUES (?,?,?,?,?,?)",
+      [`reg:${clave}`, `Regulador ${nombre}`, "regulador", precioReg, "u", orden],
+    );
+    return json({ ok: true, clave, precios: await preciosLista() });
+  }
+
+  const delGas = path.match(/^\/api\/caja\/precios\/gas\/([^/]+)$/);
+  if (method === "DELETE" && delGas) {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    const gas = slugGas(decodeURIComponent(delGas[1]));
+    if (!gas) return err("Gas inválido.");
+    const row = await one("SELECT 1 AS n FROM precios_caja WHERE clave=?", [`gas:${gas}`]);
+    if (!row) return err("Ese gas no está en la lista.", 404);
+    await run("DELETE FROM precios_caja WHERE clave IN (?,?)", [`gas:${gas}`, `reg:${gas}`]);
+    return json({ ok: true, precios: await preciosLista() });
+  }
+
   if (key === "POST /api/caja/ventas") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
-    const tipo = String(data.tipo || "").trim();
-    if (!["gas", "regulador", "general", "salida"].includes(tipo)) return err("Elegí qué estás registrando.");
+    let tipo = String(data.tipo || "").trim();
+    const itemsIn = Array.isArray(data.items) ? data.items : null;
+    if (tipo === "salida") {
+      /* sin ítems */
+    } else if (!itemsIn && !["gas", "regulador", "general", "salida"].includes(tipo)) {
+      return err("Elegí qué estás registrando.");
+    }
     let gas = String(data.gas || "").trim().toLowerCase();
     let descripcion = String(data.descripcion || "").trim();
     let cliente_id: number | null = null;
     let cliente_nombre = "";
     let cliente_cuit = "";
     let facturar = Boolean(data.facturar) && tipo !== "salida";
-    let cantidad: number;
-    let precio: number;
-    let total: number;
-    try {
-      cantidad = Number(data.cantidad || 0);
-    } catch {
-      return err("La cantidad no es válida.");
+    let cantidad = 0;
+    let precio = 0;
+    let total = 0;
+    type Linea = {
+      tipo: string;
+      gas: string;
+      descripcion: string;
+      cantidad: number;
+      precio: number;
+      total: number;
+      precio_clave: string;
+    };
+    const lineas: Linea[] = [];
+
+    async function armarLinea(raw: Record<string, unknown>): Promise<Linea | string> {
+      const tipoIt = String(raw.tipo || "gas").trim();
+      if (!["gas", "regulador", "general"].includes(tipoIt)) return "Tipo de ítem inválido.";
+      if (tipoIt === "gas" || tipoIt === "regulador") {
+        const g = String(raw.gas || "").trim().toLowerCase();
+        const pref = tipoIt === "gas" ? "gas" : "reg";
+        const rowP = await one("SELECT * FROM precios_caja WHERE clave=?", [`${pref}:${g}`]);
+        if (!rowP) return "Elegí el gas de cada ítem.";
+        if (Number(rowP.precio || 0) <= 0) return `Falta el precio de ${rowP.nombre}.`;
+        let cant = Math.round(Number(raw.cantidad || 0) * 100) / 100;
+        if (!(cant > 0)) return "Indicá la cantidad de cada ítem.";
+        let pu = Number(rowP.precio);
+        let tot = Math.round(cant * pu * 100) / 100;
+        if (raw.total != null && raw.total !== "") {
+          try {
+            tot = parseMonto(raw.total);
+          } catch {
+            return "El total de un ítem no es válido.";
+          }
+          if (tot <= 0) return "El total de cada ítem debe ser mayor a cero.";
+          pu = cant ? Math.round((tot / cant) * 100) / 100 : pu;
+        }
+        const unidad = String(rowP.unidad || "m3").toLowerCase();
+        const suf = ["kg", "kilo", "kilos"].includes(unidad) ? "kg" : "m³";
+        const desc =
+          tipoIt === "gas"
+            ? `${rowP.nombre} ${cant} ${suf}`
+            : `${rowP.nombre} x ${cant}`;
+        return {
+          tipo: tipoIt,
+          gas: g,
+          descripcion: desc,
+          cantidad: cant,
+          precio: pu,
+          total: tot,
+          precio_clave: String(rowP.clave),
+        };
+      }
+      const desc = String(raw.descripcion || "").trim();
+      if (desc.length < 2) return "Escribí qué se vendió en cada ítem.";
+      let cant = Math.round(Number(raw.cantidad || 1) * 100) / 100;
+      if (!(cant > 0)) cant = 1;
+      let tot: number;
+      try {
+        tot = parseMonto(raw.total != null && raw.total !== "" ? raw.total : raw.precio);
+      } catch {
+        return "Indicá el precio de cada ítem.";
+      }
+      if (tot <= 0) return "Indicá el precio de cada ítem.";
+      return {
+        tipo: "general",
+        gas: "",
+        descripcion: desc,
+        cantidad: cant,
+        precio: Math.round((tot / cant) * 100) / 100,
+        total: Math.round(tot * 100) / 100,
+        precio_clave: "",
+      };
     }
 
-    if (tipo === "gas" || tipo === "regulador") {
+    if (itemsIn) {
+      for (const raw of itemsIn) {
+        if (!raw || typeof raw !== "object") return err("Hay un ítem que no se puede leer.");
+        const linea = await armarLinea(raw as Record<string, unknown>);
+        if (typeof linea === "string") return err(linea);
+        lineas.push(linea);
+      }
+      if (!lineas.length) return err("Sumá al menos un ítem antes de grabar.");
+      if (lineas.length === 1) {
+        tipo = lineas[0].tipo;
+        gas = lineas[0].gas;
+        descripcion = lineas[0].descripcion;
+        cantidad = lineas[0].cantidad;
+        precio = lineas[0].precio;
+        total = lineas[0].total;
+      } else {
+        tipo = "mixto";
+        gas = "";
+        descripcion = lineas.map((x) => x.descripcion).join(" + ");
+        if (descripcion.length > 240) descripcion = descripcion.slice(0, 237) + "…";
+        cantidad = lineas.length;
+        total = Math.round(lineas.reduce((s, x) => s + x.total, 0) * 100) / 100;
+        precio = total;
+      }
+      if (lineas.length > 1 && data.total != null && data.total !== "") {
+        try {
+          const totalManual = parseMonto(data.total);
+          if (totalManual <= 0) return err("El total debe ser mayor a cero.");
+          const last = lineas[lineas.length - 1];
+          last.total = Math.round((last.total + (totalManual - total)) * 100) / 100;
+          if (last.cantidad) last.precio = Math.round((last.total / last.cantidad) * 100) / 100;
+          total = totalManual;
+          precio = total;
+        } catch {
+          return err("El total no es válido.");
+        }
+      }
+    } else if (tipo === "gas" || tipo === "regulador") {
       const pref = tipo === "gas" ? "gas" : "reg";
       const rowP = await one("SELECT * FROM precios_caja WHERE clave=?", [`${pref}:${gas}`]);
       if (!rowP) return err("Elegí el gas.");
       if (Number(rowP.precio || 0) <= 0) {
         return err(`Falta el precio de ${rowP.nombre}. Pedile al administrador que lo cargue.`);
       }
+      cantidad = Math.round(Number(data.cantidad || 0) * 100) / 100;
       if (!(cantidad > 0)) return err("Indicá la cantidad.");
       precio = Number(rowP.precio);
-      cantidad = Math.round(cantidad * 100) / 100;
       if (tipo === "gas") {
         const unidad = String(rowP.unidad || "m3").toLowerCase();
         const suf = ["kg", "kilo", "kilos"].includes(unidad) ? "kg" : "m³";
@@ -485,8 +651,29 @@ export async function handleCaja(
         t,
       ],
     );
+    const vid = Number(ins.lastInsertRowid);
+    const aGuardar = lineas.length
+      ? lineas
+      : tipo !== "salida"
+        ? [{
+            tipo,
+            gas,
+            descripcion,
+            cantidad,
+            precio,
+            total,
+            precio_clave: gas ? `${tipo === "regulador" ? "reg" : "gas"}:${gas}` : "",
+          }]
+        : [];
+    for (const it of aGuardar) {
+      await run(
+        `INSERT INTO ventas_caja_items (
+          venta_id, tipo, gas, descripcion, cantidad, precio_unitario, total, precio_clave
+        ) VALUES (?,?,?,?,?,?,?,?)`,
+        [vid, it.tipo, it.gas || "", it.descripcion, it.cantidad, it.precio, it.total, it.precio_clave || ""],
+      );
+    }
     if (chequeId) {
-      const vid = Number(ins.lastInsertRowid);
       await run(
         `INSERT INTO cheque_endosos (cheque_id, fecha, endosatario, observaciones, usuario_id, creado_en)
          VALUES (?,?,?,?,?,?)`,
@@ -495,7 +682,7 @@ export async function handleCaja(
       await run("UPDATE cheques SET estado='endosado', actualizado_en=? WHERE id=?", [t, chequeId]);
       try { await run("UPDATE ventas_caja SET cheque_id=? WHERE id=?", [chequeId, vid]); } catch { /* ok */ }
     }
-    return json({ ok: true, venta: await filaVenta(Number(ins.lastInsertRowid)) });
+    return json({ ok: true, venta: await filaVenta(vid) });
   }
 
   const putVenta = path.match(/^\/api\/caja\/ventas\/(\d+)$/);

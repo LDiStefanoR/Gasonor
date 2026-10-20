@@ -1,4 +1,4 @@
-﻿const ESTADOS = {
+const ESTADOS = {
   vacio: "Vacío",
   en_planta: "En planta",
   cargado: "Cargado",
@@ -5428,6 +5428,10 @@ function cajaInicial() {
     items: [],
     fiscal: "negro",
     cbte: "factura_b",
+    libreAbierto: false,
+    libreDesc: "",
+    libreCant: "1",
+    librePrecio: "",
     precios: [],
     ventas: [],
     resumen: {},
@@ -5718,14 +5722,6 @@ function htmlAccionCobrar() {
         <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>
       </div>`;
   }
-  if (c.modo === "general") {
-    return `
-      <div class="caja-accion-bar">
-        ${htmlMedioPago()}
-        ${htmlFacturarCaja()}
-        <button type="button" class="btn btn-grabar" data-act="grabar">Grabar venta</button>
-      </div>`;
-  }
   return `
     <div class="caja-accion-bar">
       ${htmlMedioPago()}
@@ -5734,23 +5730,40 @@ function htmlAccionCobrar() {
     </div>`;
 }
 
+function htmlLineaLibreCaja() {
+  const c = state.caja;
+  return `
+    <div class="caja-libre-box">
+      <button type="button" class="btn secondary btn-linea-libre ${c.libreAbierto ? "on" : ""}" data-act="toggle-libre">
+        ${c.libreAbierto ? "✕ Cerrar línea libre" : "＋ Línea libre (concepto)"}
+      </button>
+      ${c.libreAbierto ? `
+        <div class="caja-libre-form">
+          <div class="field full"><label>Concepto</label>
+            <input id="libre-desc" value="${esc(c.libreDesc || "")}" placeholder="Ej. Alquiler de tubo, envío, mano de obra…" autocomplete="off">
+          </div>
+          <div class="grid two">
+            <div class="field"><label>Cantidad</label>
+              <input id="libre-cant" inputmode="decimal" value="${esc(c.libreCant || "1")}">
+            </div>
+            <div class="field"><label>Precio unitario</label>
+              <input id="libre-precio" inputmode="decimal" value="${esc(c.librePrecio || "")}" placeholder="0">
+            </div>
+          </div>
+          <button type="button" class="btn copper btn-sumar-ticket" data-act="sumar-libre">＋ Agregar línea libre al ticket</button>
+        </div>` : ""}
+    </div>`;
+}
+
 function htmlPanelCaja() {
   const c = state.caja;
   if (c.modo === "gas" || c.modo === "regulador") {
     return `
       ${htmlGases(c.modo)}
-      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas y sumalo al ticket</p>`}
-      ${c.gas ? `<button type="button" class="btn copper" data-act="sumar">Sumar al ticket</button>` : ""}
+      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas y sumalo al ticket. También podés agregar una línea libre.</p>`}
+      ${c.gas ? `<button type="button" class="btn copper btn-sumar-ticket" data-act="sumar">＋ Sumar al ticket</button>` : ""}
+      ${htmlLineaLibreCaja()}
       ${htmlTicket()}
-      ${htmlAccionCobrar()}`;
-  }
-  if (c.modo === "general") {
-    return `
-      <div class="field"><label>Qué se vendió</label>
-        <textarea id="caja-desc" rows="2" style="font-size:1.1rem">${esc(c.descripcion)}</textarea>
-      </div>
-      <p class="caja-label">Precio ${c.monto ? money(totalCaja()) : ""}</p>
-      ${htmlPad()}
       ${htmlAccionCobrar()}`;
   }
   const presets = ["Combustible", "Peaje", "Comida", "Varios"];
@@ -5775,10 +5788,10 @@ function etiquetaMov(v) {
 
 function pintarCobrar() {
   const c = state.caja;
+  if (c.modo === "general") c.modo = "gas";
   const modos = [
     ["gas", "Gas"],
     ["regulador", "Regulador"],
-    ["general", "Otra"],
     ["salida", "Salida"],
   ];
   const todas = c.ventas || [];
@@ -5953,6 +5966,34 @@ function onCajaClick(e) {
     c.cantidad = 1;
     c.totalOverride = null;
     pintarCobrar();
+  } else if (act === "toggle-libre") {
+    c.libreAbierto = !c.libreAbierto;
+    pintarCobrar();
+    if (c.libreAbierto) $("#libre-desc")?.focus();
+  } else if (act === "sumar-libre") {
+    const desc = ($("#libre-desc")?.value || c.libreDesc || "").trim();
+    const cant = parseMonto($("#libre-cant")?.value || c.libreCant || "1");
+    const pu = parseMonto($("#libre-precio")?.value || c.librePrecio || "");
+    if (desc.length < 2) { toast("Escribí el concepto", true); return; }
+    if (!Number.isFinite(cant) || cant <= 0) { toast("Cantidad inválida", true); return; }
+    if (!Number.isFinite(pu) || pu <= 0) { toast("Indicá el precio unitario", true); return; }
+    const total = Math.round(cant * pu * 100) / 100;
+    c.items = c.items || [];
+    c.items.push({
+      tipo: "general",
+      gas: "",
+      descripcion: `${desc}${cant !== 1 ? ` x ${fmtCantCaja(cant)}` : ""}`,
+      cantidad: cant,
+      precio: pu,
+      total,
+    });
+    c.libreDesc = "";
+    c.libreCant = "1";
+    c.librePrecio = "";
+    c.libreAbierto = false;
+    c.totalOverride = null;
+    toast("Línea libre sumada al ticket");
+    pintarCobrar();
   } else if (act === "quitar-item") {
     c.items.splice(Number(btn.dataset.i), 1);
     c.totalOverride = null;
@@ -6058,10 +6099,12 @@ async function grabarCaja() {
   };
   if ((c.modo === "gas" || c.modo === "regulador") && (c.items || []).length) {
     body.items = c.items.map((it) => ({
-      tipo: it.tipo,
-      gas: it.gas,
+      tipo: it.tipo || "gas",
+      gas: it.gas || "",
       cantidad: it.cantidad,
       descripcion: it.descripcion,
+      total: it.total,
+      precio: it.precio,
     }));
     body.total = totalCaja();
     if (body.total <= 0) {
@@ -6076,7 +6119,7 @@ async function grabarCaja() {
     }
     body.cheque_id = c.chequeId;
   }
-  if (c.modo === "general" || c.modo === "salida") body.total = c.monto;
+  if (c.modo === "salida") body.total = c.monto;
   if (c.modo === "salida" && c.medioPago === "cheque") {
     const ch = (c.chequesCartera || []).find((x) => Number(x.id) === Number(c.chequeId));
     if (ch) body.total = String(ch.monto).replace(".", ",");
@@ -7980,27 +8023,41 @@ async function vistaConfigCaja() {
     <p><a href="#/ventas">← Ventas</a> · <a href="#/cobrar">Cobrar</a></p>
 
     <div class="card">
-      <h3 style="margin-top:0">💨 Precios de gases (Cobrar)</h3>
-      <p class="lead">Gases por m³ (CO2 por kg por defecto). Regulador por unidad.</p>
+      <h3 style="margin-top:0">💨 Gases y precios (Cobrar)</h3>
+      <p class="lead">Agregá o quitá gases (ej. Acetileno). Precio del gas y del regulador. Unidad por m³ o kg.</p>
       <form id="form-precios-caja">
-        <div class="precio-grid precio-grid-4" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong></div>
+        <div class="precio-grid precio-grid-5" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong><strong></strong></div>
         ${gases.map((g) => {
           const reg = precios.find((p) => p.clave === "reg:" + g.gas) || { precio: 0 };
           const u = unidadGasCaja(g) === "kg" ? "kg" : "m3";
-          const esCo2 = g.gas === "co2";
-          return `<div class="precio-grid precio-grid-4">
-            <div>${esc(g.nombre)}</div>
-            <div class="field">${esCo2 ? `
+          return `<div class="precio-grid precio-grid-5">
+            <div><strong>${esc(g.nombre)}</strong><br><small class="mono">${esc(g.gas)}</small></div>
+            <div class="field">
               <select name="unidad:${esc(g.clave)}">
-                <option value="kg" ${u === "kg" ? "selected" : ""}>por kg</option>
                 <option value="m3" ${u === "m3" ? "selected" : ""}>por m³</option>
-              </select>` : `<input type="hidden" name="unidad:${esc(g.clave)}" value="m3"><span class="mono">por m³</span>`}
+                <option value="kg" ${u === "kg" ? "selected" : ""}>por kg</option>
+              </select>
             </div>
             <div class="field"><input name="${esc(g.clave)}" inputmode="decimal" value="${esc(g.precio)}"></div>
             <div class="field"><input name="reg:${esc(g.gas)}" inputmode="decimal" value="${esc(reg.precio)}"></div>
+            <div><button type="button" class="btn ghost" data-del-gas="${esc(g.gas)}" style="color:#9b2c2c" title="Quitar gas">Quitar</button></div>
           </div>`;
-        }).join("")}
+        }).join("") || `<p class="empty">No hay gases. Agregá uno abajo.</p>`}
         <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
+      </form>
+      <form id="form-gas-nuevo" class="grid form" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+        <div class="field full"><label>Agregar gas nuevo</label>
+          <input name="nombre" required placeholder="Ej. Acetileno" autocomplete="off">
+        </div>
+        <div class="field"><label>Unidad</label>
+          <select name="unidad">
+            <option value="m3">por m³</option>
+            <option value="kg">por kg</option>
+          </select>
+        </div>
+        <div class="field"><label>Precio gas</label><input name="precio" inputmode="decimal" value="0"></div>
+        <div class="field"><label>Precio regulador</label><input name="precio_regulador" inputmode="decimal" value="0"></div>
+        <div class="field full"><button class="btn copper" type="submit">＋ Agregar gas</button></div>
       </form>
     </div>
 
@@ -8050,6 +8107,27 @@ async function vistaConfigCaja() {
       route();
     } catch (err) { toast(err.message, true); }
   };
+  $("#form-gas-nuevo").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api("/api/caja/precios/gas", { method: "POST", body });
+      toast("Gas agregado");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  app().querySelectorAll("[data-del-gas]").forEach((b) => {
+    b.onclick = async () => {
+      const gas = b.dataset.delGas;
+      const g = gases.find((x) => x.gas === gas);
+      if (!confirm(`¿Quitar ${g?.nombre || gas} de Cobrar?`)) return;
+      try {
+        await api("/api/caja/precios/gas/" + encodeURIComponent(gas), { method: "DELETE" });
+        toast("Gas quitado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
   $("#form-cond-nueva").onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target).entries());
