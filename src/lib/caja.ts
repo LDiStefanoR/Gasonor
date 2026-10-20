@@ -80,6 +80,9 @@ export async function ensureCaja() {
   try {
     await run("ALTER TABLE ventas_caja ADD COLUMN medio_pago TEXT NOT NULL DEFAULT 'efectivo'");
   } catch { /* ok */ }
+  try {
+    await run("ALTER TABLE ventas_caja ADD COLUMN cheque_id INTEGER");
+  } catch { /* ok */ }
   for (const [clave, nombre, orden] of GASES) {
     const unidadGas = clave === "co2" ? "kg" : "m3";
     await run(
@@ -93,6 +96,24 @@ export async function ensureCaja() {
   }
   await run("UPDATE precios_caja SET unidad='kg' WHERE clave='gas:co2' AND unidad IN ('m','m³')");
   await run("UPDATE precios_caja SET unidad='m3' WHERE tipo='gas' AND clave!='gas:co2' AND unidad IN ('m','m³')");
+  for (const col of ["afip_cae", "afip_numero"] as const) {
+    try {
+      await run(`ALTER TABLE ventas_caja ADD COLUMN ${col} TEXT`);
+    } catch {
+      /* ya existe */
+    }
+  }
+  await run(`CREATE TABLE IF NOT EXISTS ventas_caja_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venta_id INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    gas TEXT,
+    descripcion TEXT NOT NULL,
+    cantidad REAL NOT NULL DEFAULT 1,
+    precio_unitario REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    precio_clave TEXT
+  )`);
   cajaReady = true;
 }
 
@@ -107,11 +128,14 @@ function parseMonto(valor: unknown): number {
 }
 
 function normalizarMedio(valor: unknown, tipo: string): string {
-  if (tipo === "salida") return "";
   const m = String(valor || "efectivo").trim().toLowerCase();
-  if (["transferencia", "transfer", "transf"].includes(m)) return "transferencia";
-  if (["tarjeta", "debito", "crédito", "credito", "card"].includes(m)) return "tarjeta";
-  return "efectivo";
+  let medio = "efectivo";
+  if (["transferencia", "transfer", "transf"].includes(m)) medio = "transferencia";
+  else if (["tarjeta", "debito", "crédito", "credito", "card"].includes(m)) medio = "tarjeta";
+  else if (["cheque", "check"].includes(m)) medio = "cheque";
+  else if (["echeq", "e-check", "e_check", "echeck"].includes(m)) medio = "echeq";
+  if (tipo === "salida" && medio === "tarjeta") return "efectivo";
+  return medio;
 }
 
 async function preciosLista() {
@@ -207,6 +231,20 @@ export async function handleCaja(
   await ensureCaja();
   const q = ctx.url.searchParams;
   const key = `${method} ${path}`;
+
+  if (key === "GET /api/caja/cheques") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const estado = String(q.get("estado") || "").trim();
+    let sql = `SELECT ch.*, cl.nombre AS cliente_nombre
+      FROM cheques ch LEFT JOIN clientes cl ON cl.id=ch.cliente_id WHERE 1=1`;
+    const args: (string | number)[] = [];
+    if (estado) {
+      sql += " AND ch.estado=?";
+      args.push(estado);
+    }
+    sql += " ORDER BY ch.id DESC LIMIT 300";
+    return json({ cheques: await all(sql, args) });
+  }
 
   if (key === "GET /api/caja/ventas") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
@@ -407,7 +445,18 @@ export async function handleCaja(
       estado = "pendiente";
     }
 
-    const medio_pago = normalizarMedio(data.medio_pago, tipo);
+    let medio_pago = normalizarMedio(data.medio_pago, tipo);
+    let chequeId: number | null = null;
+    if (tipo === "salida" && (medio_pago === "cheque" || medio_pago === "echeq")) {
+      chequeId = Number(data.cheque_id);
+      if (!chequeId) return err("Elegí el cheque de la cartera.");
+      const cheque = await one("SELECT * FROM cheques WHERE id=?", [chequeId]);
+      if (!cheque || String(cheque.estado) !== "en_cartera") return err("Ese cheque no está en cartera.");
+      total = Math.round(Number(cheque.monto || 0) * 100) / 100;
+      if (total <= 0) return err("El cheque no tiene importe.");
+      precio = total;
+      medio_pago = String(cheque.tipo) === "echeq" ? "echeq" : "cheque";
+    }
     const t = ahora();
     const hora = t.slice(11, 16);
     const ins = await run(
@@ -436,6 +485,16 @@ export async function handleCaja(
         t,
       ],
     );
+    if (chequeId) {
+      const vid = Number(ins.lastInsertRowid);
+      await run(
+        `INSERT INTO cheque_endosos (cheque_id, fecha, endosatario, observaciones, usuario_id, creado_en)
+         VALUES (?,?,?,?,?,?)`,
+        [chequeId, hoy(), descripcion || "Salida de caja", `Salida de caja #${vid}`, u.id, t],
+      );
+      await run("UPDATE cheques SET estado='endosado', actualizado_en=? WHERE id=?", [t, chequeId]);
+      try { await run("UPDATE ventas_caja SET cheque_id=? WHERE id=?", [chequeId, vid]); } catch { /* ok */ }
+    }
     return json({ ok: true, venta: await filaVenta(Number(ins.lastInsertRowid)) });
   }
 
@@ -508,8 +567,14 @@ export async function handleCaja(
     if (facturar && !cliente_id) return err("Una venta para facturar necesita cliente.");
     if (!facturar) estado = "no";
     let medio_pago = String(row.medio_pago || "efectivo");
-    if ("medio_pago" in data && String(row.tipo) !== "salida") {
-      medio_pago = normalizarMedio(data.medio_pago, String(row.tipo));
+    if ("medio_pago" in data) {
+      const nuevo = normalizarMedio(data.medio_pago, String(row.tipo));
+      const actual = String(row.medio_pago || "efectivo");
+      if (String(row.tipo) === "salida") {
+        if (actual === "cheque" || actual === "echeq") medio_pago = actual;
+        else if (nuevo === "cheque" || nuevo === "echeq") return err("El cheque se elige al grabar la salida.");
+        else medio_pago = nuevo;
+      } else medio_pago = nuevo;
     }
     await run(
       `UPDATE ventas_caja
@@ -547,6 +612,101 @@ export async function handleCaja(
     }
     await run("DELETE FROM ventas_caja WHERE id=?", [vid]);
     return json({ ok: true, id: vid });
+  }
+
+  const printVenta = path.match(/^\/api\/caja\/ventas\/(\d+)\/imprimir$/);
+  if (method === "GET" && printVenta) {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const vid = Number(printVenta[1]);
+    const venta = await filaVenta(vid);
+    if (!venta) return err("Movimiento no encontrado.", 404);
+    let items = await all(
+      "SELECT * FROM ventas_caja_items WHERE venta_id=? ORDER BY id",
+      [vid],
+    );
+    if (!items.length) {
+      const cant = Number(venta.cantidad || 1) || 1;
+      let pu = Number(venta.precio_unitario || 0);
+      const total = Number(venta.total || 0);
+      if (pu <= 0 && cant) pu = Math.round((total / cant) * 100) / 100;
+      items = [
+        {
+          descripcion: venta.descripcion || "Ítem",
+          cantidad: cant,
+          precio_unitario: pu,
+          subtotal: total,
+          total,
+        },
+      ];
+    } else {
+      items = items.map((it) => ({
+        ...it,
+        subtotal: it.subtotal != null ? it.subtotal : it.total,
+      }));
+    }
+    const cfgRows = await all("SELECT clave, valor FROM config");
+    const empresa: Record<string, string> = {};
+    for (const r of cfgRows) empresa[String(r.clave)] = String(r.valor ?? "");
+    const doc = String(venta.tipo || "") === "salida" ? "orden_pago" : "factura";
+    return json({
+      ok: true,
+      venta,
+      items,
+      empresa,
+      comprobante: null,
+      doc,
+    });
+  }
+
+  if (key === "GET /api/caja/alertas") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    return json({ ok: true, alertas: [] });
+  }
+
+  if (key === "GET /api/caja/deudas") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    return json({
+      ok: true,
+      deudas: [],
+      vencidos: [],
+      proximos: [],
+      total: 0,
+      n_clientes: 0,
+      n_vencidos: 0,
+      n_proximos: 0,
+    });
+  }
+
+  if (key === "GET /api/caja/comprobantes") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    return json({ ok: true, comprobantes: [] });
+  }
+
+  if (key === "GET /api/caja/condiciones") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    return json({
+      ok: true,
+      condiciones: [
+        { id: 1, nombre: "Contado", genera_deuda: 0, plazo_dias: 0, recargo_pct: 0, descuento_pct: 0, activo: 1 },
+        { id: 2, nombre: "Cuenta corriente 30 días", genera_deuda: 1, plazo_dias: 30, recargo_pct: 0, descuento_pct: 0, activo: 1 },
+      ],
+    });
+  }
+
+  const ccMatch = path.match(/^\/api\/caja\/cuenta-corriente\/(\d+)$/);
+  if (method === "GET" && ccMatch) {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const cid = Number(ccMatch[1]);
+    const cli = await one("SELECT * FROM clientes WHERE id=?", [cid]);
+    if (!cli) return err("Cliente no encontrado.", 404);
+    return json({
+      ok: true,
+      cliente: cli,
+      saldo: 0,
+      abiertos: [],
+      comprobantes: [],
+      cobros: [],
+    });
   }
 
   return err("Ruta no encontrada.", 404);

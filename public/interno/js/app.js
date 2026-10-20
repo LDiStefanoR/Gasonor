@@ -1,4 +1,4 @@
-const ESTADOS = {
+﻿const ESTADOS = {
   vacio: "Vacío",
   en_planta: "En planta",
   cargado: "Cargado",
@@ -44,6 +44,14 @@ function fmtFecha(v, corto = true) {
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return v;
   return corto ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function diasHastaFecha(iso) {
+  const s = String(iso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const a = new Date(hoyInput() + "T12:00:00");
+  const b = new Date(s + "T12:00:00");
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
 function hoyInput() {
@@ -108,23 +116,36 @@ function puede(...roles) {
   });
 }
 
+/** Monitor 4:3 o 5:4 chico: achica la interfaz para que no se vea agrandada. */
+function ajustarMonitorViejo() {
+  const s = window.screen;
+  if (!s || !s.width || !s.height) return;
+  const ratio = s.width / s.height;
+  const cuadrado = ratio >= 1.15 && ratio <= 1.4;
+  const chico = s.width <= 1700 && s.height <= 1300 && s.height >= 560;
+  const viejo = cuadrado && chico;
+  document.documentElement.classList.toggle("monitor-viejo", viejo);
+  if (viejo) {
+    const escala = s.width <= 1100 || s.height <= 820 ? 0.74 : 0.8;
+    document.documentElement.style.setProperty("--escala-monitor", String(escala));
+  } else {
+    document.documentElement.style.removeProperty("--escala-monitor");
+  }
+}
+
 /** Teléfono o tablet. Una PC táctil o una ventana angosta sigue siendo PC. */
 function esCelular() {
   const ua = navigator.userAgent || "";
   return /Android|iPhone|iPad|iPod|Mobile|Opera Mini/i.test(ua);
 }
 
-function rutaSoloCelular(seccion, parts) {
-  if (seccion === "planta" && parts && parts[1] === "completar") return false;
-  if (seccion === "reparto") return false;
-  return ["planta", "cliente", "envios"].includes(seccion);
-}
-
 function textoErrorGps(err) {
-  if (!window.isSecureContext) return "La ubicación solo funciona en https. Entrá por gasonorsrl.com.";
+  if (!window.isSecureContext) {
+    return "Entrá por https://" + location.hostname + ":5051 y aceptá el aviso de seguridad. Por http el celular no da el GPS.";
+  }
   if (!navigator.geolocation) return "Este navegador no puede tomar la ubicación.";
   const code = err && err.code;
-  if (code === 1) return "El celular bloqueó la ubicación. Permitila para este sitio y tocá de nuevo.";
+  if (code === 1) return "El celular bloqueó la ubicación. En el navegador, permití la ubicación de este sitio y tocá de nuevo.";
   if (code === 2) return "No se pudo ubicar. Activá el GPS del celular y tocá de nuevo.";
   if (code === 3) return "Tardó demasiado. Salí a un lugar con señal y tocá de nuevo.";
   return (err && err.message) || "No se pudo tomar la ubicación.";
@@ -207,22 +228,24 @@ function dibujarRecorrido(map, chofer, fecha) {
   const capa = L.layerGroup();
   const puntos = chofer?.puntos || [];
   const linea = puntos.map((p) => [Number(p.lat), Number(p.lng)]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  if (linea.length >= 2) L.polyline(linea, { color: "#1f6b4a", weight: 5, opacity: 0.9 }).addTo(capa);
+  if (linea.length >= 2) {
+    L.polyline(linea, { color: "#1f6b4a", weight: 5, opacity: 0.9 }).addTo(capa);
+  }
   if (linea.length) {
     const ini = puntos[0];
     L.circleMarker(linea[0], { radius: 8, color: "#1f6b4a", fillColor: "#b7e4a8", fillOpacity: 1, weight: 2 })
-      .bindPopup("Inicio " + esc(String(ini.registrado_en || "").slice(11, 16)))
+      .bindPopup(`Inicio ${esc(String(ini.registrado_en || "").slice(11, 16))}`)
       .addTo(capa);
     const fin = puntos[puntos.length - 1];
     L.circleMarker(linea[linea.length - 1], { radius: 10, color: "#9a3412", fillColor: "#f4a261", fillOpacity: 1, weight: 2 })
-      .bindPopup("Último punto " + esc(String(fin.registrado_en || "").slice(11, 16)))
+      .bindPopup(`Último punto del recorrido ${esc(String(fin.registrado_en || "").slice(11, 16))}`)
       .addTo(capa);
   }
   const u = chofer?.ultimo;
   const ultimoEsDelDia = u && String(u.registrado_en || "").slice(0, 10) === String(fecha || "");
   if (u && !ultimoEsDelDia && Number.isFinite(Number(u.lat)) && Number.isFinite(Number(u.lng))) {
     L.circleMarker([Number(u.lat), Number(u.lng)], { radius: 11, color: "#1d4e89", fillColor: "#7eb6ff", fillOpacity: 1, weight: 2 })
-      .bindPopup("Última ubicación " + esc(fmtFecha(u.registrado_en)) + " " + esc(String(u.registrado_en).slice(11, 16)))
+      .bindPopup(`Última ubicación ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}`)
       .addTo(capa);
   }
   capa.addTo(map);
@@ -246,7 +269,7 @@ async function vistaRepartoMapa(params) {
   app().innerHTML = `
     <p><a href="#/reparto">← Repartos</a></p>
     <h1>Recorrido del chofer</h1>
-    <p class="lead">La línea es el camino del día. El punto naranja es el último del recorrido.</p>
+    <p class="lead">La línea es el camino del día. El punto naranja es el último del recorrido. Si la última vez que abrió la app fue otro día, se marca en azul.</p>
     <form id="form-mapa" class="toolbar">
       <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${esc(data.fecha || fecha0)}"></div>
       <div class="field"><label>Chofer</label>
@@ -273,8 +296,12 @@ async function vistaRepartoMapa(params) {
     const mapa = u ? `https://www.google.com/maps?q=${encodeURIComponent(u.lat + "," + u.lng)}` : "";
     box.innerHTML = `
       <strong>${esc(chofer.nombre)}</strong>
-      <p class="lead" style="margin:6px 0">${chofer.uso ? `Abrió la app: ${esc(fmtFecha(chofer.uso.registrado_en))} ${esc(String(chofer.uso.registrado_en).slice(11, 16))}` : "Todavía no abrió la app."}</p>
-      <p class="lead" style="margin:6px 0">${u ? `Última ubicación: ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}` : "Sin posición. En el celular, tocá Activar mi ubicación."}</p>
+      <p class="lead" style="margin:6px 0">${chofer.uso
+        ? `Abrió la app: ${esc(fmtFecha(chofer.uso.registrado_en))} ${esc(String(chofer.uso.registrado_en).slice(11, 16))}`
+        : "Todavía no abrió la app en este programa."}</p>
+      <p class="lead" style="margin:6px 0">${u
+        ? `Última ubicación: ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}`
+        : "Sin posición. En el celular tiene que entrar por https, puerto 5051, y tocar Activar mi ubicación."}</p>
       <p class="lead" style="margin:0">${n ? `${n} punto${n === 1 ? "" : "s"} en el recorrido de este día.` : "Sin recorrido en esta fecha."} Se actualiza solo.</p>
       ${mapa ? `<p><a class="btn secondary" href="${esc(mapa)}" target="_blank" rel="noopener">Abrir última ubicación en Maps</a></p>` : ""}`;
   };
@@ -283,11 +310,15 @@ async function vistaRepartoMapa(params) {
   const el = $("#mapa-recorrido");
   if (!el || !window.L) return;
   state._mapaLeaflet = L.map(el).setView([-32.946, -60.65], 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(state._mapaLeaflet);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap",
+  }).addTo(state._mapaLeaflet);
   const pintar = async () => {
     const fd = new FormData($("#form-mapa"));
     const fecha = fd.get("fecha") || fecha0;
     const fresco = await api("/api/reparto/tracking?fecha=" + encodeURIComponent(fecha));
+    data = fresco;
     const id = String(fd.get("chofer") || elegido);
     const chofer = (fresco.choferes || []).find((c) => String(c.id) === id) || (fresco.choferes || [])[0];
     info(chofer);
@@ -297,6 +328,13 @@ async function vistaRepartoMapa(params) {
   setTimeout(() => state._mapaLeaflet && state._mapaLeaflet.invalidateSize(), 200);
   if (gen !== state._mapaGen) return;
   state._mapaTimer = setInterval(() => pintar().catch(() => {}), 25000);
+}
+
+function rutaSoloCelular(seccion, parts) {
+  if (seccion === "planta" && parts && parts[1] === "completar") return false;
+  // El administrador arma la hoja en la PC. El chofer la ejecuta en el celular.
+  if (seccion === "reparto") return false;
+  return ["planta", "cliente", "envios"].includes(seccion);
 }
 
 function etiquetaRol(rol) {
@@ -371,9 +409,10 @@ async function cargarCatalogos() {
     state.config = cfg.config;
     state.articulos = state.articulos || [];
     state.clientes = state.clientes || [];
-    $("#brand-name").textContent = state.config.empresa || "Gasonor SRL";
-    aplicarPermisos();
-    return;
+  $("#brand-name").textContent = state.config.empresa || "Gasonor SRL";
+  aplicarPermisos();
+  actualizarBadgeVentas();
+  return;
   }
   const [arts, clis, cfg] = await Promise.all([
     api("/api/articulos?tipo=tubo"),
@@ -385,6 +424,7 @@ async function cargarCatalogos() {
   state.config = cfg.config;
   $("#brand-name").textContent = state.config.empresa || "Gasonor SRL";
   aplicarPermisos();
+  actualizarBadgeVentas();
 }
 
 function optsArticulos(selected) {
@@ -671,6 +711,7 @@ async function vistaInicio() {
       </div>`;
     const btnUbi = $("#btn-ubicacion");
     if (btnUbi) btnUbi.onclick = () => pedirUbicacion(true);
+    if (!window.isSecureContext) ponerEstadoGps(textoErrorGps(), false);
     return;
   }
   if (rolActual() === "despacho") {
@@ -685,13 +726,37 @@ async function vistaInicio() {
   }
   const r = await api("/api/resumen");
   const t = r.totales;
+  const esAdmin = rolActual() === "admin";
   let pendientes = [];
-  if (rolActual() === "admin") {
-    try {
-      pendientes = (await api("/api/planta/documentos?estado=borrador")).documentos || [];
-    } catch (_) { pendientes = []; }
+  let brutoVenta = 0;
+  let brutoCompra = 0;
+  let paraFacturar = { n: 0, importe: 0 };
+  let deudasPorVencer = [];
+  let chequesPorVencer = [];
+  if (esAdmin) {
+    const desdeMes = primerDiaMes();
+    const hastaHoy = hoyInput();
+    const [docs, caja, compras, deudas, cheques] = await Promise.all([
+      api("/api/planta/documentos?estado=borrador").catch(() => ({ documentos: [] })),
+      api("/api/caja/ventas?desde=" + desdeMes + "&hasta=" + hastaHoy).catch(() => ({ resumen: {} })),
+      api("/api/compras/resumen").catch(() => ({ total_mes: 0 })),
+      api("/api/caja/deudas").catch(() => ({ deudas: [] })),
+      api("/api/caja/cheques?estado=en_cartera").catch(() => ({ cheques: [] })),
+    ]);
+    pendientes = docs.documentos || [];
+    brutoVenta = Number((caja.resumen || {}).ventas || 0);
+    brutoCompra = Number(compras.total_mes || 0);
+    paraFacturar = {
+      n: Number((caja.resumen || {}).pendientes_total || 0),
+      importe: Number((caja.resumen || {}).pendientes_importe || 0),
+    };
+    deudasPorVencer = (deudas.deudas || []).filter((d) => Number(d.dias) >= 20).slice(0, 4);
+    chequesPorVencer = (cheques.cheques || []).filter((c) => {
+      const dias = diasHastaFecha(c.fecha_pago);
+      return dias != null && dias <= 7;
+    }).slice(0, 4);
   }
-  app().innerHTML = `
+    app().innerHTML = `
     <div class="quick-row no-print">
       ${esCelular() && puede("admin") ? `
         <a class="quick green" href="#/planta/despacho">Despacho a planta</a>
@@ -704,20 +769,37 @@ async function vistaInicio() {
         <a class="quick" style="background:#8a5a12" href="#/facturar">Nueva factura</a>
         <a class="quick" style="background:#9b2c2c" href="#/deudas">Deudas</a>
         <a class="quick" style="background:#2b5d8a" href="#/cheques">Cheques</a>
-        <a class="quick" style="background:#24483e" href="#/facturacion">Facturación</a>
+        <a class="quick" style="background:#24483e" href="#/ventas">🧾 Ventas</a>
         <a class="quick" style="background:#1a3a32;grid-column:1/-1" href="#/cobrar">Cobrar</a>
       ` : ""}
     </div>
-    ${!esCelular() && rolActual() === "admin" ? `
-      <div class="quick-row no-print">
-        <a class="quick" href="#/proveedores">Proveedores</a>
-        <a class="quick" href="#/compras">Compras y deudas de proveedores</a>
-        <a class="quick" href="#/empleados">Empleados</a>
-        <a class="quick" href="#/planta/completar">Completar despachos y recepciones</a>
+    ${esAdmin ? `
+      <div class="inicio-alertas">
+        ${paraFacturar.n ? `<a class="banner-fact" href="#/ventas?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${paraFacturar.n} pendiente${paraFacturar.n === 1 ? "" : "s"} de facturar · ${money(paraFacturar.importe)}</a>` : ""}
+        ${deudasPorVencer.length || chequesPorVencer.length ? `<a class="banner-fact banner-deuda" href="${chequesPorVencer.length && !deudasPorVencer.length ? "#/cheques?estado=en_cartera" : "#/deudas"}">
+          ${deudasPorVencer.map((d) => `${esc(d.cliente_nombre)} · ${money(d.saldo)} · hace ${esc(d.dias)} días`).join(" · ")}
+          ${deudasPorVencer.length && chequesPorVencer.length ? "<br>" : ""}
+          ${chequesPorVencer.map((c) => {
+            const dias = diasHastaFecha(c.fecha_pago);
+            const cuando = dias < 0 ? `vencido hace ${Math.abs(dias)} días` : dias === 0 ? "vence hoy" : `vence en ${dias} días`;
+            return `Cheque ${esc(c.numero)} · ${money(c.monto)} · ${cuando}`;
+          }).join(" · ")}
+        </a>` : ""}
+        ${pendientes.length ? `<a class="banner-fact" href="#/planta/completar">${pendientes.length} despacho${pendientes.length === 1 ? "" : "s"} o recepción${pendientes.length === 1 ? "" : "es"} por completar</a>` : ""}
       </div>
-    ` : ""}
-    ${!esCelular() && rolActual() === "admin" && pendientes.length ? `
-      <a class="banner-fact" href="#/planta/completar">${pendientes.length} escaneo(s) del celular pendientes de completar en la PC</a>
+      <div class="toolbar no-print">
+        <a class="btn copper" href="#/reparto/nuevo">Preparar reparto del día</a>
+      </div>
+      <div class="grid bruto-mes">
+        <a class="card stat cargado" href="#/ventas?desde=${primerDiaMes()}&hasta=${hoyInput()}">
+          <small>Bruto de venta del mes</small>
+          <div class="n">${money(brutoVenta)}</div>
+        </a>
+        <a class="card stat en_planta" href="#/compras">
+          <small>Bruto de compras del mes</small>
+          <div class="n">${money(brutoCompra)}</div>
+        </a>
+      </div>
     ` : ""}
     <h1>Dónde están los tubos</h1>
     <p class="lead">Gasonor SRL — rotación de cilindros. Los artículos genéricos no entran en estos marcadores.</p>
@@ -805,7 +887,15 @@ function htmlUltimoMov(it) {
   return `<span class="mono" title="${esc(tipo || "Último registro")}">${esc(fecha || cuando)}</span>${tipo ? `<div class="lead" style="margin:0;font-size:.8rem">${esc(tipo)}</div>` : ""}`;
 }
 
-function htmlCatalogo(items) {
+function lugarTubo(it) {
+  if (it.estado === "en_cliente") return it.cliente_nombre ? `En cliente · ${it.cliente_nombre}` : "En cliente";
+  if (it.estado === "en_planta") return it.proveedor_nombre ? `En planta · ${it.proveedor_nombre}` : "En planta";
+  if (it.estado === "cargado") return "En la empresa · cargado";
+  if (it.estado === "vacio") return "En la empresa · vacío";
+  return it.cliente_nombre || "—";
+}
+
+function htmlCatalogo(items, mostrarLugar) {
   if (!items.length) return `<p class="empty">No hay resultados. Seguí escribiendo o cambiá el filtro.</p>`;
   return `
     <div class="table-wrap">
@@ -865,7 +955,7 @@ function htmlCatalogo(items) {
               <td>${badge(it.estado)}</td>
               <td class="cell-view" data-f="propiedad"><span class="badge ${it.propiedad === "cliente" ? "cliente" : "empresa"}">${it.propiedad === "cliente" ? "Cliente" : "GN"}</span></td>
               <td class="retener-cell cell-view" data-f="retener">${marcaRetener(it.retener || it.articulo_retener)}</td>
-              <td>${esc(it.cliente_nombre || "—")}</td>
+              <td>${esc(mostrarLugar ? lugarTubo(it) : (it.cliente_nombre || "—"))}</td>
               <td class="mono cell-view" data-f="fecha_vto">${fmtFecha(it.fecha_vto) || "—"}</td>
             </tr>`;
           }).join("")}
@@ -1215,8 +1305,47 @@ async function guardarEdicionFila(tr, it) {
   }
 }
 
+const AVISOS_TUBO = {
+  alquilados: "Tubos alquilados: de Gasonor y ahora en un cliente",
+  ph: "Prueba hidráulica vencida (vacíos o en planta)",
+  lote: "Lote vencido (cargados o en cliente)",
+  gn: "Tubos de Gasonor",
+  planta: "Tubos en planta",
+  empresa: "Tubos en la empresa (vacíos y cargados)",
+  baja: "En cliente con baja rotación (más de 30 días sin movimiento)",
+};
+
+async function vistaCatalogoResumen() {
+  setNav("catalogo");
+  const r = await api("/api/catalogo/resumen");
+  const tarjeta = (aviso, clase, titulo, n, detalle) => `
+    <a class="card stat ${clase} stat-link" href="#/catalogo?lista=1&aviso=${aviso}">
+      <small>${esc(titulo)}</small>
+      <div class="n">${n}</div>
+      <small>${esc(detalle)}</small>
+    </a>`;
+  app().innerHTML = `
+    <h1>Tubos y artículos</h1>
+    <p class="lead">Tocá un número para ver esos tubos y dónde está cada uno. El listado de siempre está abajo.</p>
+    <div class="grid bruto-mes">
+      ${tarjeta("alquilados", "en_cliente", "Alquilados (GN en cliente)", r.alquilados, "Cilindros de Gasonor en poder de un cliente")}
+      ${tarjeta("ph", "vacio", "Prueba hidráulica vencida", r.ph_vencida, "Vacíos o en planta, con la fecha de prueba vencida")}
+      ${tarjeta("lote", "total", "Lote vencido", r.lote_vencido, "Cargados o en cliente, con el vencimiento del lote pasado")}
+      ${tarjeta("gn", "cargado", "Tubos de Gasonor", r.gn, "Todos los de propiedad GN, en cualquier lugar")}
+      ${tarjeta("planta", "en_planta", "En planta", r.en_planta, "Mandados a una planta de carga")}
+      ${tarjeta("empresa", "vacio", "En la empresa", r.en_empresa, "Vacíos y cargados en Gasonor, no en planta ni en cliente")}
+      ${tarjeta("baja", "en_cliente", "Baja rotación en cliente", r.baja_rotacion, `En cliente y sin movimiento hace más de ${r.dias_baja} días`)}
+    </div>
+    <div class="toolbar" style="margin-top:14px">
+      <a class="btn copper" href="#/catalogo?lista=1">Entrar a tubos y artículos</a>
+    </div>`;
+}
+
 async function vistaCatalogo(params) {
   setNav("catalogo");
+  let aviso0 = params.get("aviso") || "";
+  const tieneLista = params.get("lista") === "1" || aviso0 || params.get("q") || params.get("estado") || params.get("propiedad") || params.get("cliente") || params.get("cliente_id") || params.get("tipo");
+  if (!tieneLista) return vistaCatalogoResumen();
   const soloPlanta = false;
   // Por defecto solo tubos: cargar genéricos junto hace más lenta la pantalla.
   const tipo0 = soloPlanta ? "tubo" : (params.get("tipo") || "tubo");
@@ -1227,6 +1356,7 @@ async function vistaCatalogo(params) {
 
   app().innerHTML = `
     <h1>Tubos y artículos</h1>
+    ${aviso0 ? `<p><a href="#/catalogo">← Resumen de tubos</a></p><p class="lead"><b>${esc(AVISOS_TUBO[aviso0] || "Filtro")}</b>. En la columna Cliente se ve dónde está cada tubo.</p>` : `<p><a href="#/catalogo">← Resumen de tubos</a></p>`}
     <p class="lead">${soloPlanta ? "Solo tubos en planta." : "Tocá <b>Editar</b> en una fila para el editor individual. Marcá 2 o más para edición masiva."}</p>
     <div class="toolbar" id="cat-filtros">
       ${soloPlanta ? "" : `<div class="field"><label>Ver</label>
@@ -1312,6 +1442,8 @@ async function vistaCatalogo(params) {
     if (prop) u.set("propiedad", prop);
     if (q) u.set("q", q);
     if (cliente0) u.set("cliente_id", cliente0);
+    if (aviso0) u.set("aviso", aviso0);
+    u.set("lista", "1");
     return u;
   };
 
@@ -1338,7 +1470,7 @@ async function vistaCatalogo(params) {
     history.replaceState(null, "", "#/catalogo" + (u.toString() ? "?" + u : ""));
     const data = await api("/api/catalogo?" + u.toString());
     itemsCache = data.items || [];
-    $("#lista-cat").innerHTML = htmlCatalogo(itemsCache);
+    $("#lista-cat").innerHTML = htmlCatalogo(itemsCache, !!aviso0);
     const selTodo = $("#sel-todo");
     const marcarTodo = (on) => {
       state.catalogoSelTodo = on;
@@ -1381,7 +1513,10 @@ async function vistaCatalogo(params) {
   };
   ["f-tipo", "f-estado", "f-prop"].forEach((id) => {
     const el = $("#" + id);
-    if (el) el.onchange = () => pintar().catch((e) => toast(e.message, true));
+    if (el) el.onchange = () => {
+      aviso0 = "";
+      pintar().catch((e) => toast(e.message, true));
+    };
   });
   if ($("#btn-alta")) $("#btn-alta").onclick = modalAltaCatalogo;
   $("#btn-bulk-open").onclick = () => {
@@ -1456,12 +1591,12 @@ function modalAltaCatalogo() {
         <div class="field full"><label class="check-inline"><input type="checkbox" name="g_retener" value="1"> Retener</label></div>
       </div>
       <div id="alta-tubo">
-      <div class="field"><label>Propiedad</label>
+        <div class="field"><label>Propiedad</label>
           <select name="propiedad" id="alta-prop">
             <option value="empresa">GN (Gasonor)</option>
             <option value="cliente">Del cliente</option>
-        </select>
-      </div>
+          </select>
+        </div>
         <div class="field"><label class="check-inline"><input type="checkbox" name="retener" value="1"> Retener (nuestro / robado)</label></div>
         <div class="field"><label>Número de tubo</label><input name="numero" placeholder="Nº de trazabilidad"></div>
         <div class="field"><label>Tipo de gas</label><input name="grupo" placeholder="Oxígeno, Nitrógeno…"></div>
@@ -1692,8 +1827,8 @@ async function vistaTubo(id) {
         }
         try {
           await api("/api/tubos/" + t.id, { method: "PUT", body });
-        cerrarModal(); toast("Tubo actualizado"); route();
-      } catch (err) { toast(err.message, true); }
+          cerrarModal(); toast("Tubo actualizado"); route();
+        } catch (err) { toast(err.message, true); }
       };
       if (body.estado === "en_planta" && t.estado !== "en_planta") {
         const box = $("#aviso-ficha-estado");
@@ -1760,163 +1895,303 @@ function tablaTubosCliente(rows, vacio) {
 
 async function vistaClienteFicha(id, params) {
   setNav("clientes");
-  const tab = params.get("tab") || "gn";
+  const tab = params.get("tab") || "resumen";
   const data = await api("/api/clientes/" + id);
   const c = data.cliente;
   const r = data.resumen || {};
-  const tubosGn = data.tubos_gn || (data.tubos_en_cliente || []).filter((t) => t.propiedad !== "cliente");
+  const tubosGn = data.tubos_gn || [];
   const tubosPropios = data.tubos_propios || [];
   const propiosEnPoder = tubosPropios.filter((t) => t.estado === "en_cliente");
-  const propiosFuera = tubosPropios.filter((t) => t.estado !== "en_cliente");
+  const deudas = data.deudas || [];
+  const segOn = !!r.seguimiento_activo;
+  const ult = r.ultimo_movimiento;
   app().innerHTML = `
     <p><a href="#/clientes">← Clientes</a></p>
-    <h1>${esc(c.nombre)}</h1>
-    <p class="lead">
-      ${esc(c.direccion || "Sin dirección")}
-      ${c.cuit ? " · CUIT " + esc(c.cuit) : ""}
-      ${c.telefono ? " · " + esc(c.telefono) : ""}
-      ${c.activo ? "" : " · <em>Inactivo</em>"}
-    </p>
-    <div class="grid stats">
-      <div class="card stat en_cliente"><div class="n">${r.en_cliente_gn ?? tubosGn.length}</div><small>GN en su poder</small></div>
-      <div class="card stat cliente"><div class="n">${r.propios_en_poder ?? propiosEnPoder.length}</div><small>Propios en su poder</small></div>
-      <div class="card stat vacio"><div class="n">${r.registrados_propios ?? tubosPropios.length}</div><small>Propios registrados (total)</small></div>
-        </div>
-    <div class="toolbar">
-      <button class="btn copper" type="button" id="btn-asig-tubo">Asignar tubo existente</button>
-      <button class="btn ghost" type="button" data-edit-cli="${c.id}">Editar datos</button>
-      <a class="btn secondary" href="#/cliente/despacho">Despacho a cliente</a>
-      <a class="btn secondary" href="#/cliente/recepcion">Recepción de cliente</a>
-        </div>
+    <div class="cli-ficha-head">
+      <div>
+        <h1>${esc(c.nombre)}</h1>
+        <p class="lead">
+          ${c.codigo ? "Código <b>" + esc(c.codigo) + "</b> · " : ""}
+          ${esc(c.direccion || "Sin dirección")}
+          ${c.localidad ? " · " + esc(c.localidad) : ""}
+          ${c.cuit ? " · CUIT " + esc(c.cuit) : ""}
+          ${c.telefono ? " · " + esc(c.telefono) : ""}
+          ${c.activo ? "" : " · <em>Inactivo</em>"}
+        </p>
+      </div>
+      <div class="toolbar">
+        <a class="btn secondary" href="#/cliente/despacho">Despachar</a>
+        <a class="btn secondary" href="#/cliente/recepcion">Recepcionar</a>
+        <a class="btn secondary" href="#/deudas?cliente_id=${c.id}">Cuenta corriente</a>
+      </div>
+    </div>
+    ${deudas.length ? `
+      <a class="banner-deuda" href="#/deudas?cliente_id=${c.id}">
+        <strong>Deuda activa · ${money(r.deuda_total)}</strong>
+        <span>${deudas.map((d) => `${esc(d.numero_txt)} · ${money(d.saldo)} · desde ${esc(fmtFecha(d.fecha))}`).join(" · ")}</span>
+      </a>` : `<div class="banner-ok">Sin deudas activas</div>`}
+    <div class="grid bruto-mes">
+      <div class="card stat"><small>Último movimiento</small>
+        <div class="n" style="font-size:1.05rem">${ult ? esc(fmtFecha(ult.fecha)) : "—"}</div>
+        <small>${ult ? esc((TIPOS[ult.tipo] || ult.tipo || "") + (ult.detalle ? " · " + ult.detalle : "")) : "Sin movimientos"}</small>
+      </div>
+      <div class="card stat cargado"><small>Compras últimos 3 meses</small>
+        <div class="n" style="font-size:1.2rem">${money(r.compra_3m || 0)}</div>
+        <small>${r.n_compra_3m || 0} cobro(s)</small>
+      </div>
+      <div class="card stat en_cliente"><small>Tubos GN en poder</small><div class="n">${r.en_cliente_gn ?? tubosGn.length}</div></div>
+      <div class="card stat cliente"><small>Propios en poder</small><div class="n">${r.propios_en_poder ?? propiosEnPoder.length}</div></div>
+    </div>
     <div class="tabs">
-      <button data-tab="gn" class="${tab === "gn" ? "active" : ""}">GN en poder (${tubosGn.length})</button>
-      <button data-tab="propios" class="${tab === "propios" ? "active" : ""}">Envases propios (${tubosPropios.length})</button>
+      <button data-tab="resumen" class="${tab === "resumen" ? "active" : ""}">Datos</button>
+      <button data-tab="tubos" class="${tab === "tubos" ? "active" : ""}">Tubos (${tubosGn.length + tubosPropios.length})</button>
       <button data-tab="historial" class="${tab === "historial" ? "active" : ""}">Historial</button>
-        </div>
-    <div id="cli-tab" class="card"></div>`;
+      <button data-tab="prospeccion" class="${tab === "prospeccion" ? "active" : ""}">Prospección${segOn ? " · ON" : ""}</button>
+    </div>
+    <div id="cli-tab"></div>`;
 
   app().querySelectorAll("[data-tab]").forEach((b) => {
     b.onclick = () => { location.hash = "#/clientes/" + id + "?tab=" + b.dataset.tab; };
   });
-
   const box = $("#cli-tab");
-  if (tab === "propios") {
+
+  if (tab === "tubos") {
     box.innerHTML = `
-      <h3>Envases propios de este cliente (S/P)</h3>
-      <p class="lead">Todos los cilindros registrados a su nombre. Los que están <b>en cliente</b> son los que tiene en poder; el resto pueden estar vacíos, cargados o en planta.</p>
-      ${propiosEnPoder.length ? `
-        <h4 style="margin:12px 0 6px">En su poder ahora (${propiosEnPoder.length})</h4>
-        ${tablaTubosCliente(propiosEnPoder, "")}
-      ` : `<p class="empty">Ningún envase propio está ahora en su poder.</p>`}
-      ${propiosFuera.length ? `
-        <h4 style="margin:18px 0 6px">Registrados pero no en su poder (${propiosFuera.length})</h4>
-        ${tablaTubosCliente(propiosFuera, "")}
-      ` : ""}
-      ${!tubosPropios.length ? `<p class="empty">No hay envases propios registrados.</p>` : ""}`;
+      <div class="card">
+        <div class="toolbar">
+          <button class="btn copper" type="button" id="btn-asig-tubo">Asignar tubo existente</button>
+          <a class="btn secondary" href="#/cliente/despacho">Despacho a cliente</a>
+          <a class="btn secondary" href="#/cliente/recepcion">Recepción de cliente</a>
+        </div>
+        <h3>GN en su poder (${tubosGn.length})</h3>
+        ${tubosGn.length ? `<p class="mono" style="font-size:1.1rem;font-weight:700">${tubosGn.map((t) => esc(t.numero)).join(" · ")}</p>` : ""}
+        ${tablaTubosCliente(tubosGn, "No tiene tubos GN ahora.")}
+        <h3 style="margin-top:18px">Envases propios (${tubosPropios.length})</h3>
+        ${tablaTubosCliente(tubosPropios, "No hay envases propios registrados.")}
+      </div>`;
+    $("#btn-asig-tubo").onclick = () => {
+      abrirModal(`
+        <h2>Asignar tubo existente</h2>
+        <form id="form-asig" class="grid form">
+          <div class="field full"><label>Número de tubo</label><input name="numero" required autocomplete="off"></div>
+          <div class="field full"><label>Cómo se asigna</label>
+            <select name="como">
+              <option value="gn">Tubo GN (queda en el cliente)</option>
+              <option value="propio">Envase propio del cliente (S/P)</option>
+            </select>
+          </div>
+          <div class="field full"><button class="btn copper" type="submit">Asignar</button></div>
+        </form>`);
+      $("#form-asig").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await api("/api/clientes/" + id + "/asignar-tubos", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
+          cerrarModal(); toast("Asignados: " + res.cantidad); route();
+        } catch (err) { toast(err.message, true); }
+      };
+    };
   } else if (tab === "historial") {
     const movs = data.movimientos || [];
+    const comps = data.comprobantes || [];
+    const cobros = data.cobros || [];
     const ventas = data.ventas || [];
     const linea = [
       ...movs.map((m) => ({
-        sort: `${m.fecha}-${String(m.id).padStart(8, "0")}`,
-        fecha: m.fecha,
-        hora: "",
-        tipo: "tubo",
+        sort: `${m.fecha}-1-${String(m.id).padStart(8, "0")}`,
+        fecha: m.fecha, hora: "",
         titulo: TIPOS[m.tipo] || m.tipo,
-        detalle: [
-          m.tubo_numero ? `Tubo ${m.tubo_numero}` : "",
-          m.articulo_codigo || "",
-          m.lote ? `Lote ${m.lote}` : "",
-          m.observaciones || "",
-        ].filter(Boolean).join(" · "),
-        monto: null,
+        detalle: [m.tubo_numero ? `Tubo ${m.tubo_numero}` : "", m.articulo_codigo || "", m.observaciones || ""].filter(Boolean).join(" · "),
+        monto: null, badge: "",
+      })),
+      ...comps.map((x) => ({
+        sort: `${x.fecha}-2-${String(x.id).padStart(8, "0")}`,
+        fecha: x.fecha, hora: "",
+        titulo: (x.estado === "anulado" ? "Factura anulada" : "Factura / comprobante") + " " + (x.numero_txt || ""),
+        detalle: x.cae ? `CAE ${x.cae}` : (x.estado || ""),
+        monto: x.total, badge: "badge-fact",
+      })),
+      ...cobros.map((x) => ({
+        sort: `${x.fecha}-3-${String(x.id).padStart(8, "0")}`,
+        fecha: x.fecha, hora: x.hora || "",
+        titulo: "Pago de deuda",
+        detalle: etiquetaMedio(x.medio_pago) + (x.observaciones ? " · " + x.observaciones : ""),
+        monto: x.total, badge: "badge-okfact",
       })),
       ...ventas.map((v) => ({
-        sort: `${v.fecha}-${String(v.id).padStart(8, "0")}`,
-        fecha: v.fecha,
-        hora: v.hora || "",
-        tipo: "caja",
+        sort: `${v.fecha}-4-${String(v.id).padStart(8, "0")}`,
+        fecha: v.fecha, hora: v.hora || "",
         titulo: v.tipo === "salida" ? "Salida de caja" : "Cobro / venta",
         detalle: v.descripcion || "",
-        monto: v.total,
-        salida: v.tipo === "salida",
+        monto: v.total, salida: v.tipo === "salida", badge: "badge-fact",
       })),
     ].sort((a, b) => (a.sort < b.sort ? 1 : -1));
-    box.innerHTML = linea.length ? `
-      <h3>Historial (tubos + cobros)</h3>
-      <p class="lead">Despachos y recepciones de cliente, envíos a planta de propios, y lo cobrado a este cliente.</p>
-      <table>
-        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Importe</th></tr></thead>
-        <tbody>
-          ${linea.map((x) => `
-            <tr>
-              <td class="mono">${fmtFecha(x.fecha)}${x.hora ? " " + esc(x.hora) : ""}</td>
-              <td><span class="badge ${x.tipo === "caja" ? "badge-fact" : ""}">${esc(x.titulo)}</span></td>
-              <td>${esc(x.detalle)}</td>
-              <td class="mono">${x.monto == null ? "—" : (x.salida ? "−" : "") + money(x.monto)}</td>
-            </tr>`).join("")}
-        </tbody>
-      </table>` : `<p class="empty">Todavía no hay movimientos ni cobros para este cliente.</p>`;
-  } else {
     box.innerHTML = `
-      <h3>Tubos GN (Gasonor) en su poder</h3>
-      <p class="lead">Cilindros de la empresa que están ahora en este cliente (no son de su propiedad).</p>
-      ${tubosGn.length ? `<p class="mono" style="font-size:1.15rem;font-weight:700">${tubosGn.map((t) => esc(t.numero)).join(" · ")}</p>` : ""}
-      ${tablaTubosCliente(tubosGn, "No tiene tubos GN en el cliente ahora.")}`;
-  }
-
-  $("#btn-asig-tubo").onclick = () => {
-    abrirModal(`
-      <h2>Asignar tubo existente</h2>
-      <p class="lead">Buscá un número que ya esté en la base y asignalo a ${esc(c.nombre)}.</p>
-      <form id="form-asig" class="grid form">
-        <div class="field full"><label>Número de tubo</label><input name="numero" required placeholder="Ej. 12345" autocomplete="off"></div>
-        <div class="field full"><label>Cómo se asigna</label>
-          <select name="como">
-            <option value="gn">Tubo GN (queda en el cliente)</option>
-            <option value="propio">Envase propio del cliente (S/P)</option>
-          </select>
+      <div class="card table-wrap">
+        <h3 style="margin-top:0">Historial</h3>
+        <p class="lead">Entrada y salida de envases, facturas / deudas y pagos.</p>
+        <table>
+          <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Importe</th></tr></thead>
+          <tbody>
+            ${linea.map((x) => `
+              <tr>
+                <td class="mono">${fmtFecha(x.fecha)}${x.hora ? " " + esc(x.hora) : ""}</td>
+                <td><span class="badge ${x.badge || ""}">${esc(x.titulo)}</span></td>
+                <td>${esc(x.detalle)}</td>
+                <td class="mono">${x.monto == null ? "—" : (x.salida ? "−" : "") + money(x.monto)}</td>
+              </tr>`).join("") || `<tr><td colspan="4" class="empty">Sin historial.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  } else if (tab === "prospeccion") {
+    const notas = data.seguimiento || [];
+    box.innerHTML = `
+      <div class="card">
+        <div class="toolbar" style="justify-content:space-between">
+          <div>
+            <h3 style="margin:0">Seguimiento comercial</h3>
+            <p class="lead" style="margin:6px 0 0">${segOn ? "Prospección activa: este cliente entra en la agenda y en rojo si no hay novedades." : "Activá la prospección para llevar un seguimiento más detallado."}</p>
+          </div>
+          <button type="button" class="btn ${segOn ? "ghost" : "copper"}" id="btn-seg-toggle">${segOn ? "Desactivar prospección" : "Activar prospección"}</button>
         </div>
-        <div class="field full"><button class="btn copper" type="submit">Asignar</button></div>
-      </form>`);
-    $("#form-asig").onsubmit = async (e) => {
-    e.preventDefault();
-      const fd = Object.fromEntries(new FormData(e.target));
+        ${segOn ? `
+          <form id="form-cli-nota" class="grid form" style="margin-top:14px">
+            <div class="field"><label>Tipo</label>
+              <select name="clase">
+                <option value="llamada">Llamada</option>
+                <option value="visita">Visita</option>
+                <option value="nota">Nota</option>
+                <option value="tarea">Tarea</option>
+              </select>
+            </div>
+            <div class="field"><label>Fecha del contacto</label><input name="fecha" type="date" value="${hoyInput()}"></div>
+            <div class="field full"><label>Comentario del contacto</label><input name="detalle" required placeholder="Qué se habló o se acordó"></div>
+            <div class="field"><label>Agendar visita / llamado</label><input name="proxima_fecha" type="date"></div>
+            <div class="field"><label>Hora</label><input name="proxima_hora" type="time"></div>
+            <div class="field full"><label>Qué hay que hacer</label><input name="proxima_detalle" placeholder="Volver a llamar, pasar a ver…"></div>
+            <div class="field full toolbar">
+              <button class="btn copper" type="submit">Guardar contacto</button>
+              <a class="btn secondary" href="#/calendario">Abrir calendario</a>
+            </div>
+          </form>
+          <div class="table-wrap" style="margin-top:16px">
+            <table>
+              <thead><tr><th>Fecha</th><th>Tipo</th><th>Comentario</th><th>Agenda</th></tr></thead>
+              <tbody>
+                ${notas.map((n) => `
+                  <tr>
+                    <td class="mono">${esc(fmtFecha(n.fecha))} ${esc(n.hora || "")}</td>
+                    <td>${esc(n.clase)}</td>
+                    <td>${esc(n.detalle)}</td>
+                    <td>${n.proxima_fecha ? `<a href="#/calendario?dia=${esc(n.proxima_fecha)}">${esc(fmtFecha(n.proxima_fecha))}</a> ${esc(n.proxima_detalle || "")}` : "—"}</td>
+                  </tr>`).join("") || `<tr><td colspan="4" class="empty">Todavía no hay contactos.</td></tr>`}
+              </tbody>
+            </table>
+          </div>` : ""}
+      </div>`;
+    $("#btn-seg-toggle").onclick = async () => {
       try {
-        const res = await api("/api/clientes/" + id + "/asignar-tubos", { method: "POST", body: fd });
-        cerrarModal();
-        toast("Asignados: " + res.cantidad);
+        await api("/api/prospeccion/clientes/" + id + "/activar", { method: "PUT", body: { activo: !segOn } });
+        toast(segOn ? "Prospección desactivada" : "Prospección activada");
+        location.hash = "#/clientes/" + id + "?tab=prospeccion";
         route();
-    } catch (err) { toast(err.message, true); }
-  };
-  };
-
-  const btnEdit = app().querySelector("[data-edit-cli]");
-  if (btnEdit) {
-    btnEdit.onclick = () => {
-      abrirModal(`
-        <h2>Editar cliente</h2>
+      } catch (err) { toast(err.message, true); }
+    };
+    $("#form-cli-nota")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      body.cliente_id = Number(id);
+      try {
+        await api("/api/prospeccion/notas", { method: "POST", body });
+        toast(body.proxima_fecha ? "Contacto guardado y actividad en el calendario" : "Contacto guardado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    });
+  } else {
+    const conds = (await api("/api/caja/condiciones").catch(() => ({ condiciones: [] }))).condiciones || [];
+    box.innerHTML = `
+      <div class="card">
+        <h3 style="margin-top:0">Datos del cliente</h3>
         <form id="form-cli-edit" class="grid form">
           <div class="field full"><label>Nombre</label><input name="nombre" value="${esc(c.nombre)}" required></div>
+          <div class="field"><label>Código</label><input name="codigo" value="${esc(c.codigo || "")}"></div>
+          <div class="field"><label>CUIT</label><input name="cuit" value="${esc(c.cuit || "")}" required></div>
           <div class="field full"><label>Dirección</label><input name="direccion" value="${esc(c.direccion || "")}" required></div>
-          <div class="field full"><label>CUIT</label><input name="cuit" value="${esc(c.cuit || "")}" required></div>
+          <div class="field"><label>Localidad</label><input name="localidad" value="${esc(c.localidad || "")}"></div>
+          <div class="field"><label>Provincia</label><input name="provincia" value="${esc(c.provincia || "")}"></div>
           <div class="field"><label>Teléfono</label><input name="telefono" value="${esc(c.telefono || "")}"></div>
           <div class="field"><label>Activo</label>
             <select name="activo"><option value="1" ${c.activo ? "selected" : ""}>Sí</option><option value="0" ${c.activo ? "" : "selected"}>No</option></select>
           </div>
-          <div class="field full"><button class="btn" type="submit">Guardar</button></div>
-        </form>`);
-      $("#form-cli-edit").onsubmit = async (e) => {
-        e.preventDefault();
-        const body = Object.fromEntries(new FormData(e.target));
-        body.activo = body.activo === "1";
-        try {
-          await api("/api/clientes/" + c.id, { method: "PUT", body });
-          cerrarModal(); toast("Cliente actualizado"); route();
-        } catch (err) { toast(err.message, true); }
-      };
+          <div class="field full"><label>Condición de pago</label>
+            <select name="condicion_pago_id">
+              <option value="">Sin condición</option>
+              ${conds.map((x) => `<option value="${x.id}" ${String(c.condicion_pago_id || "") === String(x.id) ? "selected" : ""}>${esc(x.nombre)}</option>`).join("")}
+            </select>
+            <small class="lead">Al facturar se aplica sola (deuda, recargo o descuento).</small>
+          </div>
+          <div class="field full"><button class="btn" type="submit">Guardar cambios</button></div>
+        </form>
+      </div>`;
+    $("#form-cli-edit").onsubmit = async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      body.activo = body.activo === "1";
+      if (!body.condicion_pago_id) body.condicion_pago_id = null;
+      try {
+        await api("/api/clientes/" + c.id, { method: "PUT", body });
+        toast("Cliente actualizado");
+        route();
+      } catch (err) { toast(err.message, true); }
     };
   }
+}
+
+function htmlRankingClientes(titulo, filas, vacio, valor) {
+  return `
+    <div class="card">
+      <h3 style="margin-top:0">${esc(titulo)}</h3>
+      ${filas.length ? `<table>
+        <tbody>
+          ${filas.map((c) => `
+            <tr>
+              <td><a href="#/clientes/${c.id}"><b>${esc(c.nombre)}</b></a></td>
+              <td class="mono" style="text-align:right">${valor(c)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>` : `<p class="empty">${esc(vacio)}</p>`}
+    </div>`;
+}
+
+function abrirAyudaExcelClientes() {
+  abrirModal(`
+    <h2>Cargar clientes desde Excel</h2>
+    <p class="lead">El archivo no borra la base. Si el nombre ya existe, actualiza los datos. Si es nuevo, lo agrega.</p>
+    <ol class="lead">
+      <li>Descargá la <a href="/api/clientes/plantilla.xlsx">plantilla Excel</a>.</li>
+      <li>La primera fila tiene que ser el encabezado: <b>Nombre</b>, CUIT, Direccion, Telefono, Localidad, Provincia, Codigo.</li>
+      <li>Nombre es obligatorio. El resto puede ir vacío.</li>
+      <li>Guardá el archivo como <b>.xlsx</b> (no .xls).</li>
+      <li>También sirve la planilla vieja de Gasonor: las dos primeras filas son título y desde la tercera van código, nombre, documento, dirección, código postal, localidad, provincia y teléfono.</li>
+    </ol>
+    <form id="form-excel-cli">
+      <div class="field"><label>Archivo .xlsx</label><input name="archivo" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></div>
+      <button class="btn copper" type="submit">Subir base</button>
+    </form>`);
+  $("#form-excel-cli").onsubmit = async (e) => {
+    e.preventDefault();
+    const archivo = e.target.archivo.files[0];
+    if (!archivo) return;
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    try {
+      const res = await fetch("/api/clientes/excel", { method: "POST", credentials: "same-origin", body: fd });
+      const data = await res.json().catch(() => ({ ok: false, error: "No se pudo leer la respuesta" }));
+      if (!res.ok || data.ok === false) throw new Error(data.error || "No se pudo importar");
+      cerrarModal();
+      toast(`Listo: ${data.nuevos || 0} nuevos, ${data.actualizados || 0} actualizados`);
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
 }
 
 async function vistaClientes(params) {
@@ -1929,15 +2204,21 @@ async function vistaClientes(params) {
   if (q) qs.set("q", q);
   if (conTubos) qs.set("con_tubos", "1");
   const data = await api("/api/clientes" + (qs.toString() ? "?" + qs.toString() : ""));
+  const listas = [
+    ["base", "Base de clientes", "Todos los clientes activos con código, nombre, CUIT, dirección y teléfono."],
+    ["gn", "Con tubos GN", "Clientes que tienen cilindros de Gasonor en su poder."],
+    ["propios", "Con envases propios", "Clientes con envases propios (S/P) registrados."],
+    ["compraron", "Compraron este mes", "Clientes con cobros o ventas en el mes actual."],
+    ["sin_compra", "Tubos y sin compra", "Tienen tubos GN y este mes no compraron."],
+    ["deuda", "Con deuda", "Clientes con saldo pendiente en cuenta corriente."],
+  ];
   app().innerHTML = `
     <h1>Clientes</h1>
-    <p class="lead">GN = cilindros de Gasonor en el cliente. Propios = envases del cliente registrados en la base.</p>
-    <div class="toolbar">
-      <button class="btn copper" type="button" id="btn-nuevo-cli">+ Nuevo cliente</button>
-    </div>
-    <div class="card">
-      <form id="f-cli-q" class="toolbar">
-        <div class="field" style="flex:1"><label>Buscar</label><input name="q" value="${esc(q)}" placeholder="Nombre, CUIT o dirección"></div>
+    <div class="card cli-busca-card">
+      <form id="f-cli-q" class="toolbar cli-busca-bar">
+        <div class="field" style="flex:1.6"><label>Buscar cliente</label>
+          <input name="q" value="${esc(q)}" placeholder="Código, nombre, CUIT o dirección" autofocus>
+        </div>
         <div class="field"><label>Filtro</label>
           <select name="con_tubos">
             <option value="" ${conTubos ? "" : "selected"}>Todos</option>
@@ -1950,24 +2231,42 @@ async function vistaClientes(params) {
             <option value="1" ${soloActivos ? "" : "selected"}>Incluir inactivos</option>
           </select>
         </div>
-        <button class="btn" type="submit">Filtrar</button>
+        <button class="btn" type="submit">Buscar</button>
+        <button class="btn copper" type="button" id="btn-nuevo-cli">+ Nuevo</button>
+        <div class="dl-menu">
+          <button type="button" class="btn secondary btn-dl" id="btn-dl-cli" title="Descargar listados">⬇ Descargar ▾</button>
+          <div class="dl-panel" id="dl-panel" hidden>
+            ${listas.map(([k, nom, tip]) => `
+              <a class="dl-item" href="/api/clientes.csv?lista=${k}" title="${esc(tip)}">
+                <strong>${esc(nom)}</strong>
+                <small>${esc(tip)}</small>
+              </a>`).join("")}
+            <button type="button" class="dl-item" id="btn-excel-cli" title="Subí un Excel para agregar o actualizar clientes sin borrar la base.">
+              <strong>Cargar Excel…</strong>
+              <small>Importar o actualizar clientes desde planilla</small>
+            </button>
+          </div>
+        </div>
       </form>
-      <table>
-        <thead><tr><th>Nombre</th><th>Dirección / CUIT</th><th>Tubos GN</th><th>Envases propios</th><th></th></tr></thead>
-        <tbody>
-          ${data.clientes.map((c) => `
-            <tr class="${c.activo ? "" : "muted"}">
-              <td><a href="#/clientes/${c.id}"><b>${esc(c.nombre)}</b></a></td>
-              <td>${esc(c.direccion || "—")}${c.cuit ? `<br><small>CUIT ${esc(c.cuit)}</small>` : ""}</td>
-              <td class="mono">${c.tubos_gn ?? 0}</td>
-              <td class="mono">${c.tubos_registrados_propios ?? 0}</td>
-              <td class="actions">
-                <a class="btn ghost" href="#/clientes/${c.id}">Abrir</a>
-                ${c.activo ? `<button class="btn danger ghost" type="button" data-del-cli="${c.id}">Baja</button>` : ""}
-              </td>
-            </tr>`).join("") || `<tr><td colspan="5" class="empty">No hay clientes.</td></tr>`}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Código</th><th>Nombre</th><th>Dirección / CUIT</th><th>Tubos GN</th><th>Envases propios</th><th></th></tr></thead>
+          <tbody>
+            ${data.clientes.map((c) => `
+              <tr class="${c.activo ? "" : "muted"}">
+                <td class="mono">${esc(c.codigo || "—")}</td>
+                <td><a href="#/clientes/${c.id}"><b>${esc(c.nombre)}</b></a></td>
+                <td>${esc(c.direccion || "—")}${c.cuit ? `<br><small>CUIT ${esc(c.cuit)}</small>` : ""}</td>
+                <td class="mono">${c.tubos_gn ?? 0}</td>
+                <td class="mono">${c.tubos_registrados_propios ?? 0}</td>
+                <td class="actions">
+                  <a class="btn ghost" href="#/clientes/${c.id}">Abrir</a>
+                  ${c.activo ? `<button class="btn danger ghost" type="button" data-del-cli="${c.id}">Baja</button>` : ""}
+                </td>
+              </tr>`).join("") || `<tr><td colspan="6" class="empty">${q ? "No hay clientes con ese dato." : "Escribí para buscar o mirá los primeros de la lista."}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </div>`;
   $("#f-cli-q").onsubmit = (e) => {
     e.preventDefault();
@@ -1979,25 +2278,36 @@ async function vistaClientes(params) {
     if (fd.get("inactivos") === "1") parts.push("inactivos=1");
     location.hash = "#/clientes" + (parts.length ? "?" + parts.join("&") : "");
   };
+  const panel = $("#dl-panel");
+  $("#btn-dl-cli").onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    panel.hidden = !panel.hidden;
+  };
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  const cerrarDl = () => { panel.hidden = true; };
+  setTimeout(() => document.addEventListener("click", cerrarDl, { once: true }), 0);
+  $("#btn-excel-cli")?.addEventListener("click", abrirAyudaExcelClientes);
   $("#btn-nuevo-cli").onclick = () => {
-      abrirModal(`
+    abrirModal(`
       <h2>Nuevo cliente</h2>
       <form id="form-cli-nuevo" class="grid form">
         <div class="field full"><label>Nombre</label><input name="nombre" required autocomplete="organization"></div>
+        <div class="field"><label>Código</label><input name="codigo" placeholder="Vacío = el siguiente"></div>
         <div class="field full"><label>Dirección</label><input name="direccion" required autocomplete="street-address"></div>
         <div class="field full"><label>CUIT</label><input name="cuit" required inputmode="numeric" autocomplete="off"></div>
         <div class="field full"><button class="btn copper" type="submit">Crear cliente</button></div>
-        </form>`);
+      </form>`);
     $("#form-cli-nuevo").onsubmit = async (e) => {
-        e.preventDefault();
+      e.preventDefault();
       try {
         const r = await api("/api/clientes", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
         cerrarModal();
         toast("Cliente creado");
         await cargarCatalogos();
         location.hash = "#/clientes/" + r.cliente.id;
-        } catch (err) { toast(err.message, true); }
-      };
+      } catch (err) { toast(err.message, true); }
+    };
   };
   app().querySelectorAll("[data-del-cli]").forEach((btn) => {
     btn.onclick = async () => {
@@ -2109,12 +2419,12 @@ async function vistaOperaciones(params) {
             <tbody></tbody>
           </table>
         </div>
-          <button class="btn copper" type="submit">Registrar envío a planta</button>
+        <button class="btn copper" type="submit">Registrar envío a planta</button>
         <details style="margin-top:16px">
           <summary>Elegir de la lista (en empresa)</summary>
           <div class="toolbar" style="margin-top:8px">
             <div class="field"><label>Filtrar</label><input id="op-q" value="${esc(q)}" placeholder="Número / lote"></div>
-        </div>
+          </div>
           ${tablaTubos(lista, { check: true })}
         </details>
       </form>`;
@@ -2468,7 +2778,7 @@ async function vistaInforme(params) {
       <button class="btn secondary" type="button" onclick="window.print()">Imprimir</button>
     </form>
     <div class="report card" id="informe">
-      <img class="report-logo" src="/static/img/logo.png?v=4" alt="Gasonor SRL" />
+      <img class="report-logo" src="/interno/img/logo.png?v=30" alt="Gasonor SRL" />
       <div class="report-head">
         <div>[ ${esc(cfg.codigo_informe || "InfTubo5")} * ]</div>
         <div>${stamp} &nbsp; Pág. 1</div>
@@ -2571,6 +2881,36 @@ async function vistaConfig() {
         <div class="field"><label>Título del listado</label><input name="titulo_informe" value="${esc(cfg.titulo_informe || "")}"></div>
         <div class="field full"><button class="btn" type="submit">Guardar</button></div>
       </form>
+    </div>
+    <div class="card" style="max-width:720px;margin-top:16px">
+      <h2 style="margin-top:0">AFIP / ARCA</h2>
+      <p class="lead">Para emitir en blanco. El certificado y la clave los da AFIP al habilitar factura electrónica. Mientras no estén cargados, el cobro en blanco queda guardado y se puede emitir después.</p>
+      <form id="form-afip" class="grid form">
+        <div class="field"><label>CUIT emisor</label><input name="afip_cuit" value="${esc(cfg.afip_cuit || cfg.cuit || "")}" placeholder="30-00000000-0"></div>
+        <div class="field"><label>Punto de venta</label><input name="afip_pto_vta" value="${esc(cfg.afip_pto_vta || "1")}"></div>
+        <div class="field"><label>Condición</label>
+          <select name="afip_condicion">
+            <option value="responsable_inscripto" ${String(cfg.afip_condicion || "").includes("mono") ? "" : "selected"}>Responsable inscripto</option>
+            <option value="monotributo" ${String(cfg.afip_condicion || "").includes("mono") ? "selected" : ""}>Monotributo (factura C)</option>
+          </select>
+        </div>
+        <div class="field"><label>Ambiente</label>
+          <select name="afip_ambiente">
+            <option value="homo" ${cfg.afip_ambiente === "prod" ? "" : "selected"}>Homologación (pruebas)</option>
+            <option value="prod" ${cfg.afip_ambiente === "prod" ? "selected" : ""}>Producción</option>
+          </select>
+        </div>
+        <div class="field full"><label>Certificado (.crt)</label>
+          <textarea name="afip_cert" rows="4" placeholder="${cfg.afip_cert_ok ? "Certificado cargado. Pegá otro solo si lo vas a cambiar." : "Pegá el PEM del certificado"}"></textarea>
+        </div>
+        <div class="field full"><label>Clave privada (.key)</label>
+          <textarea name="afip_key" rows="4" placeholder="${cfg.afip_key_ok ? "Clave cargada. Pegá otra solo si la vas a cambiar." : "Pegá el PEM de la clave privada"}"></textarea>
+        </div>
+        <div class="field full toolbar">
+          <button class="btn" type="submit">Guardar AFIP</button>
+          <button class="btn secondary" type="button" id="btn-afip-probar">Probar conexión</button>
+        </div>
+      </form>
       <p class="lead">Respaldo: descargue una copia de la base o un archivo JSON.</p>
       <div class="toolbar">
         <a class="btn secondary" href="/api/respaldo.db">Descargar base de datos</a>
@@ -2583,6 +2923,21 @@ async function vistaConfig() {
       await api("/api/config", { method: "PUT", body: Object.fromEntries(new FormData(e.target)) });
       await cargarCatalogos();
       toast("Datos de empresa guardados");
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#form-afip").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("/api/config", { method: "PUT", body: Object.fromEntries(new FormData(e.target)) });
+      await cargarCatalogos();
+      toast("Configuración de AFIP guardada");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#btn-afip-probar").onclick = async () => {
+    try {
+      const r = await api("/api/afip/probar", { method: "POST", body: {} });
+      toast("AFIP respondió (" + (r.ambiente || "") + ")");
     } catch (err) { toast(err.message, true); }
   };
 }
@@ -2960,7 +3315,7 @@ async function elegirProveedor(modo) {
   setNav("envios");
   if (modo === "recepcion") {
     const data = await api("/api/planta/resumen");
-  app().innerHTML = `
+    app().innerHTML = `
       <h1>Recepción de planta</h1>
       <p class="lead">${rolActual() === "despacho"
         ? "En el celular: escaneá los tubos que vuelven. Se guarda un registro pendiente; administración completa los lotes en la PC."
@@ -3493,7 +3848,7 @@ function modalRegistrarDesdeScan(codigoLeido, claveLista, opts = {}) {
         <strong class="mono">${esc(t.numero)}</strong>
         · ${esc(t.articulo_descripcion || t.grupo || "")}
         <small style="display:block;opacity:.75">${esc(ESTADOS[t.estado] || t.estado)} · prov ${esc(t.codigo_proveedor || "—")}</small>
-    </li>`).join("");
+      </li>`).join("");
     ul.hidden = false;
     ul.querySelectorAll("li[data-id]").forEach((li) => {
       li.onclick = () => {
@@ -3635,8 +3990,8 @@ async function procesarCodigo(codigo, modo, proveedorId) {
         codigo,
       );
       if (ok) modalRegistrarDesdeScan(codigo, clave, { contexto: "planta" });
-        return;
-      }
+      return;
+    }
     if ((r.resultado === "ok" || r.resultado === "advertencia") && r.tubo) {
       if (modo === "despacho" && debeConfirmarDespacho(r)) {
         const sigue = await confirmarAdvertenciaDespacho(r);
@@ -3662,16 +4017,16 @@ async function procesarCodigo(codigo, modo, proveedorId) {
       return;
     }
     scanSafe("beep", "fail");
-      const msgs = {
+    const msgs = {
       no_encontrado: modo === "recepcion"
         ? "No está despachado a planta. Solo se recepcionan tubos que ya se enviaron."
         : "No está en el sistema",
-        ya_en_planta: "Ese tubo ya está en planta",
-        estado_invalido: "El tubo no está en empresa",
+      ya_en_planta: "Ese tubo ya está en planta",
+      estado_invalido: "El tubo no está en empresa",
       no_en_planta: "Ese tubo no figura en planta: hay que despacharlo primero",
       otro_proveedor: "Está en " + (r.tubo?.proveedor_nombre || "otra planta") + ". Entrá a recepción de esa planta.",
       ya_escaneado: "Ya está en un escaneo pendiente" + (r.remito ? " (remito " + r.remito + ")" : "") + ". Administración debe completar los lotes.",
-      };
+    };
     const msg = msgs[r.resultado] || r.mensaje || "No se pudo leer";
     scanSafe("showLast", codigo + " — " + msg, "fail");
     toast(msg, true);
@@ -3686,7 +4041,7 @@ async function vistaScan(modo, proveedorId) {
   setNav("envios");
   restoreScanLista({ modo, proveedor: proveedorId });
   if (state.scanModo !== modo || String(state.scanProveedor) !== String(proveedorId)) {
-  state.scanLista = [];
+    state.scanLista = [];
     state.scanModo = modo;
     state.scanProveedor = proveedorId;
     clearScanPersist();
@@ -3756,7 +4111,7 @@ async function vistaScan(modo, proveedorId) {
     if (!directo) {
       persistScanLista();
       scanSafe("stop");
-    location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
+      location.hash = `#/planta/${modo}/${proveedorId}/confirmar`;
       return;
     }
     const btn = $("#btn-seguir");
@@ -3937,7 +4292,7 @@ async function vistaConfirmarPlanta(modo, proveedorId) {
       if (r.borrador || r.estado === "borrador") {
         toast(`Escaneo guardado: ${r.cantidad} tubo(s). Quedó para completar en la PC.`);
       } else {
-      toast(`Guardado: ${r.cantidad} tubo(s)`);
+        toast(`Guardado: ${r.cantidad} tubo(s)`);
       }
       state.scanLista = [];
       state.scanModo = null;
@@ -4013,7 +4368,7 @@ async function vistaCompletarRecepciones() {
         await api("/api/planta/documentos/" + b.dataset.delDoc, { method: "DELETE" });
         toast("Comprobante eliminado");
         vistaCompletarRecepciones();
-    } catch (err) { toast(err.message, true); }
+      } catch (err) { toast(err.message, true); }
     };
   });
 }
@@ -4701,21 +5056,83 @@ function avanceReparto(r) {
   };
 }
 
+function htmlTrackingChoferes(data) {
+  const lista = data?.choferes || [];
+  if (!lista.length) {
+    return `<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">Choferes</h3><p class="empty">No hay usuarios con rol reparto.</p></div>`;
+  }
+  return `<div class="card" style="margin-bottom:14px">
+    <h3 style="margin-top:0">Dónde están los repartidores</h3>
+    <p class="lead">Cada vez que el chofer usa la app queda la hora y la posición. El listado es el recorrido del ${esc(fmtFecha(data.fecha))}.</p>
+    ${lista.map((c) => {
+      const u = c.ultimo;
+      const deEsteDia = String(u?.registrado_en || "").slice(0, 10) === String(data.fecha || "");
+      const mapa = u ? `https://www.google.com/maps?q=${encodeURIComponent(u.lat + "," + u.lng)}` : "";
+      const puntos = c.puntos || [];
+      return `<div style="margin-top:12px">
+        <strong>${esc(c.nombre)}</strong>
+        <p class="lead" style="margin:4px 0">${c.uso
+          ? `Abrió la app: ${esc(fmtFecha(c.uso.registrado_en))} ${esc(String(c.uso.registrado_en).slice(11, 16))}`
+          : "Todavía no abrió la app."}</p>
+        <p class="lead" style="margin:4px 0">${u
+          ? `Última ubicación: ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}${deEsteDia ? "" : " · no es de esta fecha"}`
+          : "Abrió la app, pero el celular no mandó la posición."}</p>
+        <p><a class="btn copper" href="#/reparto/mapa?chofer=${c.id}&fecha=${esc(data.fecha || "")}">Ver recorrido en el mapa</a>
+        ${mapa ? `<a class="btn secondary" href="${esc(mapa)}" target="_blank" rel="noopener">Última posición en Maps</a>` : ""}</p>
+        ${puntos.length
+          ? `<p class="lead" style="margin:6px 0">${c.n} registro${c.n === 1 ? "" : "s"} en el día</p>
+             ${puntos.slice(-8).map((p) => `<div class="track-punto"><span class="mono">${esc(String(p.registrado_en).slice(11, 16))}</span><a href="https://www.google.com/maps?q=${encodeURIComponent(p.lat + "," + p.lng)}" target="_blank" rel="noopener">Ver punto</a></div>`).join("")}`
+          : `<p class="empty">Sin recorrido en esta fecha.</p>`}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function htmlRepartoSubnav(activo) {
+  if (!puede("admin")) return "";
+  return `
+    <div class="tabs repto-tabs">
+      <a class="${activo === "lista" ? "active" : ""}" href="#/reparto">📋 Hojas de ruta</a>
+      <a class="${activo === "mapa" ? "active" : ""}" href="#/reparto/mapa">📍 Localizar camión</a>
+      <a class="${activo === "permisos" ? "active" : ""}" href="#/reparto/permisos">⚙️ Qué ve el chofer</a>
+      <a class="${activo === "nuevo" ? "active" : ""}" href="#/reparto/nuevo">➕ Armar del día</a>
+    </div>`;
+}
+
 async function vistaReparto(params) {
   setNav("reparto");
   const id = params.get("ver");
   if (id) return vistaRepartoDetalle(id);
-  const data = await api("/api/repartos");
+  if (params.get("editar")) return vistaRepartoNuevo(params);
+  const [data, track] = await Promise.all([
+    api("/api/repartos"),
+    puede("admin") ? api("/api/reparto/tracking?fecha=" + hoyInput()).catch(() => null) : Promise.resolve(null),
+  ]);
   const incompletos = (data.repartos || []).filter((r) => !avanceReparto(r).ok);
   app().innerHTML = `
     <h1>Reparto</h1>
-    ${puede("admin") ? `<div class="toolbar"><a class="btn copper" href="#/reparto/nuevo">Armar reparto del día</a>
-      <a class="btn" href="#/reparto/mapa">Recorrido del chofer</a>
-      <a class="btn ghost" href="#/reparto/permisos">Qué puede ver el chofer</a></div>` : ""}
+    ${htmlRepartoSubnav("lista")}
+    ${puede("admin") && track ? `
+      <div class="card" style="margin-bottom:12px">
+        <div class="toolbar" style="justify-content:space-between;align-items:center">
+          <div>
+            <strong>📍 Camión / chofer</strong>
+            <p class="lead" style="margin:4px 0 0">Últimas ubicaciones de hoy. Abrí el mapa para ver el recorrido.</p>
+          </div>
+          <a class="btn copper" href="#/reparto/mapa">Localizar en el mapa</a>
+        </div>
+        ${(track.choferes || []).slice(0, 3).map((c) => {
+          const u = c.ultimo;
+          return `<p style="margin:8px 0 0"><b>${esc(c.nombre)}</b> · ${u
+            ? `última posición ${esc(fmtFecha(u.registrado_en))} ${esc(String(u.registrado_en).slice(11, 16))}`
+            : "sin GPS todavía"} · <a href="#/reparto/mapa?chofer=${c.id}">Ver</a></p>`;
+        }).join("") || `<p class="empty">No hay choferes de reparto.</p>`}
+      </div>` : ""}
+    ${puede("admin") ? `<div class="toolbar"><a class="btn copper" href="#/reparto/nuevo">Armar reparto del día</a></div>` : ""}
     ${incompletos.length
-      ? `<div class="alerta-reparto" role="alert">⚠ ${incompletos.length} reparto(s) con paradas sin marcar como hechas por el chofer.</div>`
+      ? `<div class="alerta-reparto" role="alert">⚠ ${incompletos.length} reparto(s) con paradas sin marcar como hechas.</div>`
       : ""}
-    <div class="card">
+    <div class="card table-wrap">
       ${data.repartos.length ? `<table>
         <thead><tr><th>Fecha</th><th>Chofer</th><th>Estado</th><th>Paradas</th><th>Avance</th><th></th></tr></thead>
         <tbody>${data.repartos.map((r) => {
@@ -4727,11 +5144,25 @@ async function vistaReparto(params) {
             <td>${esc(r.estado)}</td>
             <td class="mono">${Number(r.paradas_hechas || 0)}/${Number(r.paradas_total || 0)}</td>
             <td><span class="badge ${av.clase}">${esc(av.texto)}</span></td>
-            <td><a class="btn" href="#/reparto?ver=${r.id}">Abrir</a></td>
+            <td class="actions">
+              <a class="btn" href="#/reparto?ver=${r.id}">Abrir</a>
+              ${puede("admin") ? `<a class="btn ghost" href="#/reparto/editar/${r.id}">Editar</a>` : ""}
+              ${!av.ok ? `<button type="button" class="btn secondary" data-rep-ok="${r.id}">✓ Completar</button>` : ""}
+            </td>
           </tr>`;
         }).join("")}</tbody>
       </table>` : `<p class="empty">No hay repartos cargados.</p>`}
     </div>`;
+  app().querySelectorAll("[data-rep-ok]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("¿Marcar todo el reparto como completado?")) return;
+      try {
+        await api("/api/repartos/" + b.dataset.repOk + "/completar", { method: "PUT", body: { completado: true } });
+        toast("Reparto marcado como completado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
 }
 
 function horaCorta(ts) {
@@ -4778,10 +5209,11 @@ async function vistaRepartoDetalle(id) {
     const total = (data.paradas || []).length;
     const faltan = Math.max(0, total - hechas);
     const completo = total > 0 && faltan === 0;
-  app().innerHTML = `
-    <h1>Hoja de ruta ${fmtFecha(r.fecha)}</h1>
+    app().innerHTML = `
+      <h1>Hoja de ruta ${fmtFecha(r.fecha)}</h1>
       <p class="lead">${esc(r.chofer || "Sin chofer asignado")}${r.observaciones ? " · " + esc(r.observaciones) : ""}</p>
       <p class="lead"><strong>${hechas}/${total}</strong> paradas hechas · ${esc(r.estado || "")}</p>
+      ${!esCelular() ? `<p class="lead">El despacho y la recepción de cada parada los hace el chofer desde el celular.</p>` : ""}
       ${total && !completo
         ? `<div class="alerta-reparto" role="alert">⚠ Advertencia: ${esc(r.chofer || "el chofer")} no marcó todas las paradas. Faltan <strong>${faltan}</strong> de ${total}.</div>`
         : completo
@@ -4791,24 +5223,24 @@ async function vistaRepartoDetalle(id) {
       ${(data.paradas || []).map((p, i) => `
         <div class="card parada-card ${p.completada ? "hecha" : "pendiente"}" style="margin-bottom:12px">
           <div class="parada-top">
-        <h3>${i + 1}. ${esc(p.nombre)}</h3>
+            <h3>${i + 1}. ${esc(p.nombre)}</h3>
             ${p.completada
               ? `<span class="badge badge-okfact">Hecha ${horaCorta(p.completada_en)}</span>`
               : `<span class="badge badge-warn-rep">Pendiente</span>`}
           </div>
           ${!p.completada ? `<p class="parada-aviso-pend">Esta parada aún no fue marcada como completada.</p>` : ""}
           ${htmlResumenTubosParada(p)}
-        ${p.direccion ? `<p>${esc(p.direccion)} ${esc(p.localidad || "")}</p>` : ""}
+          ${p.direccion ? `<p>${esc(p.direccion)} ${esc(p.localidad || "")}</p>` : ""}
           ${p.telefono ? `<p>Tel: <a href="tel:${esc(p.telefono)}">${esc(p.telefono)}</a></p>` : ""}
           ${htmlMapaParada(p)}
-          ${p.cliente_id && puede("admin", "reparto") ? `
+          ${p.cliente_id && esCelular() && puede("admin", "reparto") ? `
             <div class="parada-ops">
               <a class="btn btn-parada-despacho" href="#/cliente/despacho/${p.cliente_id}">Despacho a este cliente</a>
               ${(Number(p.tubos_gn || 0) + Number(p.tubos_propios || 0)) > 0
                 ? `<a class="btn btn-parada-recepcion" href="#/cliente/recepcion/${p.cliente_id}">Recepción de este cliente</a>`
                 : `<span class="btn btn-parada-recepcion off" title="Sin tubos en su poder">Sin tubos para recibir</span>`}
             </div>` : ""}
-        <ul>${(p.tareas || []).map((t) => `<li>${esc({ recarga_propios: "Recarga envases propios", recambio_gn: "Recambio GN", retiro_equipo: "Retiro de equipo", entrega_equipo: "Entrega de equipo", tarea: "Tarea" }[t.tipo] || t.tipo)}${t.detalle ? " — " + esc(t.detalle) : ""}</li>`).join("")}</ul>
+          <ul>${(p.tareas || []).map((t) => `<li>${esc({ recarga_propios: "Recarga envases propios", recambio_gn: "Recambio GN", retiro_equipo: "Retiro de equipo", entrega_equipo: "Entrega de equipo", tarea: "Tarea" }[t.tipo] || t.tipo)}${t.detalle ? " — " + esc(t.detalle) : ""}</li>`).join("")}</ul>
           ${p.tubos && p.tubos.length ? `<p class="lead">Detalle: ${p.tubos.map((t) => esc(t.numero)).join(", ")}</p>` : ""}
           <div class="field parada-comentario">
             <label>Comentario / nota (opcional)</label>
@@ -4820,7 +5252,7 @@ async function vistaRepartoDetalle(id) {
                 <button type="button" class="btn ghost" data-parada="${p.id}" data-ok="0">Desmarcar</button>
                </div>`
             : `<button type="button" class="btn btn-parada-ok" data-parada="${p.id}" data-ok="1">✓ Ya pasé · Hecho</button>`}
-      </div>`).join("") || `<p class="empty">Sin paradas.</p>`}`;
+        </div>`).join("") || `<p class="empty">Sin paradas.</p>`}`;
     const leerNota = (pid) => {
       const ta = app().querySelector(`textarea[data-comentario="${pid}"]`);
       return ta ? String(ta.value || "").trim() : "";
@@ -4864,12 +5296,17 @@ async function vistaRepartoDetalle(id) {
 
 async function vistaRepartoNuevo() {
   setNav("reparto");
-  const [usus, campos] = await Promise.all([api("/api/usuarios").catch(() => ({ usuarios: [] })), api("/api/reparto/campos")]);
+  const [usus, campos, track] = await Promise.all([
+    api("/api/usuarios").catch(() => ({ usuarios: [] })),
+    api("/api/reparto/campos"),
+    api("/api/reparto/tracking?fecha=" + hoyInput()).catch(() => null),
+  ]);
   const choferes = (usus.usuarios || []).filter((u) => u.rol === "reparto" || u.rol === "admin");
   state._paradas = [];
   app().innerHTML = `
     <h1>Armar reparto del día</h1>
     <p><a href="#/reparto">← Repartos</a> · <a href="#/reparto/mapa">Ver recorrido en el mapa</a></p>
+    <div id="track-box">${track ? htmlTrackingChoferes(track) : ""}</div>
     <form id="form-rep" class="card grid form">
       <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}"></div>
       <div class="field"><label>Chofer / reparto</label>
@@ -4915,6 +5352,12 @@ async function vistaRepartoNuevo() {
     });
   };
   pintar();
+  const fechaRep = $("#form-rep")?.querySelector("[name=fecha]");
+  if (fechaRep) fechaRep.onchange = async () => {
+    const t = await api("/api/reparto/tracking?fecha=" + encodeURIComponent(fechaRep.value || hoyInput())).catch(() => null);
+    const box = $("#track-box");
+    if (box && t) box.innerHTML = htmlTrackingChoferes(t);
+  };
   $("#add-par").onsubmit = async (e) => {
     e.preventDefault();
     const q = $("#q-cli").value.trim();
@@ -4980,7 +5423,11 @@ function cajaInicial() {
     chequeId: null,
     chequesCartera: null,
     filtroHoy: "",
+    histAbierto: false,
     ultimaId: null,
+    items: [],
+    fiscal: "negro",
+    cbte: "factura_b",
     precios: [],
     ventas: [],
     resumen: {},
@@ -5066,9 +5513,28 @@ function totalListaCaja() {
   return Math.round(Number(c.cantidad) * Number(p.precio) * 100) / 100;
 }
 
+function totalItemsCaja() {
+  return Math.round(((state.caja && state.caja.items) || []).reduce((s, it) => s + Number(it.total || 0), 0) * 100) / 100;
+}
+
+function totalSeleccionCaja() {
+  const c = state.caja;
+  if (!c || !c.gas || (c.modo !== "gas" && c.modo !== "regulador")) return 0;
+  const p = precioCaja(c.modo, c.gas);
+  if (!p) return 0;
+  return Math.round(Number(c.cantidad || 0) * Number(p.precio || 0) * 100) / 100;
+}
+
 function totalCaja() {
   const c = state.caja;
   if (!c) return 0;
+  if ((c.items || []).length && (c.modo === "gas" || c.modo === "regulador")) {
+    if (c.totalOverride != null && String(c.totalOverride).trim() !== "") {
+      const n = parseMonto(c.totalOverride);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    return Math.round((totalItemsCaja() + totalSeleccionCaja()) * 100) / 100;
+  }
   if (c.modo === "gas" || c.modo === "regulador") {
     if (c.totalOverride != null && String(c.totalOverride).trim() !== "") {
       const n = parseMonto(c.totalOverride);
@@ -5089,6 +5555,8 @@ function leerCajaDom() {
     const raw = String(t.value || "").trim();
     c.totalOverride = raw || null;
   }
+  const cbte = $("#caja-cbte");
+  if (cbte) c.cbte = cbte.value;
   const cant = $("#caja-cant");
   if (cant && (c.modo === "gas" || c.modo === "regulador")) {
     const n = parseMonto(cant.value);
@@ -5141,16 +5609,16 @@ function htmlCantidad(esGas) {
 function htmlCliente() {
   const c = state.caja.cliente;
   if (c) {
-    return `<div class="cliente-elegido"><div><strong>${esc(c.nombre)}</strong><br><small>${esc(c.cuit || "")}</small></div>
+    return `<div class="cliente-elegido"><div><strong>${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</strong><br><small>${esc(c.cuit || "")}</small></div>
       <button type="button" class="btn ghost" data-act="quitar-cli">Cambiar</button></div>`;
   }
   const recientes = state.caja.recientes || [];
   return `
     <p class="caja-label">Cliente</p>
     ${recientes.length ? `<div class="cant-rapida clientes-rapidos">${recientes.map((r) => `
-      <button type="button" class="btn big-soft" data-act="cli" data-id="${r.id}" data-nombre="${esc(r.nombre)}" data-cuit="${esc(r.cuit || "")}" data-dir="${esc(r.direccion || "")}">${esc(r.nombre)}</button>
+      <button type="button" class="btn big-soft" data-act="cli" data-id="${r.id}" data-nombre="${esc(r.nombre)}" data-cuit="${esc(r.cuit || "")}" data-dir="${esc(r.direccion || "")}" data-codigo="${esc(r.codigo || "")}">${r.codigo ? esc(r.codigo) + " · " : ""}${esc(r.nombre)}</button>
     `).join("")}</div>` : ""}
-    <div class="field"><label>Buscar por nombre o CUIT</label>
+    <div class="field"><label>Buscar por código, nombre o CUIT</label>
       <input id="cli-q" type="search" placeholder="Escribí para buscar" autocomplete="off">
     </div>
     <div id="cli-res" class="cant-rapida clientes-rapidos"></div>
@@ -5164,14 +5632,61 @@ function htmlCliente() {
 
 function htmlFacturarCaja() {
   if (state.caja.modo === "salida") return "";
-  const on = state.caja.facturar;
+  const f = state.caja.fiscal || "negro";
+  const cbte = state.caja.cbte || "factura_b";
   return `
-    <div class="facturar-mini-wrap">
-      <button type="button" class="btn btn-fact-mini ${on ? "on" : ""}" data-act="facturar">
-        ${on ? "✓ Con factura" : "Facturar"}
-      </button>
+    <div class="fiscal-switch">
+      <button type="button" class="btn big-soft ${f === "negro" ? "on" : ""}" data-act="fiscal" data-f="negro">En negro</button>
+      <button type="button" class="btn big-soft ${f === "blanco" ? "on" : ""}" data-act="fiscal" data-f="blanco">En blanco (AFIP)</button>
     </div>
-    ${on ? htmlCliente() : ""}`;
+    ${f === "blanco" ? `
+      <div class="field"><label>Comprobante AFIP</label>
+        <select id="caja-cbte">
+          <option value="factura_a" ${cbte === "factura_a" ? "selected" : ""}>Factura A</option>
+          <option value="factura_b" ${cbte === "factura_b" ? "selected" : ""}>Factura B</option>
+          <option value="factura_c" ${cbte === "factura_c" ? "selected" : ""}>Factura C</option>
+        </select>
+      </div>
+      ${htmlCliente()}
+    ` : ""}`;
+}
+
+function htmlTicket() {
+  const items = state.caja.items || [];
+  if (!items.length) {
+    return `<p class="lead caja-hint">Sumá cada gas al ticket. Un argón y un oxígeno salen en el mismo cobro.</p>`;
+  }
+  return `<div class="ticket-caja">
+    <p class="caja-label">Ticket</p>
+    ${items.map((it, i) => `<div class="ticket-line">
+      <span>${esc(it.descripcion)}</span>
+      <strong>${money(it.total)}</strong>
+      <button type="button" class="btn ghost" data-act="quitar-item" data-i="${i}">Quitar</button>
+    </div>`).join("")}
+  </div>`;
+}
+
+function lineaDesdeSeleccion() {
+  const c = state.caja;
+  if (!c || (c.modo !== "gas" && c.modo !== "regulador") || !c.gas) return null;
+  const p = precioCaja(c.modo, c.gas);
+  if (!p || Number(p.precio) <= 0) {
+    toast("Falta el precio de ese gas", true);
+    return null;
+  }
+  const cant = Number(c.cantidad) || 1;
+  const nombre = String(p.nombre || "");
+  const desc = c.modo === "gas"
+    ? `${nombre} ${fmtCantCaja(cant)} ${unidadGasCaja(p)}`
+    : `${nombre} x ${fmtCantCaja(cant)}`;
+  return {
+    tipo: c.modo,
+    gas: c.gas,
+    descripcion: desc,
+    cantidad: cant,
+    precio: Number(p.precio),
+    total: Math.round(cant * Number(p.precio) * 100) / 100,
+  };
 }
 
 function htmlPad() {
@@ -5186,8 +5701,8 @@ function htmlPad() {
 function htmlAccionCobrar() {
   const c = state.caja;
   if (c.modo === "gas" || c.modo === "regulador") {
-    if (!c.gas) return "";
-    const lista = totalListaCaja();
+    if (!c.gas && !(c.items || []).length) return "";
+    const lista = (c.items || []).length ? Math.round((totalItemsCaja() + totalSeleccionCaja()) * 100) / 100 : totalListaCaja();
     const total = totalCaja();
     const totalTxt = String(total).replace(".", ",");
     const ajustado = Math.abs(total - lista) > 0.009;
@@ -5224,7 +5739,9 @@ function htmlPanelCaja() {
   if (c.modo === "gas" || c.modo === "regulador") {
     return `
       ${htmlGases(c.modo)}
-      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas</p>`}
+      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas y sumalo al ticket</p>`}
+      ${c.gas ? `<button type="button" class="btn copper" data-act="sumar">Sumar al ticket</button>` : ""}
+      ${htmlTicket()}
       ${htmlAccionCobrar()}`;
   }
   if (c.modo === "general") {
@@ -5250,6 +5767,7 @@ function htmlPanelCaja() {
 
 function etiquetaMov(v) {
   if (v.tipo === "salida") return `<span class="badge badge-salida">Salida</span>`;
+  if (v.afip_cae) return `<span class="badge badge-okfact">AFIP ${esc(v.afip_numero || "")}</span>`;
   if (v.estado_factura === "pendiente") return `<span class="badge badge-fact">Para facturar</span>`;
   if (v.estado_factura === "facturado") return `<span class="badge badge-okfact">Facturado</span>`;
   return `<span class="badge">Contado</span>`;
@@ -5264,17 +5782,17 @@ function pintarCobrar() {
     ["salida", "Salida"],
   ];
   const todas = c.ventas || [];
-  const pendientes = todas.filter((v) => v.estado_factura === "pendiente");
-  const lista = c.filtroHoy === "pendiente" ? pendientes : todas;
-  const ultimaId = c.ultimaId || (todas[0] && todas[0].id);
+  const deHoy = todas.filter((v) => v.fecha === hoyInput());
+  const ultimaId = c.ultimaId || (deHoy[0] && deHoy[0].id);
+  const abierto = !!c.histAbierto;
   app().innerHTML = `
-    <div class="caja-screen">
+    <div class="caja-screen ${abierto ? "" : "hist-cerrado"}">
       <div class="caja-cobro">
         <div class="caja-cobro-head">
           <h1 class="caja-title">Cobrar</h1>
           <div class="caja-head-links">
             ${rolActual() === "admin" || esCelular() ? `
-              <a class="btn secondary btn-caja-fact" href="#/facturacion">Facturación</a>
+              <a class="btn secondary btn-caja-fact" href="#/ventas">🧾 Ventas</a>
               <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
               <a class="btn secondary btn-caja-fact" href="#/facturar">Nueva factura</a>
               <a class="btn secondary btn-caja-fact" href="#/cheques?estado=en_cartera">Cheques</a>
@@ -5290,16 +5808,12 @@ function pintarCobrar() {
           ${htmlPanelCaja()}
         </div>
       </div>
-      <div class="card caja-historial">
-        <div class="caja-hist-head">
-          <h3>Historial del día <small>(${todas.length} · ${money(todas.filter((v) => v.tipo !== "salida").reduce((s, v) => s + Number(v.total || 0), 0) - todas.filter((v) => v.tipo === "salida").reduce((s, v) => s + Number(v.total || 0), 0))})</small></h3>
-          <div class="cant-rapida filtro-hoy">
-            <button type="button" class="btn secondary ${!c.filtroHoy ? "on" : ""}" data-act="filtro-hoy" data-filtro="">Todas (${todas.length})</button>
-            <button type="button" class="btn secondary ${c.filtroHoy === "pendiente" ? "on" : ""}" data-act="filtro-hoy" data-filtro="pendiente">A facturar (${pendientes.length})</button>
-          </div>
-        </div>
-        <ul class="lista-dia">
-          ${lista.map((v) => {
+      <div class="card caja-historial ${abierto ? "" : "cerrado"}">
+        <button type="button" class="btn secondary btn-hist" data-act="hist">
+          ${abierto ? "Ocultar" : "Ver"} movimientos de hoy (${deHoy.length})
+        </button>
+        ${abierto ? `<ul class="lista-dia">
+          ${deHoy.map((v) => {
             const esUltima = Number(v.id) === Number(ultimaId);
             const esPend = v.estado_factura === "pendiente";
             const clases = [
@@ -5312,7 +5826,7 @@ function pintarCobrar() {
               <div class="venta-dia-main">
                 <div>
                   ${esUltima ? `<span class="badge badge-ultima">Última</span> ` : ""}
-                  <strong>${esc(v.hora)}</strong> · ${esc(v.descripcion)}
+                  <strong>${esc(fmtFecha(v.fecha))} ${esc(v.hora)}</strong> · ${esc(v.descripcion)}
                   ${v.cliente_nombre ? `<br><small>${esc(v.cliente_nombre)}</small>` : ""}
                   ${v.medio_pago ? `<br><small>${esc(etiquetaMedio(v.medio_pago))}</small>` : ""}
                 </div>
@@ -5322,13 +5836,14 @@ function pintarCobrar() {
                 </div>
               </div>
               <div class="venta-dia-acciones">
+                <a class="btn copper" href="#/venta/${v.id}/imprimir">${v.tipo === "salida" ? "📄 OP" : "📄 PDF"}</a>
                 <button type="button" class="btn ghost" data-act="ed-v" data-id="${v.id}">Editar</button>
                 ${esPend ? `<button type="button" class="btn secondary" data-act="quit-fact" data-id="${v.id}">Quitar de facturar</button>` : ""}
                 <button type="button" class="btn ghost" data-act="del-v" data-id="${v.id}" style="color:#9b2c2c">Borrar</button>
               </div>
             </li>`;
-          }).join("") || `<li class="empty">Todavía no hay movimientos hoy.</li>`}
-        </ul>
+          }).join("") || `<li class="empty">Hoy no hay cobros grabados.</li>`}
+        </ul>` : ""}
       </div>
     </div>`;
   const root = app();
@@ -5354,11 +5869,11 @@ function pintarCobrar() {
         const s = q.value.trim();
         const box = $("#cli-res");
         if (!box) return;
-        if (s.length < 2) { box.innerHTML = ""; return; }
+        if (s.length < 1) { box.innerHTML = ""; return; }
         try {
           const res = await api("/api/clientes?q=" + encodeURIComponent(s));
           box.innerHTML = res.clientes.slice(0, 8).map((cli) => `
-            <button type="button" class="btn big-soft" data-act="cli" data-id="${cli.id}" data-nombre="${esc(cli.nombre)}" data-cuit="${esc(cli.cuit || "")}" data-dir="${esc(cli.direccion || "")}">${esc(cli.nombre)}</button>
+            <button type="button" class="btn big-soft" data-act="cli" data-id="${cli.id}" data-nombre="${esc(cli.nombre)}" data-cuit="${esc(cli.cuit || "")}" data-dir="${esc(cli.direccion || "")}" data-codigo="${esc(cli.codigo || "")}">${cli.codigo ? esc(cli.codigo) + " · " : ""}${esc(cli.nombre)}</button>
           `).join("") || `<p class="empty">No está en la lista. Usá Cliente nuevo.</p>`;
         } catch (err) { toast(err.message, true); }
       }, 250);
@@ -5373,16 +5888,23 @@ function onCajaClick(e) {
   const act = btn.dataset.act;
   const c = state.caja;
   if (act === "modo") {
+    const anterior = c.modo;
     c.modo = btn.dataset.modo;
     c.gas = null;
     c.cantidad = 1;
-    c.facturar = false;
-    c.cliente = null;
-    c.nuevo = false;
     c.monto = "";
     c.descripcion = "";
     c.totalOverride = null;
     c.chequeId = null;
+    const sigueTicket = (anterior === "gas" || anterior === "regulador") && (c.modo === "gas" || c.modo === "regulador");
+    if (!sigueTicket) {
+      c.items = [];
+      c.fiscal = "negro";
+      c.facturar = false;
+      c.cliente = null;
+      c.nuevo = false;
+    }
+    if (!["efectivo", "transferencia", "cheque", "tarjeta", "echeq"].includes(c.medioPago)) c.medioPago = "efectivo";
     if (c.modo === "salida" && !["efectivo", "transferencia", "cheque"].includes(c.medioPago)) c.medioPago = "efectivo";
     pintarCobrar();
   } else if (act === "medio") {
@@ -5395,8 +5917,8 @@ function onCajaClick(e) {
     const monto = btn.dataset.monto;
     if (monto != null && monto !== "") c.monto = String(monto).replace(".", ",");
     pintarCobrar();
-  } else if (act === "filtro-hoy") {
-    c.filtroHoy = btn.dataset.filtro || "";
+  } else if (act === "hist") {
+    c.histAbierto = !c.histAbierto;
     pintarCobrar();
   } else if (act === "ed-v") {
     const v = (c.ventas || []).find((x) => String(x.id) === String(btn.dataset.id));
@@ -5422,6 +5944,27 @@ function onCajaClick(e) {
         await vistaCobrar();
       } catch (err) { toast(err.message, true); }
     })();
+  } else if (act === "sumar") {
+    const linea = lineaDesdeSeleccion();
+    if (!linea) return;
+    c.items = c.items || [];
+    c.items.push(linea);
+    c.gas = null;
+    c.cantidad = 1;
+    c.totalOverride = null;
+    pintarCobrar();
+  } else if (act === "quitar-item") {
+    c.items.splice(Number(btn.dataset.i), 1);
+    c.totalOverride = null;
+    pintarCobrar();
+  } else if (act === "fiscal") {
+    c.fiscal = btn.dataset.f === "blanco" ? "blanco" : "negro";
+    c.facturar = c.fiscal === "blanco";
+    if (c.fiscal !== "blanco") {
+      c.cliente = null;
+      c.nuevo = false;
+    }
+    pintarCobrar();
   } else if (act === "gas") {
     c.gas = btn.dataset.gas;
     c.totalOverride = null;
@@ -5451,6 +5994,7 @@ function onCajaClick(e) {
       nombre: btn.dataset.nombre,
       cuit: btn.dataset.cuit || "",
       direccion: btn.dataset.dir || "",
+      codigo: btn.dataset.codigo || "",
     };
     c.nuevo = false;
     pintarCobrar();
@@ -5490,18 +6034,41 @@ async function cargarChequesSalida() {
 async function grabarCaja() {
   leerCajaDom();
   const c = state.caja;
-  if ((c.modo === "gas" || c.modo === "regulador") && !c.gas) {
-    toast("Elegí el gas", true);
-    return;
+  if (c.modo === "gas" || c.modo === "regulador") {
+    const extra = lineaDesdeSeleccion();
+    if (extra) {
+      c.items = c.items || [];
+      c.items.push(extra);
+      c.gas = null;
+    }
+    if (!(c.items || []).length) {
+      toast("Sumá al menos un ítem", true);
+      return;
+    }
   }
   const body = {
     tipo: c.modo,
     gas: c.gas,
     cantidad: c.cantidad,
-    facturar: c.facturar && c.modo !== "salida",
+    facturar: c.fiscal === "blanco" && c.modo !== "salida",
+    fiscal: c.fiscal === "blanco" ? "afip" : "interno",
+    cbte: c.cbte || "factura_b",
     descripcion: c.descripcion,
     medio_pago: c.medioPago || "efectivo",
   };
+  if ((c.modo === "gas" || c.modo === "regulador") && (c.items || []).length) {
+    body.items = c.items.map((it) => ({
+      tipo: it.tipo,
+      gas: it.gas,
+      cantidad: it.cantidad,
+      descripcion: it.descripcion,
+    }));
+    body.total = totalCaja();
+    if (body.total <= 0) {
+      toast("Indicá el total a cobrar", true);
+      return;
+    }
+  }
   if (c.modo === "salida" && c.medioPago === "cheque") {
     if (!c.chequeId) {
       toast("Elegí el cheque de la cartera", true);
@@ -5534,7 +6101,9 @@ async function grabarCaja() {
   try {
     const r = await api("/api/caja/ventas", { method: "POST", body });
     if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
-    toast(c.modo === "salida" ? "Salida grabada" : "Venta grabada");
+    if (r.afip_error) toast("Cobro grabado. AFIP no emitió: " + r.afip_error, true);
+    else if (r.comprobante && r.comprobante.cae) toast("Factura " + r.comprobante.numero_txt + " · CAE " + r.comprobante.cae);
+    else toast(c.modo === "salida" ? "Salida grabada" : "Venta grabada");
     const modo = c.modo;
     const medio = c.medioPago;
     const ultimaId = r.venta?.id || null;
@@ -5549,8 +6118,10 @@ async function grabarCaja() {
 async function vistaCobrar() {
   setNav("cobrar");
   const prev = state.caja || cajaInicial();
+  const desdeMes = primerDiaMes();
+  const hastaHoy = hoyInput();
   const [data, alertas] = await Promise.all([
-    api("/api/caja/ventas"),
+    api("/api/caja/ventas?desde=" + desdeMes + "&hasta=" + hastaHoy),
     api("/api/caja/alertas").catch(() => ({ alertas: [] })),
   ]);
   state.caja = {
@@ -5558,6 +6129,7 @@ async function vistaCobrar() {
     modo: prev.modo || "gas",
     medioPago: prev.medioPago || "efectivo",
     filtroHoy: prev.filtroHoy || "",
+    histAbierto: !!prev.histAbierto,
     ultimaId: prev.ultimaId || null,
     precios: data.precios || [],
     ventas: data.ventas || [],
@@ -5584,13 +6156,24 @@ function facturarInicial() {
     tipo: "factura_x",
     modoPago: "cuenta",
     medioPago: "efectivo",
+    condicion_pago_id: "",
     cliente: null,
     items: [],
     obs: "",
     tuboQ: "",
+    fiscal: "negro",
     precios: [],
+    condiciones: [],
     cheque: { tipo: "cheque", banco: "", numero: "", librador: "", fecha_emision: "", fecha_pago: "", monto: "" },
   };
+}
+
+function aplicarCondicionFacturar(f) {
+  const id = f.condicion_pago_id || f.cliente?.condicion_pago_id;
+  const cond = (f.condiciones || []).find((c) => String(c.id) === String(id));
+  if (!cond) return;
+  f.condicion_pago_id = cond.id;
+  f.modoPago = Number(cond.genera_deuda) ? "cuenta" : "contado";
 }
 
 function totalFacturarItems(items) {
@@ -5632,12 +6215,18 @@ function leerChequeForm(prefix) {
 }
 
 async function vistaFacturar(params) {
-  setNav("facturar");
+  setNav("ventas");
   const f = state.facturar || facturarInicial();
-  const precios = f.precios?.length
-    ? f.precios
-    : ((await api("/api/caja/ventas").catch(() => ({ precios: [] }))).precios || []);
-  state.facturar = { ...facturarInicial(), ...f, precios };
+  const [ventasData, condData] = await Promise.all([
+    f.precios?.length ? Promise.resolve({ precios: f.precios }) : api("/api/caja/ventas").catch(() => ({ precios: [] })),
+    api("/api/caja/condiciones").catch(() => ({ condiciones: [] })),
+  ]);
+  state.facturar = {
+    ...facturarInicial(),
+    ...f,
+    precios: ventasData.precios || f.precios || [],
+    condiciones: condData.condiciones || [],
+  };
   const ventaId = params.get("venta_id");
   if (ventaId && !state.facturar._fromVenta) {
     try {
@@ -5646,7 +6235,7 @@ async function vistaFacturar(params) {
         body: { tipo: "factura_x" },
       });
       toast("Comprobante " + (data.comprobante?.numero_txt || "") + " creado a cuenta corriente");
-      location.hash = "#/deudas?cliente_id=" + data.comprobante.cliente_id;
+      location.hash = "#/comprobante/" + data.comprobante.id + "/imprimir";
       return;
     } catch (err) {
       toast(err.message, true);
@@ -5659,23 +6248,36 @@ function pintarFacturar() {
   const f = state.facturar;
   const total = totalFacturarItems(f.items);
   const gases = (f.precios || []).filter((p) => p.tipo === "gas");
+  const cond = (f.condiciones || []).find((c) => String(c.id) === String(f.condicion_pago_id));
+  const sub = total;
+  const rec = cond && Number(cond.recargo_pct) ? Math.round(sub * Number(cond.recargo_pct) / 100 * 100) / 100 : 0;
+  const des = cond && Number(cond.descuento_pct) ? Math.round(sub * Number(cond.descuento_pct) / 100 * 100) / 100 : 0;
+  const totalFinal = Math.round((sub + rec - des) * 100) / 100;
   app().innerHTML = `
     <h1>Facturar</h1>
-    <p class="lead">Comprobante de venta (A/B/X/remito) con códigos de precio · cuenta corriente o contado · podés sumar un tubo y despacharlo al cliente al grabar.</p>
+    <p class="lead">Factura X (negro), A/B/C (blanco AFIP), recibo o remito. La condición de pago del cliente define si genera deuda, recargo o descuento.</p>
     <div class="toolbar">
-      <div class="field"><label>Tipo</label>
+      <div class="field"><label>Tipo de comprobante</label>
         <select id="fac-tipo">
-          <option value="factura_x" ${f.tipo === "factura_x" ? "selected" : ""}>Factura X</option>
+          <option value="factura_x" ${f.tipo === "factura_x" ? "selected" : ""}>Factura X (negro)</option>
           <option value="factura_a" ${f.tipo === "factura_a" ? "selected" : ""}>Factura A</option>
           <option value="factura_b" ${f.tipo === "factura_b" ? "selected" : ""}>Factura B</option>
+          <option value="factura_c" ${f.tipo === "factura_c" ? "selected" : ""}>Factura C</option>
+          <option value="recibo" ${f.tipo === "recibo" ? "selected" : ""}>Recibo</option>
           <option value="remito_interno" ${f.tipo === "remito_interno" ? "selected" : ""}>Remito interno</option>
         </select>
       </div>
+      <div class="field" style="flex:1.2"><label>Condición de pago</label>
+        <select id="fac-cond">
+          <option value="">Sin condición (manual)</option>
+          ${(f.condiciones || []).map((c) => `<option value="${c.id}" ${String(f.condicion_pago_id) === String(c.id) ? "selected" : ""}>${esc(c.nombre)}</option>`).join("")}
+        </select>
+      </div>
       <div class="field" style="flex:1.4"><label>Cliente</label>
-        <input id="fac-cli-q" placeholder="Buscar cliente…" value="">
+        <input id="fac-cli-q" placeholder="Código, nombre o CUIT…" value="">
         <div id="fac-cli-sug" class="cli-live-list" hidden></div>
       </div>
-      ${f.cliente ? `<div class="cli-elegido"><strong>${esc(f.cliente.nombre)}</strong><small>${esc(f.cliente.cuit || "")}</small>
+      ${f.cliente ? `<div class="cli-elegido"><strong>${f.cliente.codigo ? esc(f.cliente.codigo) + " · " : ""}${esc(f.cliente.nombre)}</strong><small>${esc(f.cliente.cuit || "")}${cond ? " · " + esc(cond.nombre) : ""}</small>
         <button type="button" class="btn ghost" data-fac="quit-cli">Quitar</button></div>` : ""}
     </div>
 
@@ -5715,23 +6317,31 @@ function pintarFacturar() {
             </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin líneas</td></tr>`}
         </tbody>
       </table>
-      <p style="text-align:right;margin:10px 0 0;font-size:1.25rem"><strong>Total ${money(total)}</strong></p>
+      <div style="text-align:right;margin:10px 0 0">
+        ${rec || des ? `<p class="lead" style="margin:0">Subtotal ${money(sub)}${rec ? ` · Recargo ${money(rec)}` : ""}${des ? ` · Descuento −${money(des)}` : ""}</p>` : ""}
+        <p style="margin:4px 0 0;font-size:1.25rem"><strong>Total ${money(totalFinal)}</strong></p>
+      </div>
     </div>
 
     <div class="card">
       <div class="toolbar">
-        <button type="button" class="btn big-soft ${f.modoPago === "cuenta" ? "on" : ""}" data-fac="modo" data-m="cuenta">Cuenta corriente</button>
+        <button type="button" class="btn big-soft ${f.modoPago === "cuenta" ? "on" : ""}" data-fac="modo" data-m="cuenta">Cuenta corriente (genera deuda)</button>
         <button type="button" class="btn big-soft ${f.modoPago === "contado" ? "on" : ""}" data-fac="modo" data-m="contado">Contado</button>
       </div>
+      ${cond ? `<p class="lead">${esc(cond.nombre)}${Number(cond.plazo_dias) ? ` · vence en ${cond.plazo_dias} días` : ""}${Number(cond.recargo_pct) ? ` · recargo ${cond.recargo_pct}%` : ""}${Number(cond.descuento_pct) ? ` · descuento ${cond.descuento_pct}%` : ""}</p>` : ""}
       ${f.modoPago === "contado" ? `
         <div class="caja-medios-inline" style="margin:10px 0">
           ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
             `<button type="button" class="btn big-soft ${f.medioPago === id ? "on" : ""}" data-fac="medio" data-m="${id}">${n}</button>`
           ).join("")}
         </div>
-        ${f.medioPago === "cheque" || f.medioPago === "echeq" ? htmlChequeForm("fac", { ...f.cheque, tipo: f.medioPago }, total) : ""}
-      ` : `<p class="lead">Queda como deuda del cliente hasta que se cobre.</p>`}
+        ${f.medioPago === "cheque" || f.medioPago === "echeq" ? htmlChequeForm("fac", { ...f.cheque, tipo: f.medioPago }, totalFinal) : ""}
+      ` : `<p class="lead">Queda como deuda del cliente hasta el vencimiento.</p>`}
       <div class="field full"><label>Observaciones</label><input id="fac-obs" value="${esc(f.obs || "")}"></div>
+      <div class="fiscal-switch">
+        <button type="button" class="btn big-soft ${f.fiscal !== "blanco" ? "on" : ""}" data-fac="fiscal" data-f="negro">En negro</button>
+        <button type="button" class="btn big-soft ${f.fiscal === "blanco" ? "on" : ""}" data-fac="fiscal" data-f="blanco">En blanco (AFIP)</button>
+      </div>
       <button type="button" class="btn btn-grabar" data-fac="grabar" ${!f.cliente || !f.items.length ? "disabled" : ""}>
         ${f.modoPago === "contado" ? "Grabar cobrado" : "Grabar a cuenta"} ${f.items.some((x) => x.tubo_id) ? "+ despachar tubos" : ""}
       </button>
@@ -5739,7 +6349,16 @@ function pintarFacturar() {
 
   const root = app();
   root.onclick = onFacturarClick;
-  $("#fac-tipo").onchange = () => { state.facturar.tipo = $("#fac-tipo").value; };
+  $("#fac-tipo").onchange = () => {
+    state.facturar.tipo = $("#fac-tipo").value;
+    if (state.facturar.tipo === "recibo") state.facturar.modoPago = "contado";
+    pintarFacturar();
+  };
+  $("#fac-cond").onchange = () => {
+    state.facturar.condicion_pago_id = $("#fac-cond").value || "";
+    aplicarCondicionFacturar(state.facturar);
+    pintarFacturar();
+  };
   const q = $("#fac-cli-q");
   let tCli;
   q.oninput = () => {
@@ -5747,7 +6366,7 @@ function pintarFacturar() {
     tCli = setTimeout(async () => {
       const term = q.value.trim();
       const box = $("#fac-cli-sug");
-      if (term.length < 2) { box.hidden = true; return; }
+      if (term.length < 1) { box.hidden = true; return; }
       try {
         const data = await api("/api/clientes?q=" + encodeURIComponent(term));
         const rows = data.clientes || data || [];
@@ -5758,8 +6377,8 @@ function pintarFacturar() {
           return;
         }
         box.innerHTML = list.slice(0, 12).map((c) =>
-          `<li data-fac="pick-cli" data-id="${c.id}" data-nombre="${esc(c.nombre)}" data-cuit="${esc(c.cuit || "")}">
-            <strong>${esc(c.nombre)}</strong><small>${esc(c.cuit || "")}</small><span class="cli-dir">${esc(c.direccion || "")}</span>
+          `<li data-fac="pick-cli" data-id="${c.id}" data-nombre="${esc(c.nombre)}" data-cuit="${esc(c.cuit || "")}" data-codigo="${esc(c.codigo || "")}">
+            <strong>${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</strong><small>${esc(c.cuit || "")}</small><span class="cli-dir">${esc(c.direccion || "")}</span>
           </li>`
         ).join("");
         box.hidden = false;
@@ -5838,8 +6457,27 @@ function onFacturarClick(ev) {
     f.cliente = null;
     pintarFacturar();
   } else if (act === "pick-cli") {
-    f.cliente = { id: Number(btn.dataset.id), nombre: btn.dataset.nombre, cuit: btn.dataset.cuit || "" };
-    pintarFacturar();
+    (async () => {
+      try {
+        const det = await api("/api/clientes/" + btn.dataset.id);
+        const c = det.cliente || {};
+        f.cliente = {
+          id: Number(c.id || btn.dataset.id),
+          nombre: c.nombre || btn.dataset.nombre,
+          cuit: c.cuit || btn.dataset.cuit || "",
+          codigo: c.codigo || btn.dataset.codigo || "",
+          condicion_pago_id: c.condicion_pago_id || null,
+        };
+        if (c.condicion_pago_id) {
+          f.condicion_pago_id = c.condicion_pago_id;
+          aplicarCondicionFacturar(f);
+        }
+        pintarFacturar();
+      } catch (err) {
+        f.cliente = { id: Number(btn.dataset.id), nombre: btn.dataset.nombre, cuit: btn.dataset.cuit || "", codigo: btn.dataset.codigo || "" };
+        pintarFacturar();
+      }
+    })();
   } else if (act === "add-gas") {
     f.items.push({
       descripcion: btn.dataset.nom,
@@ -5874,6 +6512,10 @@ function onFacturarClick(ev) {
     f.medioPago = btn.dataset.m;
     if (btn.dataset.m === "cheque" || btn.dataset.m === "echeq") f.cheque.tipo = btn.dataset.m;
     pintarFacturar();
+  } else if (act === "fiscal") {
+    f.fiscal = btn.dataset.f === "blanco" ? "blanco" : "negro";
+    if (f.fiscal === "blanco" && (f.tipo === "factura_x" || f.tipo === "remito_interno")) f.tipo = "factura_b";
+    pintarFacturar();
   } else if (act === "grabar") {
     grabarFacturar().catch((e) => toast(e.message, true));
   }
@@ -5884,6 +6526,7 @@ async function grabarFacturar() {
   if (!f.cliente) { toast("Elegí un cliente", true); return; }
   if (!f.items.length) { toast("Agregá líneas", true); return; }
   f.tipo = $("#fac-tipo")?.value || f.tipo;
+  f.condicion_pago_id = $("#fac-cond")?.value || f.condicion_pago_id || "";
   f.obs = $("#fac-obs")?.value || "";
   const body = {
     tipo: f.tipo,
@@ -5892,7 +6535,13 @@ async function grabarFacturar() {
     medio_pago: f.medioPago,
     observaciones: f.obs,
     items: f.items,
+    fiscal: f.fiscal === "blanco" ? "afip" : "interno",
   };
+  if (f.condicion_pago_id) body.condicion_pago_id = Number(f.condicion_pago_id);
+  if (f.fiscal === "blanco" && !["factura_a", "factura_b", "factura_c"].includes(body.tipo)) {
+    toast("En blanco usá factura A, B o C", true);
+    return;
+  }
   if (f.modoPago === "contado" && (f.medioPago === "cheque" || f.medioPago === "echeq")) {
     body.cheque = leerChequeForm("fac");
     body.medio_pago = body.cheque.tipo || f.medioPago;
@@ -5900,48 +6549,101 @@ async function grabarFacturar() {
   const r = await api("/api/caja/comprobantes", { method: "POST", body });
   const n = r.comprobante?.numero_txt || "";
   const desp = (r.tubos_despachados || []).length;
-  toast(`Comprobante ${n} grabado` + (desp ? ` · ${desp} tubo(s) despachado(s)` : ""));
+  toast(`Comprobante ${n} grabado` + (r.comprobante?.cae ? ` · CAE ${r.comprobante.cae}` : "") + (desp ? ` · ${desp} tubo(s) despachado(s)` : ""));
+  const cid = r.comprobante?.id;
   state.facturar = facturarInicial();
-  if (f.modoPago === "cuenta") location.hash = "#/deudas?cliente_id=" + f.cliente.id;
+  if (cid) location.hash = "#/comprobante/" + cid + "/imprimir";
+  else if (f.modoPago === "cuenta") location.hash = "#/deudas?cliente_id=" + f.cliente.id;
   else pintarFacturar();
+}
+
+function claseDeudaBand(d) {
+  if (d?.vencido || d?.band === "vencido") return "fila-deuda-vencida";
+  if (d?.proximo || d?.band === "proximo") return "fila-deuda-proxima";
+  return "";
+}
+
+function badgeDeudaBand(d) {
+  if (d?.vencido) {
+    const n = Math.abs(Number(d.dias_vto) || 0);
+    return `<span class="badge badge-deuda-vencida">Vencido${n ? ` · ${n}d` : ""}</span>`;
+  }
+  if (d?.proximo) {
+    const n = Number(d.dias_vto);
+    return `<span class="badge badge-deuda-proxima">${n === 0 ? "Vence hoy" : `Vence en ${n}d`}</span>`;
+  }
+  return `<span class="badge">Al día</span>`;
+}
+
+function htmlTablaDeudasCli(lista, vacio) {
+  return `
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Cliente</th><th>Vence</th><th>Estado</th><th>Comp.</th><th>Saldo</th><th></th></tr></thead>
+        <tbody>
+          ${(lista || []).map((d) => `
+            <tr class="${claseDeudaBand(d)}">
+              <td><a href="#/deudas?cliente_id=${d.cliente_id}"><strong>${esc(d.cliente_nombre)}</strong></a>
+                <br><small>${esc(d.cliente_cuit || "")}</small></td>
+              <td class="mono">${esc(fmtFecha(d.vence_primero || d.desde))}</td>
+              <td>${badgeDeudaBand(d)}</td>
+              <td class="mono">${esc(d.n_comprobantes)}</td>
+              <td><strong>${money(d.saldo)}</strong></td>
+              <td class="actions">
+                <a class="btn copper" href="#/deudas?recibo=1&cliente_id=${d.cliente_id}">🧾 Recibo</a>
+                <a class="btn secondary" href="#/deudas?cliente_id=${d.cliente_id}">Cuenta</a>
+              </td>
+            </tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(vacio)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 async function vistaDeudas(params) {
   setNav("deudas");
   const clienteId = params.get("cliente_id");
   const q = params.get("q") || "";
+  const tab = params.get("tab") || "todas";
+  if (params.get("recibo") === "1") return vistaGenerarRecibo(params);
   if (clienteId) return vistaCuentaCorriente(clienteId);
   const data = await api("/api/caja/deudas" + (q ? "?q=" + encodeURIComponent(q) : ""));
+  const lista = tab === "vencidos" ? (data.vencidos || [])
+    : tab === "proximos" ? (data.proximos || [])
+    : (data.deudas || []);
   app().innerHTML = `
-    <h1>Deudas</h1>
-    <p class="lead">Clientes con saldo pendiente y desde cuándo.</p>
+    <h1>📉 Deudas</h1>
+    <p class="lead">En rojo: vencidos. En amarillo: vencen en ≤ 7 días. Generá un recibo e imputalo a las facturas del cliente.</p>
     <div class="toolbar">
-      <div class="field" style="flex:1"><label>Buscar</label><input id="deu-q" value="${esc(q)}" placeholder="Cliente…"></div>
-      <button type="button" class="btn secondary" id="deu-buscar">Buscar</button>
-      <a class="btn" href="#/facturar">Nueva factura</a>
+      <div class="field" style="flex:1.4"><label>Buscar cuenta corriente</label>
+        <input id="deu-q" value="${esc(q)}" placeholder="Cliente, código o CUIT…" autofocus>
+      </div>
+      <button type="button" class="btn" id="deu-buscar">Buscar</button>
+      <a class="btn copper" href="#/deudas?recibo=1">🧾 Generar recibo / imputar</a>
+      <a class="btn secondary" href="#/facturar">➕ Nueva factura</a>
     </div>
-    <div class="card"><small>Total adeudado</small><div class="n" style="font-size:1.6rem">${money(data.total)}</div>
-      <small>${data.n_clientes || 0} cliente(s)</small></div>
-    <div class="card table-wrap">
-      <table>
-        <thead><tr><th>Cliente</th><th>Desde</th><th>Días</th><th>Comp.</th><th>Saldo</th><th></th></tr></thead>
-        <tbody>
-          ${(data.deudas || []).map((d) => `
-            <tr class="${Number(d.dias) >= 30 ? "fila-deuda-vieja" : ""}">
-              <td><strong>${esc(d.cliente_nombre)}</strong><br><small>${esc(d.cliente_cuit || "")}</small></td>
-              <td>${esc(fmtFecha(d.desde))}</td>
-              <td class="mono">${esc(d.dias)}</td>
-              <td class="mono">${esc(d.n_comprobantes)}</td>
-              <td><strong>${money(d.saldo)}</strong></td>
-              <td><a class="btn secondary" href="#/deudas?cliente_id=${d.cliente_id}">Ver / Cobrar</a></td>
-            </tr>`).join("") || `<tr><td colspan="6" class="empty">No hay deudas abiertas.</td></tr>`}
-        </tbody>
-      </table>
-    </div>`;
-  $("#deu-buscar").onclick = () => {
+    <div class="grid bruto-mes">
+      <div class="card stat"><small>Total adeudado</small><div class="n" style="font-size:1.35rem">${money(data.total)}</div>
+        <small>${data.n_clientes || 0} cliente(s)</small></div>
+      <a class="card stat fila-deuda-vencida" href="#/deudas?tab=vencidos${q ? "&q=" + encodeURIComponent(q) : ""}" style="text-decoration:none;color:inherit">
+        <small>Vencidos</small><div class="n">${data.n_vencidos || 0}</div></a>
+      <a class="card stat fila-deuda-proxima" href="#/deudas?tab=proximos${q ? "&q=" + encodeURIComponent(q) : ""}" style="text-decoration:none;color:inherit">
+        <small>Próximos a vencer (7 días)</small><div class="n">${data.n_proximos || 0}</div></a>
+    </div>
+    <div class="tabs">
+      <a class="${tab === "todas" ? "active" : ""}" href="#/deudas${q ? "?q=" + encodeURIComponent(q) : ""}">Todas</a>
+      <a class="${tab === "vencidos" ? "active" : ""}" href="#/deudas?tab=vencidos${q ? "&q=" + encodeURIComponent(q) : ""}">Vencidos</a>
+      <a class="${tab === "proximos" ? "active" : ""}" href="#/deudas?tab=proximos${q ? "&q=" + encodeURIComponent(q) : ""}">Próximos</a>
+    </div>
+    ${htmlTablaDeudasCli(lista, tab === "vencidos" ? "Nadie con deuda vencida." : tab === "proximos" ? "Nadie próximo a vencer." : "No hay deudas abiertas.")}`;
+  const ir = () => {
     const term = $("#deu-q").value.trim();
-    location.hash = "#/deudas" + (term ? "?q=" + encodeURIComponent(term) : "");
+    const parts = [];
+    if (tab && tab !== "todas") parts.push("tab=" + tab);
+    if (term) parts.push("q=" + encodeURIComponent(term));
+    location.hash = "#/deudas" + (parts.length ? "?" + parts.join("&") : "");
   };
+  $("#deu-buscar").onclick = ir;
+  $("#deu-q").onkeydown = (e) => { if (e.key === "Enter") ir(); };
 }
 
 async function vistaCuentaCorriente(clienteId) {
@@ -5968,17 +6670,28 @@ async function vistaCuentaCorriente(clienteId) {
         <h3 style="margin-top:0">Cobrar deudas</h3>
         ${abiertos.length ? `
           <div class="table-wrap"><table>
-            <thead><tr><th></th><th>Comprobante</th><th>Fecha</th><th>Total</th><th>Saldo</th><th>A cobrar</th></tr></thead>
+            <thead><tr><th></th><th>Comprobante</th><th>Fecha</th><th>Vence</th><th>Total</th><th>Saldo</th><th>A cobrar</th></tr></thead>
             <tbody>
-              ${abiertos.map((c) => `
-                <tr>
+              ${abiertos.map((c) => {
+                const vto = c.fecha_vencimiento || c.fecha;
+                const band = (() => {
+                  if (!vto) return {};
+                  const dias = Math.round((new Date(String(vto).slice(0, 10) + "T12:00:00") - new Date(hoyInput() + "T12:00:00")) / 86400000);
+                  if (dias < 0) return { vencido: true, dias_vto: dias };
+                  if (dias <= 7) return { proximo: true, dias_vto: dias };
+                  return {};
+                })();
+                return `
+                <tr class="${claseDeudaBand(band)}">
                   <td><input type="checkbox" class="deu-chk" data-id="${c.id}" ${st.montos[c.id] != null ? "checked" : ""}></td>
-                  <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)}</td>
+                  <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)} ${badgeDeudaBand(band)}</td>
                   <td>${esc(fmtFecha(c.fecha))}</td>
+                  <td class="mono">${esc(fmtFecha(vto))}</td>
                   <td>${money(c.total)}</td>
                   <td>${money(c.saldo)}</td>
                   <td><input class="deu-monto" data-id="${c.id}" inputmode="decimal" value="${esc(st.montos[c.id] ?? "")}" ${st.montos[c.id] == null ? "disabled" : ""} style="width:110px"></td>
-                </tr>`).join("")}
+                </tr>`;
+              }).join("")}
             </tbody>
           </table></div>
           <div class="caja-medios-inline" style="margin:12px 0">
@@ -5987,14 +6700,16 @@ async function vistaCuentaCorriente(clienteId) {
             ).join("")}
           </div>
           ${st.medio === "cheque" || st.medio === "echeq" ? htmlChequeForm("deu", { ...st.cheque, tipo: st.medio }, totalSel) : ""}
-          <button type="button" class="btn btn-grabar" data-deu="cobrar" ${totalSel <= 0 ? "disabled" : ""}>Cobrar ${money(totalSel)}</button>
-        ` : `<p class="empty">Sin comprobantes abiertos.</p>`}
+          <div class="field full" style="margin:10px 0"><label>Nota del recibo</label><input id="deu-obs" placeholder="Opcional"></div>
+          <button type="button" class="btn btn-grabar" data-deu="cobrar" ${totalSel <= 0 ? "disabled" : ""}>🧾 Generar recibo e imputar ${money(totalSel)}</button>
+        ` : `<p class="empty">Sin comprobantes abiertos.</p>
+          <p><a class="btn copper" href="#/deudas?recibo=1">🧾 Generar recibo / imputar a otro cliente</a></p>`}
       </div>
       <div class="grid two">
         <div class="card table-wrap">
           <h3>Comprobantes</h3>
           <table>
-            <thead><tr><th>Fecha</th><th>Nº</th><th>Estado</th><th>Total</th><th>Saldo</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Nº</th><th>Estado</th><th>Total</th><th>Saldo</th><th></th></tr></thead>
             <tbody>
               ${(data.comprobantes || []).map((c) => `
                 <tr>
@@ -6003,21 +6718,23 @@ async function vistaCuentaCorriente(clienteId) {
                   <td><span class="badge">${esc(c.estado)}</span></td>
                   <td>${money(c.total)}</td>
                   <td>${money(c.saldo)}</td>
-                </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin comprobantes</td></tr>`}
+                  <td><a class="btn ghost" href="#/comprobante/${c.id}/imprimir">📄 Ver / PDF</a></td>
+                </tr>`).join("") || `<tr><td colspan="6" class="empty">Sin comprobantes</td></tr>`}
             </tbody>
           </table>
         </div>
         <div class="card table-wrap">
-          <h3>Cobros</h3>
+          <h3>Cobros / recibos</h3>
           <table>
-            <thead><tr><th>Fecha</th><th>Medio</th><th>Total</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Medio</th><th>Total</th><th></th></tr></thead>
             <tbody>
               ${(data.cobros || []).map((c) => `
                 <tr>
                   <td>${esc(fmtFecha(c.fecha))} ${esc(c.hora || "")}</td>
                   <td>${esc(etiquetaMedio(c.medio_pago))}</td>
                   <td>${money(c.total)}</td>
-                </tr>`).join("") || `<tr><td colspan="3" class="empty">Sin cobros</td></tr>`}
+                  <td><a class="btn ghost" href="#/recibo-cliente/${c.id}">📄 Ver / PDF</a></td>
+                </tr>`).join("") || `<tr><td colspan="4" class="empty">Sin cobros</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -6062,15 +6779,169 @@ async function vistaCuentaCorriente(clienteId) {
     const body = {
       cliente_id: st.cliente_id,
       medio_pago: st.medio,
+      observaciones: $("#deu-obs")?.value || "",
       aplicaciones,
     };
     if (st.medio === "cheque" || st.medio === "echeq") {
       body.cheque = leerChequeForm("deu");
       body.medio_pago = body.cheque.tipo || st.medio;
     }
-    await api("/api/caja/cobros", { method: "POST", body });
-    toast("Cobro registrado");
-    return vistaCuentaCorriente(clienteId);
+    const r = await api("/api/caja/cobros", { method: "POST", body });
+    toast("Recibo generado · " + money(r.total));
+    location.hash = "#/recibo-cliente/" + r.cobro_id;
+  }
+  pintar();
+}
+
+async function vistaGenerarRecibo(params) {
+  setNav("deudas");
+  const preCli = params.get("cliente_id") || "";
+  state.genRecibo = state.genRecibo || {
+    cliente: null,
+    medio: "efectivo",
+    montos: {},
+    abiertos: [],
+    obs: "",
+    cheque: { tipo: "cheque", banco: "", numero: "", librador: "", fecha_emision: "", fecha_pago: "", monto: "" },
+  };
+  const st = state.genRecibo;
+
+  async function cargarCliente(id) {
+    const data = await api("/api/caja/cuenta-corriente/" + id);
+    st.cliente = data.cliente;
+    st.abiertos = data.abiertos || [];
+    st.montos = Object.fromEntries(st.abiertos.map((c) => [c.id, String(c.saldo)]));
+    pintar();
+  }
+
+  if (preCli && (!st.cliente || String(st.cliente.id) !== String(preCli))) {
+    try { await cargarCliente(preCli); } catch (e) { toast(e.message, true); }
+  }
+
+  function pintar() {
+    const totalSel = Math.round(
+      Object.entries(st.montos).reduce((s, [, v]) => s + (parseMonto(v) || 0), 0) * 100
+    ) / 100;
+    app().innerHTML = `
+      <p><a href="#/deudas">← Deudas</a></p>
+      <h1>🧾 Generar recibo e imputar</h1>
+      <p class="lead">Elegí el cliente, marcá las facturas a cancelar (parcial o total) y emití el recibo.</p>
+      <div class="card">
+        <div class="field"><label>Buscar cliente con deuda</label>
+          <input id="rec-cli-q" placeholder="Código, nombre o CUIT…" value="">
+          <div id="rec-cli-sug" class="cli-live-list" hidden></div>
+        </div>
+        ${st.cliente ? `<div class="cli-elegido" style="margin-top:10px">
+          <strong>${esc(st.cliente.codigo ? st.cliente.codigo + " · " : "")}${esc(st.cliente.nombre)}</strong>
+          <small>${esc(st.cliente.cuit || "")}</small>
+          <button type="button" class="btn ghost" id="rec-quit-cli">Cambiar</button>
+        </div>` : ""}
+      </div>
+      ${st.cliente ? `
+      <div class="card" style="margin-top:12px">
+        <h3 style="margin-top:0">Imputar a comprobantes</h3>
+        ${st.abiertos.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th></th><th>Comprobante</th><th>Fecha</th><th>Vence</th><th>Saldo</th><th>A imputar</th><th></th></tr></thead>
+            <tbody>
+              ${st.abiertos.map((c) => `
+                <tr>
+                  <td><input type="checkbox" class="rec-chk" data-id="${c.id}" ${st.montos[c.id] != null ? "checked" : ""}></td>
+                  <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)}</td>
+                  <td>${esc(fmtFecha(c.fecha))}</td>
+                  <td class="mono">${esc(fmtFecha(c.fecha_vencimiento || c.fecha))}</td>
+                  <td>${money(c.saldo)}</td>
+                  <td><input class="rec-monto" data-id="${c.id}" inputmode="decimal" value="${esc(st.montos[c.id] ?? "")}" ${st.montos[c.id] == null ? "disabled" : ""} style="width:110px"></td>
+                  <td><a class="btn ghost" href="#/comprobante/${c.id}/imprimir" target="_self">📄 Ver</a></td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <div class="caja-medios-inline" style="margin:12px 0">
+            ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
+              `<button type="button" class="btn big-soft ${st.medio === id ? "on" : ""}" data-rec="medio" data-m="${id}">${n}</button>`
+            ).join("")}
+          </div>
+          ${st.medio === "cheque" || st.medio === "echeq" ? htmlChequeForm("rec", { ...st.cheque, tipo: st.medio }, totalSel) : ""}
+          <div class="field"><label>Observaciones</label><input id="rec-obs" value="${esc(st.obs || "")}" placeholder="Opcional"></div>
+          <button type="button" class="btn copper btn-grabar" id="rec-emitir" ${totalSel <= 0 ? "disabled" : ""}>🧾 Emitir recibo ${money(totalSel)}</button>
+        ` : `<p class="empty">Este cliente no tiene comprobantes abiertos.</p>`}
+      </div>` : ""}`;
+
+    const q = $("#rec-cli-q");
+    let t;
+    if (q) {
+      q.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          const term = q.value.trim();
+          const box = $("#rec-cli-sug");
+          if (term.length < 1) { box.hidden = true; return; }
+          const data = await api("/api/caja/deudas?q=" + encodeURIComponent(term));
+          const rows = data.deudas || [];
+          box.innerHTML = rows.slice(0, 12).map((c) =>
+            `<li data-cid="${c.cliente_id}"><strong>${esc(c.cliente_nombre)}</strong><small>Deuda ${money(c.saldo)}</small></li>`
+          ).join("") || `<li class="empty-li">Sin deudas con ese dato</li>`;
+          box.hidden = false;
+          box.querySelectorAll("[data-cid]").forEach((li) => {
+            li.onclick = () => cargarCliente(li.dataset.cid).catch((e) => toast(e.message, true));
+          });
+        }, 220);
+      };
+    }
+    $("#rec-quit-cli")?.addEventListener("click", () => {
+      st.cliente = null;
+      st.abiertos = [];
+      st.montos = {};
+      pintar();
+    });
+    app().querySelectorAll("[data-rec=medio]").forEach((b) => {
+      b.onclick = () => {
+        document.querySelectorAll(".rec-monto").forEach((inp) => {
+          if (!inp.disabled) st.montos[inp.dataset.id] = inp.value;
+        });
+        st.medio = b.dataset.m;
+        if (b.dataset.m === "cheque" || b.dataset.m === "echeq") st.cheque.tipo = b.dataset.m;
+        pintar();
+      };
+    });
+    document.querySelectorAll(".rec-chk").forEach((chk) => {
+      chk.onchange = () => {
+        const id = chk.dataset.id;
+        const open = st.abiertos.find((x) => String(x.id) === String(id));
+        if (chk.checked) st.montos[id] = String(open?.saldo ?? "");
+        else delete st.montos[id];
+        pintar();
+      };
+    });
+    document.querySelectorAll(".rec-monto").forEach((inp) => {
+      inp.oninput = () => { st.montos[inp.dataset.id] = inp.value; };
+    });
+    $("#rec-emitir")?.addEventListener("click", async () => {
+      document.querySelectorAll(".rec-monto").forEach((inp) => {
+        if (!inp.disabled) st.montos[inp.dataset.id] = inp.value;
+      });
+      st.obs = $("#rec-obs")?.value || "";
+      const aplicaciones = Object.entries(st.montos)
+        .map(([id, v]) => ({ comprobante_id: Number(id), monto: parseMonto(v) }))
+        .filter((a) => a.monto > 0);
+      if (!aplicaciones.length) return toast("Indicá montos a imputar", true);
+      const body = {
+        cliente_id: st.cliente.id,
+        medio_pago: st.medio,
+        observaciones: st.obs,
+        aplicaciones,
+      };
+      if (st.medio === "cheque" || st.medio === "echeq") {
+        body.cheque = leerChequeForm("rec");
+        body.medio_pago = body.cheque.tipo || st.medio;
+      }
+      try {
+        const r = await api("/api/caja/cobros", { method: "POST", body });
+        state.genRecibo = null;
+        toast("Recibo emitido");
+        location.hash = "#/recibo-cliente/" + r.cobro_id;
+      } catch (err) { toast(err.message, true); }
+    });
   }
   pintar();
 }
@@ -6102,7 +6973,7 @@ async function vistaCheques(params) {
       <a class="btn secondary ${tipo === "cheque" ? "on" : ""}" href="#/cheques?tipo=cheque${estado ? "&estado=" + estado : ""}">Cheque</a>
       <a class="btn secondary ${tipo === "echeq" ? "on" : ""}" href="#/cheques?tipo=echeq${estado ? "&estado=" + estado : ""}">ECHEQ</a>
       <button type="button" class="btn" id="ch-nuevo">Cargar cheque</button>
-      <a class="btn ghost" href="#/facturacion">← Facturación</a>
+      <a class="btn ghost" href="#/ventas">← Ventas</a>
     </div>
     <div class="card table-wrap">
       <table>
@@ -6213,47 +7084,133 @@ function claseFilaVenta(v) {
   return "";
 }
 
+function hashVentas(f) {
+  const p = new URLSearchParams();
+  if (f.desde) p.set("desde", f.desde);
+  if (f.hasta) p.set("hasta", f.hasta);
+  if (f.estado) p.set("estado", f.estado);
+  if (f.q) p.set("q", f.q);
+  if (f.medio) p.set("medio", f.medio);
+  if (f.cliente) p.set("cliente", f.cliente);
+  if (f.gas) p.set("gas", f.gas);
+  if (f.total_min) p.set("total_min", f.total_min);
+  if (f.total_max) p.set("total_max", f.total_max);
+  if (f.panel) p.set("panel", f.panel);
+  return "#/ventas?" + p.toString();
+}
+const hashFacturacion = hashVentas;
+
+async function actualizarBadgeVentas() {
+  const a = document.querySelector('[data-nav="ventas"]');
+  if (!a) return;
+  if (rolActual() !== "admin" && rolActual() !== "cobrador") {
+    a.classList.remove("nav-alerta");
+    a.querySelector(".nav-badge")?.remove();
+    return;
+  }
+  try {
+    const r = await api("/api/caja/ventas?desde=" + hoyInput() + "&hasta=" + hoyInput());
+    const n = Number(r.resumen?.pendientes_total || 0);
+    let b = a.querySelector(".nav-badge");
+    if (n > 0) {
+      if (!b) {
+        b = document.createElement("span");
+        b.className = "nav-badge";
+        a.appendChild(b);
+      }
+      b.textContent = n > 99 ? "99+" : String(n);
+      a.classList.add("nav-alerta");
+    } else {
+      b?.remove();
+      a.classList.remove("nav-alerta");
+    }
+  } catch (_) { /* ignore */ }
+}
+
+function mesAnteriorRango() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-based current
+  const desde = new Date(y, m - 1, 1);
+  const hasta = new Date(y, m, 0);
+  const p = (n) => String(n).padStart(2, "0");
+  return {
+    desde: `${desde.getFullYear()}-${p(desde.getMonth() + 1)}-${p(desde.getDate())}`,
+    hasta: `${hasta.getFullYear()}-${p(hasta.getMonth() + 1)}-${p(hasta.getDate())}`,
+  };
+}
+
 async function vistaFacturacion(params) {
-  setNav("facturacion");
+  setNav("ventas");
+  actualizarBadgeVentas();
   const esAdmin = rolActual() === "admin";
-  const desde = params.get("desde") || hoyInput();
-  const hasta = params.get("hasta") || desde;
+  const desde = params.get("desde") || primerDiaMes();
+  const hasta = params.get("hasta") || hoyInput();
   const estado = params.get("estado") || "";
+  const qTxt = params.get("q") || "";
+  const medio = params.get("medio") || "";
+  const clienteF = params.get("cliente") || "";
+  const gasF = params.get("gas") || "";
+  const panel = params.get("panel") || "";
   const q = new URLSearchParams({ desde, hasta });
   if (estado) q.set("estado", estado);
-  const [data, deudas, cheques] = await Promise.all([
+  if (qTxt) q.set("q", qTxt);
+  if (medio) q.set("medio", medio);
+  if (clienteF) q.set("cliente", clienteF);
+  if (gasF) q.set("gas", gasF);
+  const [data, comps] = await Promise.all([
     api("/api/caja/ventas?" + q.toString()),
-    api("/api/caja/deudas").catch(() => ({ deudas: [], total: 0, n_clientes: 0 })),
-    api("/api/caja/cheques?estado=en_cartera").catch(() => ({ cheques: [] })),
+    api("/api/caja/comprobantes?desde=" + desde + "&hasta=" + hasta).catch(() => ({ comprobantes: [] })),
   ]);
   const precios = data.precios || [];
   const gases = precios.filter((p) => p.tipo === "gas");
   const r = data.resumen || {};
-  const hoy = hoyInput();
-  let ventasHoy = (data.ventas || []).filter((v) => v.fecha === hoy);
-  if (desde !== hoy || hasta !== hoy || estado) {
-    try {
-      const hoyData = await api("/api/caja/ventas?desde=" + encodeURIComponent(hoy) + "&hasta=" + encodeURIComponent(hoy));
-      ventasHoy = hoyData.ventas || [];
-    } catch (e) { /* si falla, queda lo que ya vino en el período */ }
-  }
-  const esHoy = desde === hoy && hasta === hoy;
+  const porProd = data.por_producto || [];
+  const totalProd = porProd.reduce((s, x) => s + Number(x.total || 0), 0);
   const nVentas = (data.ventas || []).filter((v) => v.tipo !== "salida").length;
-  const listaDeudas = (deudas.deudas || []).slice(0, 8);
-  const listaCheques = (cheques.cheques || []).slice(0, 8);
-  const nCheques = (cheques.cheques || []).length;
-  const filtros = [
-    ["", "Del período"],
+  const ventasHoy = (data.ventas || []).filter((v) => v.fecha === hoyInput());
+  const comprobantes = comps.comprobantes || [];
+  const mesAnt = mesAnteriorRango();
+  const baseHash = { desde, hasta, estado, q: qTxt, medio, cliente: clienteF, gas: gasF };
+  const filtrosEstado = [
+    ["", "Todos"],
     ["pendiente", "Para facturar"],
     ["facturado", "Facturadas"],
     ["contado", "Contado"],
     ["salida", "Salidas"],
   ];
+  const gasLabel = gasF === "general" ? "Otros / general" : ((gases.find((g) => g.gas === gasF) || {}).nombre || gasF);
+  const listasCsv = [
+    ["", "Todas las ventas del período", "Exporta el historial filtrado actual."],
+    ["pendiente", "Pendientes de facturar", "Solo cobros marcados para facturar."],
+    ["facturado", "Ya facturadas", "Ventas marcadas como facturadas."],
+    ["contado", "Contado", "Ventas cobradas sin factura pendiente."],
+  ];
   app().innerHTML = `
-    <h1>Facturación</h1>
-    <p class="lead">Estadísticas de ventas, deudas, facturas y cheques. <a href="#/cobrar">Cobrar</a> es solo para quien atiende la caja.</p>
+    <h1>🧾 Ventas</h1>
+    <p class="lead">${esc(fmtFecha(desde))} – ${esc(fmtFecha(hasta))} · ${nVentas} movimiento(s)${gasF ? " · filtro " + esc(gasLabel) : ""}.</p>
 
-    <h2 style="margin:8px 0">Ventas de hoy <small>(${ventasHoy.length})</small></h2>
+    <div class="toolbar fact-acciones">
+      <a class="btn copper" href="#/facturar">➕ Nueva factura</a>
+      <div class="dl-menu">
+        <button type="button" class="btn secondary" id="btn-listados">📋 Listados ▾</button>
+        <div class="dl-panel" id="dl-ventas" hidden>
+          ${listasCsv.map(([est, nom, tip]) => {
+            const qq = new URLSearchParams({ desde, hasta });
+            if (est) qq.set("estado", est);
+            return `<a class="dl-item" href="/api/caja/ventas.csv?${qq}" title="${esc(tip)}"><strong>${esc(nom)}</strong><small>${esc(tip)}</small></a>`;
+          }).join("")}
+        </div>
+      </div>
+      <a class="btn secondary" href="${hashVentas({ ...baseHash, panel: panel === "stats" ? "" : "stats" })}">📊 Estadísticas</a>
+      <a class="btn ghost" href="#/deudas">📉 Deudas</a>
+      <a class="btn ghost" href="#/cobrar">💵 Cobrar</a>
+      ${esAdmin ? `<a class="btn ghost" href="#/caja/config">⚙ Precios</a>` : ""}
+    </div>
+
+    ${r.pendientes_total ? `<a class="banner-fact" href="${hashVentas({ estado: "pendiente", desde: "2020-01-01", hasta: hoyInput() })}">⚠ ${r.pendientes_total} pendiente(s) de facturar · ${money(r.pendientes_importe)}</a>` : ""}
+
+    <h2 style="margin:8px 0;font-size:1.1rem">Hoy <small>(${ventasHoy.length})</small></h2>
     <div class="card table-wrap">
       <table>
         <thead><tr><th>Hora</th><th>Detalle</th><th>Cliente</th><th>Pago</th><th>Total</th><th>Estado</th><th></th></tr></thead>
@@ -6263,90 +7220,77 @@ async function vistaFacturacion(params) {
               <td class="mono">${esc(v.hora || "")}</td>
               <td>${esc(v.descripcion)}</td>
               <td>${esc(v.cliente_nombre || "—")}</td>
-              <td>${v.tipo === "salida" ? "—" : esc(etiquetaMedio(v.medio_pago))}</td>
+              <td>${esc(etiquetaMedio(v.medio_pago) || "—")}</td>
               <td class="mono">${v.tipo === "salida" ? "−" : ""}${money(v.total)}</td>
               <td>${etiquetaMov(v)}</td>
-              <td>
-                <button type="button" class="btn ghost" data-edit-v="${v.id}">Editar</button>
-                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
-                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">A cuenta corriente</button>` : ""}
+              <td class="actions">
+                <a class="btn copper" href="#/venta/${v.id}/imprimir" title="${v.tipo === "salida" ? "Orden de pago" : "Factura"}">📄 ${v.tipo === "salida" ? "OP" : "PDF"}</a>
+                <button type="button" class="btn ghost" data-edit-v="${v.id}">✎ Editar</button>
+                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">✓ Facturado</button>` : ""}
+                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">→ CC</button>` : ""}
               </td>
-            </tr>`).join("") || `<tr><td colspan="7" class="empty">Hoy no hay cobros grabados.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="7" class="empty">Hoy no hay cobros.</td></tr>`}
         </tbody>
       </table>
     </div>
 
-    <div class="toolbar fact-acciones">
-      <a class="btn copper" href="#/facturar">Nueva factura / comprobante</a>
-      <a class="btn" href="#/deudas">Deudas activas${deudas.n_clientes ? ` (${deudas.n_clientes})` : ""}</a>
-      <a class="btn secondary" href="#/cheques?estado=en_cartera">Cartera de cheques${nCheques ? ` (${nCheques})` : ""}</a>
-      <a class="btn ghost" href="#/cobrar">Ir a cobrar (caja)</a>
-    </div>
-
-    <div class="grid two fact-paneles">
-      <div class="card">
-        <h3 style="margin-top:0">Deudas activas · ${money(deudas.total || 0)}</h3>
-        ${listaDeudas.length ? `
-          <div class="table-wrap"><table>
-            <thead><tr><th>Cliente</th><th>Desde</th><th>Días</th><th>Saldo</th><th></th></tr></thead>
-            <tbody>
-              ${listaDeudas.map((d) => `
-                <tr class="${Number(d.dias) >= 30 ? "fila-deuda-vieja" : ""}">
-                  <td><strong>${esc(d.cliente_nombre)}</strong></td>
-                  <td>${esc(fmtFecha(d.desde))}</td>
-                  <td class="mono">${esc(d.dias)}</td>
-                  <td><strong>${money(d.saldo)}</strong></td>
-                  <td><a class="btn secondary" href="#/deudas?cliente_id=${d.cliente_id}">Cobrar</a></td>
-                </tr>`).join("")}
-            </tbody>
-          </table></div>
-          <p style="margin:10px 0 0"><a href="#/deudas">Ver todas las deudas →</a></p>
-        ` : `<p class="empty">No hay deudas pendientes.</p>`}
+    ${panel === "stats" ? `
+    <div class="card" id="panel-stats" style="margin:14px 0">
+      <div class="toolbar" style="justify-content:space-between">
+        <h3 style="margin:0">📊 Estadísticas del período</h3>
+        <a class="btn ghost" href="${hashVentas(baseHash)}">Cerrar</a>
       </div>
-      <div class="card">
-        <h3 style="margin-top:0">Cheques en cartera</h3>
-        ${listaCheques.length ? `
-          <div class="table-wrap"><table>
-            <thead><tr><th>Tipo</th><th>Nº</th><th>Cliente</th><th>Monto</th><th>Pago</th></tr></thead>
-            <tbody>
-              ${listaCheques.map((c) => `
-                <tr>
-                  <td>${esc(c.tipo === "echeq" ? "ECHEQ" : "Cheque")}</td>
-                  <td class="mono">${esc(c.numero)}</td>
-                  <td>${esc(c.cliente_nombre || "—")}</td>
-                  <td><strong>${money(c.monto)}</strong></td>
-                  <td>${esc(c.fecha_pago ? fmtFecha(c.fecha_pago) : "—")}</td>
-                </tr>`).join("")}
-            </tbody>
-          </table></div>
-          <p style="margin:10px 0 0"><a href="#/cheques?estado=en_cartera">Abrir cartera (endosar / sacar) →</a></p>
-        ` : `<p class="empty">No hay cheques en cartera.</p>`}
+      <div class="resumen-caja resumen-fact" style="margin-top:10px">
+        <div class="card"><small>Total vendido</small><div class="n">${money(r.ventas)}</div></div>
+        <div class="card"><small>Efectivo</small><div class="n">${money(r.efectivo)}</div></div>
+        <div class="card"><small>Transf. / tarjeta</small><div class="n">${money((r.transferencia || 0) + (r.tarjeta || 0))}</div></div>
+        <div class="card"><small>Cheques</small><div class="n">${money((r.cheque || 0) + (r.echeq || 0))}</div></div>
+        <div class="card"><small>Para facturar</small><div class="n">${money(r.para_facturar)}</div></div>
+        <div class="card"><small>En caja</small><div class="n">${money(r.en_caja)}</div></div>
       </div>
-    </div>
+      <h4 style="margin:16px 0 8px">Por producto</h4>
+      <div class="toolbar" style="margin-bottom:8px">
+        <a class="btn ghost" href="${hashVentas({ ...baseHash, panel: "stats", desde: primerDiaMes(), hasta: hoyInput() })}">Este mes</a>
+        <a class="btn ghost" href="${hashVentas({ ...baseHash, panel: "stats", desde: mesAnt.desde, hasta: mesAnt.hasta })}">Mes anterior</a>
+        <a class="btn ghost" href="${hashVentas({ ...baseHash, panel: "stats", desde: hoyInput(), hasta: hoyInput() })}">Hoy</a>
+        ${gasF ? `<a class="btn secondary" href="${hashVentas({ ...baseHash, panel: "stats", gas: "" })}">Quitar filtro</a>` : ""}
+      </div>
+      <div class="grid bruto-mes fact-prod-grid">
+        ${porProd.map((p) => {
+          const key = p.clave === "general" ? "general" : (String(p.clave).startsWith("reg:") ? p.clave.slice(4) : p.clave);
+          const on = gasF === key || gasF === p.clave;
+          return `<a class="card stat ${on ? "cargado" : "en_cliente"}"
+             href="${hashVentas({ ...baseHash, panel: "stats", gas: key })}">
+            <small>${esc(p.nombre)}</small>
+            <div class="n" style="font-size:1.1rem">${money(p.total)}</div>
+            <small>${esc(fmtCantCaja(p.cantidad))} · ${p.n} · ${totalProd ? Math.round(100 * p.total / totalProd) : 0}%</small>
+          </a>`;
+        }).join("") || `<p class="empty">Sin ventas de productos.</p>`}
+      </div>
+      ${gasF ? `<p class="lead" style="margin-top:10px">Filtrado: <b>${esc(gasLabel)}</b>. Las líneas del historial abajo corresponden a este producto.</p>` : ""}
+    </div>` : ""}
 
-    ${r.pendientes_total ? `<a class="banner-fact" href="#/facturacion?estado=pendiente&desde=2020-01-01&hasta=${hoyInput()}">${r.pendientes_total} cobro${r.pendientes_total === 1 ? "" : "s"} de caja marcados para facturar · ${money(r.pendientes_importe)}</a>` : ""}
-
-    <h2 style="margin:22px 0 8px;font-size:1.15rem">Estadística de ventas</h2>
-    <div class="resumen-caja resumen-fact">
-      <div class="card resumen-titulo"><small>${esHoy ? "Hoy" : "Período"}</small><div class="n">${esc(fmtFecha(desde))}${desde !== hasta ? " – " + esc(fmtFecha(hasta)) : ""}</div><small>${nVentas} venta${nVentas === 1 ? "" : "s"}</small></div>
-      <div class="card"><small>Total vendido</small><div class="n">${money(r.ventas)}</div></div>
-      <div class="card"><small>Efectivo</small><div class="n">${money(r.efectivo)}</div></div>
-      <div class="card"><small>Transf. / tarjeta</small><div class="n">${money((r.transferencia || 0) + (r.tarjeta || 0))}</div></div>
-      <div class="card"><small>Cheques / ECHEQ</small><div class="n">${money((r.cheque || 0) + (r.echeq || 0))}</div></div>
-      <div class="card"><small>Para facturar (caja)</small><div class="n">${money(r.para_facturar)}</div><small>${r.n_para_facturar || 0}</small></div>
-      <div class="card"><small>Salidas de caja</small><div class="n">${money(r.salidas)}</div></div>
-      <div class="card"><small>Queda en caja</small><div class="n">${money(r.en_caja)}</div></div>
-    </div>
-    <form id="form-fechas" class="toolbar">
+    <h2 style="margin:18px 0 8px;font-size:1.1rem">Historial</h2>
+    <form id="form-hist-filtros" class="card toolbar hist-filtros-compact">
       <div class="field"><label>Desde</label><input type="date" name="desde" value="${esc(desde)}"></div>
       <div class="field"><label>Hasta</label><input type="date" name="hasta" value="${esc(hasta)}"></div>
-      <button class="btn" type="submit">Ver</button>
-      <a class="btn ghost" href="#/facturacion?desde=${hoyInput()}&hasta=${hoyInput()}">Hoy</a>
-      ${esAdmin ? `<a class="btn secondary" href="/api/caja/ventas.csv?desde=${esc(desde)}&hasta=${esc(hasta)}">Exportar CSV</a>` : ""}
+      <div class="field" style="flex:1.2"><label>Buscar</label><input name="q" value="${esc(qTxt)}" placeholder="Detalle o cliente"></div>
+      <div class="field"><label>Estado</label>
+        <select name="estado">${filtrosEstado.map(([id, nom]) => `<option value="${esc(id)}" ${estado === id ? "selected" : ""}>${esc(nom)}</option>`).join("")}</select>
+      </div>
+      <div class="field"><label>Pago</label>
+        <select name="medio">
+          <option value="">Todos</option>
+          ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([k,n]) =>
+            `<option value="${k}" ${medio === k ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+      </div>
+      <input type="hidden" name="gas" value="${esc(gasF)}">
+      <input type="hidden" name="cliente" value="${esc(clienteF)}">
+      <button class="btn" type="submit">Filtrar</button>
+      <a class="btn ghost" href="#/ventas">Limpiar</a>
     </form>
-    <div class="tabs">
-      ${filtros.map(([id, nom]) => `<a class="btn ${estado === id ? "" : "secondary"}" href="#/facturacion?desde=${esc(desde)}&hasta=${esc(hasta)}${id ? "&estado=" + id : ""}">${nom}</a>`).join("")}
-    </div>
+
     <div class="card table-wrap">
       <table>
         <thead><tr><th>Fecha</th><th>Detalle</th><th>Cliente</th><th>Pago</th><th>Total</th><th>Estado</th><th></th></tr></thead>
@@ -6355,79 +7299,63 @@ async function vistaFacturacion(params) {
             <tr class="${claseFilaVenta(v)}">
               <td class="mono">${fmtFecha(v.fecha)} ${esc(v.hora || "")}</td>
               <td>${esc(v.descripcion)}<br><small>${esc(v.usuario_nombre || "")}</small></td>
-              <td>${esc(v.cliente_nombre || "—")}${v.cliente_cuit ? `<br><small>${esc(v.cliente_cuit)}</small>` : ""}</td>
-              <td>${v.tipo === "salida" ? "—" : esc(etiquetaMedio(v.medio_pago))}</td>
+              <td>${esc(v.cliente_nombre || "—")}</td>
+              <td>${esc(etiquetaMedio(v.medio_pago) || "—")}</td>
               <td class="mono">${v.tipo === "salida" ? "−" : ""}${money(v.total)}</td>
               <td>${etiquetaMov(v)}</td>
-              <td>
-                <button type="button" class="btn ghost" data-edit-v="${v.id}">Editar</button>
-                ${esAdmin ? `<button type="button" class="btn secondary" data-tot-v="${v.id}">Ajustar $</button>` : ""}
-                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">A cuenta corriente</button>` : ""}
-                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">Facturado</button>` : ""}
+              <td class="actions">
+                <a class="btn copper" href="#/venta/${v.id}/imprimir" title="${v.tipo === "salida" ? "Orden de pago PDF" : "Descargar factura"}">📄 ${v.tipo === "salida" ? "OP" : "PDF"}</a>
+                <button type="button" class="btn ghost" data-edit-v="${v.id}">✎ Editar</button>
+                ${v.estado_factura === "pendiente" && v.cliente_id ? `<button type="button" class="btn" data-cc-v="${v.id}">→ CC</button>` : ""}
+                ${esAdmin && v.estado_factura === "pendiente" ? `<button type="button" class="btn copper" data-fact-v="${v.id}">✓ Facturado</button>` : ""}
               </td>
-            </tr>`).join("") || `<tr><td colspan="7" class="empty">No hay movimientos en este período.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="7" class="empty">No hay movimientos con esos filtros.</td></tr>`}
         </tbody>
       </table>
     </div>
-    ${esAdmin ? `
-    <div class="card" style="margin-top:14px">
-      <h3>Precios de caja (cobrador)</h3>
-      <p class="lead">Gases por m³ (CO2 por kg por defecto). Regulador por unidad.</p>
-      <form id="form-precios">
-        <div class="precio-grid precio-grid-4" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong></div>
-        ${gases.map((g) => {
-          const reg = precios.find((p) => p.clave === "reg:" + g.gas) || { precio: 0 };
-          const u = unidadGasCaja(g) === "kg" ? "kg" : "m3";
-          const esCo2 = g.gas === "co2";
-          return `<div class="precio-grid precio-grid-4">
-            <div>${esc(g.nombre)}</div>
-            <div class="field">${esCo2 ? `
-              <select name="unidad:${esc(g.clave)}">
-                <option value="kg" ${u === "kg" ? "selected" : ""}>por kg</option>
-                <option value="m3" ${u === "m3" ? "selected" : ""}>por m³</option>
-              </select>` : `<input type="hidden" name="unidad:${esc(g.clave)}" value="m3"><span class="mono">por m³</span>`}
-            </div>
-            <div class="field"><input name="${esc(g.clave)}" inputmode="decimal" value="${esc(g.precio)}" placeholder="${u === "kg" ? "$ / kg" : "$ / m³"}"></div>
-            <div class="field"><input name="reg:${esc(g.gas)}" inputmode="decimal" value="${esc(reg.precio)}"></div>
-          </div>`;
-        }).join("")}
-        <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
-      </form>
-    </div>` : ""}`;
-  $("#form-fechas").onsubmit = (e) => {
+
+    <h2 style="margin:18px 0 8px;font-size:1.1rem">Comprobantes</h2>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Fecha</th><th>Número</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Saldo</th><th></th></tr></thead>
+        <tbody>
+          ${comprobantes.map((c) => `
+            <tr>
+              <td class="mono">${esc(fmtFecha(c.fecha))}</td>
+              <td>${esc(c.tipo_label || c.tipo)} ${esc(c.numero_txt)}</td>
+              <td>${esc(c.cliente_nombre || "—")}</td>
+              <td><span class="badge">${esc(c.estado)}</span></td>
+              <td class="mono">${money(c.total)}</td>
+              <td class="mono">${money(c.saldo)}</td>
+              <td><a class="btn ghost" href="#/comprobante/${c.id}/imprimir">📄 Ver / PDF</a></td>
+            </tr>`).join("") || `<tr><td colspan="7" class="empty">Sin comprobantes en el período.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#form-hist-filtros").onsubmit = (e) => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    location.hash = `#/facturacion?desde=${fd.get("desde")}&hasta=${fd.get("hasta")}${estado ? "&estado=" + estado : ""}`;
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    if (panel === "stats") fd.panel = "stats";
+    location.hash = hashVentas(fd);
   };
-  if (esAdmin) {
-    $("#form-precios").onsubmit = async (e) => {
-      e.preventDefault();
-      const raw = Object.fromEntries(new FormData(e.target).entries());
-      const preciosBody = {};
-      const unidades = {};
-      Object.entries(raw).forEach(([k, v]) => {
-        if (k.startsWith("unidad:")) unidades[k.slice(7)] = v;
-        else preciosBody[k] = v;
-      });
-      try {
-        await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades } });
-        toast("Precios guardados");
-        route();
-      } catch (err) { toast(err.message, true); }
-    };
-  }
+  const dl = $("#dl-ventas");
+  $("#btn-listados").onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dl.hidden = !dl.hidden;
+  };
+  dl.addEventListener("click", (e) => e.stopPropagation());
+  setTimeout(() => document.addEventListener("click", () => { dl.hidden = true; }, { once: true }), 0);
   const porId = Object.fromEntries((data.ventas || []).map((v) => [v.id, v]));
   document.querySelectorAll("[data-edit-v]").forEach((b) => {
     b.onclick = () => abrirEdicionVenta(porId[b.dataset.editV]);
-  });
-  document.querySelectorAll("[data-tot-v]").forEach((b) => {
-    b.onclick = () => abrirAjusteTotal(porId[b.dataset.totV]);
   });
   document.querySelectorAll("[data-fact-v]").forEach((b) => {
     b.onclick = async () => {
       try {
         await api("/api/caja/ventas/" + b.dataset.factV, { method: "PUT", body: { estado_factura: "facturado", facturar: true } });
         toast("Marcada como facturada");
+        actualizarBadgeVentas();
         route();
       } catch (err) { toast(err.message, true); }
     };
@@ -6437,7 +7365,7 @@ async function vistaFacturacion(params) {
       try {
         const r2 = await api("/api/caja/ventas/" + b.dataset.ccV + "/a-comprobante", { method: "POST", body: { tipo: "factura_x" } });
         toast("Comprobante " + (r2.comprobante?.numero_txt || "") + " en cuenta corriente");
-        location.hash = "#/deudas?cliente_id=" + r2.comprobante.cliente_id;
+        location.hash = "#/comprobante/" + r2.comprobante.id + "/imprimir";
       } catch (err) { toast(err.message, true); }
     };
   });
@@ -6500,7 +7428,16 @@ function abrirEdicionVenta(v, desdeCobrar) {
       <div class="field"><label>Cantidad</label><input name="cantidad" inputmode="decimal" value="${esc(v.cantidad)}"></div>
       <div class="field"><label>Precio unitario</label><input name="precio_unitario" inputmode="decimal" value="${esc(puTxt)}"></div>
       <div class="field full"><label>Total a cobrar</label><input name="total" class="total-edit-input" inputmode="decimal" value="${esc(totTxt)}"></div>
-      ${v.tipo === "salida" ? "" : `
+      ${v.tipo === "salida" ? (
+        (medio === "cheque" || medio === "echeq")
+          ? `<p class="lead">Medio: ${etiquetaMedio(medio)} de la cartera. No se cambia desde acá.</p>`
+          : `<div class="field full"><label>Con qué salió</label>
+              <select name="medio_pago">
+                <option value="efectivo" ${medio === "efectivo" || !medio ? "selected" : ""}>Efectivo</option>
+                <option value="transferencia" ${medio === "transferencia" ? "selected" : ""}>Transferencia</option>
+              </select>
+            </div>`
+      ) : `
         <div class="field full"><label>Cómo pagó</label>
           <select name="medio_pago">
             <option value="efectivo" ${medio === "efectivo" ? "selected" : ""}>Efectivo</option>
@@ -6575,8 +7512,8 @@ function abrirEdicionVenta(v, desdeCobrar) {
       precio_unitario: fd.precio_unitario,
       total: fd.total,
     };
+    if (fd.medio_pago) body.medio_pago = fd.medio_pago;
     if (v.tipo !== "salida") {
-      body.medio_pago = fd.medio_pago || "efectivo";
       body.facturar = fd.facturar === "1";
       body.estado_factura = fd.estado_factura;
       if (fd.cliente_id) body.cliente_id = Number(fd.cliente_id);
@@ -6592,9 +7529,11 @@ function abrirEdicionVenta(v, desdeCobrar) {
 
 function tabsCompras(activo) {
   const items = [
-    ["compras", "Compras", "#/compras"],
-    ["cuenta", "Cuenta corriente", "#/compras/cuenta"],
-    ["historial", "Historial", "#/compras/historial"],
+    ["compras", "🧾 Comprobantes", "#/compras"],
+    ["cuenta", "📉 Deudas proveedores", "#/compras/cuenta"],
+    ["historial", "📜 Historial", "#/compras/historial"],
+    ["stats", "📊 Estadísticas", "#/compras?panel=stats"],
+    ["proveedores", "🏭 Proveedores", "#/proveedores"],
   ];
   return `<div class="toolbar no-print">${items.map(([id, nom, href]) =>
     `<a class="btn ${activo === id ? "" : "secondary"}" href="${href}">${nom}</a>`
@@ -6617,12 +7556,130 @@ function membreteLineas(cfg) {
   ].filter(Boolean);
 }
 
-async function vistaCompras() {
+function codAfipTipo(tipo) {
+  return ({ factura_a: "01", factura_b: "06", factura_c: "11", factura_x: "99", recibo: "15", remito_interno: "91", orden_pago: "99" })[tipo] || "00";
+}
+
+function letraDocTipo(tipo) {
+  return ({ factura_a: "A", factura_b: "B", factura_c: "C", factura_x: "X", recibo: "R", remito_interno: "R", orden_pago: "OP" })[tipo] || "X";
+}
+
+function labelDocTipo(tipo) {
+  return ({
+    factura_a: "FACTURA A",
+    factura_b: "FACTURA B",
+    factura_c: "FACTURA C",
+    factura_x: "FACTURA X",
+    recibo: "RECIBO",
+    remito_interno: "REMITO",
+    orden_pago: "ORDEN DE PAGO",
+  })[tipo] || "COMPROBANTE";
+}
+
+/** Plantilla tipo factura argentina / orden de pago. */
+function htmlPlantillaComprobante(opts) {
+  const cfg = opts.cfg || {};
+  const lineas = membreteLineas(cfg);
+  const tipo = opts.tipo || "factura_x";
+  const letra = opts.letra || letraDocTipo(tipo);
+  const cod = opts.cod || codAfipTipo(tipo);
+  const items = opts.items || [];
+  const cliente = opts.cliente || {};
+  return `
+    <article class="recibo comprobante-print" id="${esc(opts.artId || "art-comp-print")}">
+      <div class="comp-copia">${esc(opts.copia || "ORIGINAL")}</div>
+      <div class="comp-cabecera">
+        <div class="comp-emisor">
+          <h2>${esc(cfg.empresa || "Gasonor SRL")}</h2>
+          ${lineas.map((l) => `<p>${esc(l)}</p>`).join("")}
+          ${cfg.iibb ? `<p>IIBB ${esc(cfg.iibb)}</p>` : ""}
+          ${cfg.inicio_actividades ? `<p>Inicio act. ${esc(fmtFecha(cfg.inicio_actividades))}</p>` : ""}
+        </div>
+        <div class="comp-letra-box">
+          <div class="comp-letra">${esc(letra)}</div>
+          <small>COD. ${esc(cod)}</small>
+        </div>
+        <div class="comp-datos-doc">
+          <strong>${esc(opts.titulo || labelDocTipo(tipo))}</strong>
+          <p class="comp-nro">Nº ${esc(opts.numero || "")}</p>
+          <p>Fecha: <b>${esc(opts.fechaTxt || "")}</b></p>
+          ${opts.extraDerecha || ""}
+        </div>
+      </div>
+      <div class="comp-cliente">
+        ${opts.clienteHtml || `
+          <p><strong>${tipo === "orden_pago" ? "Pagado a / Concepto:" : "Señor/es:"}</strong> ${esc(cliente.nombre || "Consumidor final")}</p>
+          <p><strong>CUIT / DNI:</strong> ${esc(cliente.cuit || "—")}
+            ${cliente.direccion ? ` · <strong>Domicilio:</strong> ${esc(cliente.direccion)}` : ""}</p>
+          ${opts.condicion ? `<p><strong>Condición:</strong> ${esc(opts.condicion)}</p>` : ""}
+        `}
+      </div>
+      <table class="comp-items">
+        <thead><tr>
+          ${opts.colsHtml || `<th>Cant.</th><th>Detalle</th><th>P. unitario</th><th>Importe</th>`}
+        </tr></thead>
+        <tbody>
+          ${opts.bodyHtml || items.map((it) => `
+            <tr>
+              <td class="mono">${esc(it.cantidad)}</td>
+              <td>${esc(it.descripcion)}</td>
+              <td class="mono der">${money(it.precio_unitario)}</td>
+              <td class="mono der">${money(it.subtotal != null ? it.subtotal : it.total)}</td>
+            </tr>`).join("") || `<tr><td colspan="4" class="empty">Sin ítems</td></tr>`}
+        </tbody>
+      </table>
+      <div class="comp-totales">
+        ${(opts.totalesExtra || "")}
+        <div class="comp-total-final"><span>${esc(opts.totalLabel || "TOTAL")}</span><b>${money(opts.total)}</b></div>
+        ${opts.saldoHtml || ""}
+      </div>
+      ${opts.obs ? `<p class="comp-obs">Obs.: ${esc(opts.obs)}</p>` : ""}
+      <div class="comp-pie">
+        ${opts.pieHtml || (opts.cae
+          ? `<div><strong>CAE N°</strong> ${esc(opts.cae)}${opts.caeVto ? `<br><strong>Vto. CAE</strong> ${esc(fmtFecha(opts.caeVto))}` : ""}</div>`
+          : `<div><em>${tipo === "orden_pago" ? "Orden de pago interna" : tipo === "factura_x" ? "Comprobante no fiscal (Factura X)" : "Comprobante"}</em></div>`)}
+        <div class="firmas">
+          <div>${esc(opts.firmaIzqLabel || "Emisor")}<br>${esc(opts.firmaIzq || cfg.empresa || "Gasonor SRL")}</div>
+          <div>${esc(opts.firmaDerLabel || "Receptor")}<br>${esc(opts.firmaDer || cliente.nombre || "")}</div>
+        </div>
+      </div>
+    </article>`;
+}
+
+function descargarArticuloPrint(selector, nombreArchivo) {
+  const art = document.querySelector(selector);
+  if (!art) return toast("No hay comprobante para descargar", true);
+  const css = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .map((l) => `<link rel="stylesheet" href="${l.href}">`)
+    .join("\n");
+  const html = [
+    "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">",
+    "<title>" + esc(nombreArchivo) + "</title>",
+    css,
+    "<style>body{background:#fff;margin:0;padding:16px}.no-print{display:none!important}.recibo{max-width:860px;margin:0 auto}</style>",
+    "</head><body>",
+    art.outerHTML,
+    "</body></html>",
+  ].join("");
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (nombreArchivo || "comprobante").replace(/[^\w.\-]+/g, "_") + ".html";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast("Descargado · abrilo e imprimí / Guardar como PDF");
+}
+
+async function vistaCompras(params) {
   setNav("compras");
   if (rolActual() !== "admin") {
     location.hash = "#/inicio";
     return;
   }
+  const panel = (params && params.get && params.get("panel")) || "";
   const [resumen, lista, provs, cuentas] = await Promise.all([
     api("/api/compras/resumen"),
     api("/api/compras"),
@@ -6633,36 +7690,54 @@ async function vistaCompras() {
   const compras = lista.compras || [];
   const porProv = stats.por_proveedor || [];
   const conDeuda = (cuentas.cuentas || []).filter((c) => Number(c.deuda) > 0);
+  const hoy = hoyInput();
+  const deudaVencida = compras.filter((c) => c.condicion_pago === "cuenta" && c.fecha_vencimiento && String(c.fecha_vencimiento) < hoy && Number(c.importe) > 0);
   app().innerHTML = `
-    <h1>Compras y deudas de proveedores</h1>
-    ${tabsCompras("compras")}
-    <p class="lead">Facturas de compra, deuda con cada proveedor y pagos. El comprobante también se puede cargar al completar un despacho.</p>
-    <div class="grid stats">
-      <div class="card stat total"><div class="n">${money(stats.total_mes || 0)}</div><small>Compras del mes</small></div>
-      <div class="card stat cargado"><div class="n">${stats.n_mes || 0}</div><small>Comprobantes del mes</small></div>
-      <div class="card stat vacio"><div class="n">${money(stats.total || 0)}</div><small>Total cargado</small></div>
-      <a class="card stat en_cliente" href="#/compras/cuenta"><div class="n">${money(cuentas.deuda_total || 0)}</div><small>Deuda con proveedores</small></a>
+    <h1>🛒 Compras</h1>
+    ${tabsCompras(panel === "stats" ? "stats" : "compras")}
+    <p class="lead">Proveedores, comprobantes de compra (contado o cuenta corriente), vencimientos y órdenes de pago.</p>
+
+    ${panel === "stats" ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="toolbar" style="justify-content:space-between">
+        <h3 style="margin:0">📊 Estadísticas de compras</h3>
+        <a class="btn ghost" href="#/compras">Cerrar</a>
+      </div>
+      <div class="grid stats" style="margin-top:10px">
+        <div class="card stat total"><div class="n">${money(stats.total_mes || 0)}</div><small>Compras del mes</small></div>
+        <div class="card stat cargado"><div class="n">${stats.n_mes || 0}</div><small>Comprobantes del mes</small></div>
+        <div class="card stat vacio"><div class="n">${money(stats.total || 0)}</div><small>Total cargado</small></div>
+        <a class="card stat en_cliente" href="#/compras/cuenta"><div class="n">${money(cuentas.deuda_total || 0)}</div><small>Deuda proveedores</small></a>
+      </div>
+      ${porProv.length ? `<h4>Por proveedor</h4>
+        <table><thead><tr><th>Proveedor</th><th>Comp.</th><th>Importe</th></tr></thead><tbody>
+          ${porProv.map((p) => `<tr><td>${esc(p.proveedor_nombre || "—")}</td><td class="mono">${p.n || 0}</td><td class="mono">${money(p.importe || 0)}</td></tr>`).join("")}
+        </tbody></table>` : `<p class="empty">Sin datos.</p>`}
+    </div>` : `
+    <div class="toolbar">
+      <a class="btn copper" href="#/compras/cuenta">📉 Ver / cancelar deudas</a>
+      <a class="btn secondary" href="#/compras?panel=stats">📊 Estadísticas</a>
+      <a class="btn ghost" href="#/proveedores">🏭 Proveedores</a>
     </div>
-    ${conDeuda.length ? `<div class="card" style="margin:12px 0"><h3>Proveedores con saldo</h3>
-      <table><thead><tr><th>Proveedor</th><th>Compras</th><th>Pagos</th><th>Deuda</th></tr></thead><tbody>
-        ${conDeuda.slice(0, 8).map((c) => `<tr>
-          <td><a href="#/compras/cuenta/${c.proveedor_id}">${esc(c.nombre)}</a></td>
+    ${conDeuda.length ? `<div class="card" style="margin:12px 0"><h3 style="margin-top:0">Deudas activas · ${money(cuentas.deuda_total || 0)}</h3>
+      <table><thead><tr><th>Proveedor</th><th>Compras</th><th>Pagos</th><th>Deuda</th><th></th></tr></thead><tbody>
+        ${conDeuda.slice(0, 10).map((c) => `<tr>
+          <td><strong>${esc(c.nombre)}</strong></td>
           <td class="mono">${money(c.compras || 0)}</td>
           <td class="mono">${money(c.pagos || 0)}</td>
           <td class="mono"><strong>${money(c.deuda || 0)}</strong></td>
+          <td><a class="btn secondary" href="#/compras/cuenta/${c.proveedor_id}">💰 Pagar / OP</a></td>
         </tr>`).join("")}
-      </tbody></table></div>` : ""}
-    ${porProv.length ? `<div class="card" style="margin:12px 0"><h3>Por proveedor</h3>
-      <table><thead><tr><th>Proveedor</th><th>Comprobantes</th><th>Importe</th></tr></thead><tbody>
-        ${porProv.map((p) => `<tr><td>${esc(p.proveedor_nombre || "—")}</td><td class="mono">${p.n || 0}</td><td class="mono">${money(p.importe || 0)}</td></tr>`).join("")}
-      </tbody></table></div>` : ""}
+      </tbody></table></div>` : `<div class="banner-ok">Sin deudas con proveedores</div>`}
+    `}
+
     <div class="card">
-      <h3>Cargar comprobante</h3>
+      <h3 style="margin-top:0">➕ Cargar comprobante de compra</h3>
       <form id="form-compra" class="grid form">
         <div class="field"><label>Proveedor</label>
           <select name="proveedor_id" required>
             <option value="">Elegir…</option>
-            ${(provs.proveedores || []).map((p) => `<option value="${p.id}">${esc(p.nombre)} · ${p.clase === "generico" ? "compra" : "planta"}</option>`).join("")}
+            ${(provs.proveedores || []).map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}
           </select>
         </div>
         <div class="field"><label>Tipo</label>
@@ -6671,27 +7746,46 @@ async function vistaCompras() {
         <div class="field"><label>Nº comprobante</label><input name="numero" required placeholder="0001-00001234" autocomplete="off"></div>
         <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}" required></div>
         <div class="field"><label>Importe</label><input name="importe" inputmode="decimal" placeholder="0,00" autocomplete="off"></div>
+        <div class="field"><label>Condición</label>
+          <select name="condicion_pago" id="compra-cond">
+            <option value="cuenta">Cuenta corriente</option>
+            <option value="contado">Contado</option>
+          </select>
+        </div>
+        <div class="field" id="wrap-compra-vto"><label>Vto. de pago</label><input name="fecha_vencimiento" type="date"></div>
         <div class="field full"><label>Archivo (foto o PDF, máx. 700 KB)</label><input id="compra-archivo" type="file" accept="image/*,application/pdf"></div>
         <div class="field full"><label>Nota</label><input name="observaciones" autocomplete="off"></div>
-        <div class="field full"><button class="btn copper" type="submit">Guardar compra</button></div>
+        <div class="field full"><button class="btn copper" type="submit">💾 Guardar compra</button></div>
       </form>
     </div>
     <div class="card table-wrap" style="margin-top:12px">
-      <h3>Comprobantes cargados</h3>
+      <h3>Comprobantes</h3>
       <table>
-        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Tipo</th><th>Número</th><th>Importe</th><th>Archivo</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Nº</th><th>Condición</th><th>Vence</th><th>Importe</th><th></th></tr></thead>
         <tbody>
-          ${compras.length ? compras.map((c) => `<tr>
+          ${compras.length ? compras.map((c) => {
+            const venc = c.condicion_pago === "cuenta" && c.fecha_vencimiento && String(c.fecha_vencimiento) < hoy;
+            const prox = c.condicion_pago === "cuenta" && c.fecha_vencimiento && !venc && (() => {
+              const dias = Math.round((new Date(String(c.fecha_vencimiento).slice(0, 10) + "T12:00:00") - new Date(hoy + "T12:00:00")) / 86400000);
+              return dias <= 7;
+            })();
+            return `<tr class="${venc ? "fila-deuda-vencida" : prox ? "fila-deuda-proxima" : ""}">
             <td class="mono">${fmtFecha(c.fecha)}</td>
             <td>${esc(c.proveedor_nombre || "—")}</td>
-            <td>${esc(c.tipo_comprobante || "")}</td>
-            <td class="mono">${esc(c.numero || "—")}</td>
+            <td class="mono">${esc(c.tipo_comprobante || "")} ${esc(c.numero || "—")}</td>
+            <td>${c.condicion_pago === "contado" ? "Contado" : "Cta. cte."}</td>
+            <td class="mono">${c.fecha_vencimiento ? fmtFecha(c.fecha_vencimiento) : "—"}</td>
             <td class="mono">${c.importe != null && c.importe !== "" ? money(c.importe) : "—"}</td>
-            <td>${c.tiene_archivo ? `<a href="/api/compras/${c.id}/archivo" target="_blank" rel="noopener">Ver</a>` : "—"}</td>
-          </tr>`).join("") : `<tr><td colspan="6" class="empty">Todavía no hay compras cargadas.</td></tr>`}
+            <td>${c.tiene_archivo ? `<a href="/api/compras/${c.id}/archivo" target="_blank" rel="noopener">📎</a>` : ""}
+              ${c.proveedor_id ? ` <a class="btn ghost" href="#/compras/cuenta/${c.proveedor_id}">💰</a>` : ""}</td>
+          </tr>`;
+          }).join("") : `<tr><td colspan="7" class="empty">Todavía no hay compras cargadas.</td></tr>`}
         </tbody>
       </table>
     </div>`;
+  const cond = $("#compra-cond");
+  const syncVto = () => { $("#wrap-compra-vto").hidden = cond.value === "contado"; };
+  if (cond) { cond.onchange = syncVto; syncVto(); }
   $("#form-compra").onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
@@ -6699,7 +7793,7 @@ async function vistaCompras() {
       const archivo = await leerArchivoCompra($("#compra-archivo"));
       await api("/api/compras", { method: "POST", body: { ...fd, ...(archivo || {}) } });
       toast("Compra guardada");
-      vistaCompras();
+      vistaCompras(params || new URLSearchParams());
     } catch (err) { toast(err.message, true); }
   };
 }
@@ -6865,6 +7959,362 @@ async function vistaCompraHistorial(params) {
     const id = new FormData(e.target).get("proveedor_id");
     location.hash = "#/compras/historial" + (id ? "?proveedor_id=" + encodeURIComponent(id) : "");
   };
+}
+
+async function vistaConfigCaja() {
+  setNav("caja-config");
+  if (!puede("admin")) {
+    app().innerHTML = `<p class="empty">Solo administración.</p>`;
+    return;
+  }
+  const [ventas, conds] = await Promise.all([
+    api("/api/caja/ventas").catch(() => ({ precios: [] })),
+    api("/api/caja/condiciones?todos=1"),
+  ]);
+  const precios = ventas.precios || [];
+  const gases = precios.filter((p) => p.tipo === "gas");
+  const condiciones = conds.condiciones || [];
+  app().innerHTML = `
+    <h1>⚙ Configuración de caja</h1>
+    <p class="lead">Precios que se ven en Cobrar y condiciones de pago (deuda, plazo, recargo, descuento).</p>
+    <p><a href="#/ventas">← Ventas</a> · <a href="#/cobrar">Cobrar</a></p>
+
+    <div class="card">
+      <h3 style="margin-top:0">💨 Precios de gases (Cobrar)</h3>
+      <p class="lead">Gases por m³ (CO2 por kg por defecto). Regulador por unidad.</p>
+      <form id="form-precios-caja">
+        <div class="precio-grid precio-grid-4" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong></div>
+        ${gases.map((g) => {
+          const reg = precios.find((p) => p.clave === "reg:" + g.gas) || { precio: 0 };
+          const u = unidadGasCaja(g) === "kg" ? "kg" : "m3";
+          const esCo2 = g.gas === "co2";
+          return `<div class="precio-grid precio-grid-4">
+            <div>${esc(g.nombre)}</div>
+            <div class="field">${esCo2 ? `
+              <select name="unidad:${esc(g.clave)}">
+                <option value="kg" ${u === "kg" ? "selected" : ""}>por kg</option>
+                <option value="m3" ${u === "m3" ? "selected" : ""}>por m³</option>
+              </select>` : `<input type="hidden" name="unidad:${esc(g.clave)}" value="m3"><span class="mono">por m³</span>`}
+            </div>
+            <div class="field"><input name="${esc(g.clave)}" inputmode="decimal" value="${esc(g.precio)}"></div>
+            <div class="field"><input name="reg:${esc(g.gas)}" inputmode="decimal" value="${esc(reg.precio)}"></div>
+          </div>`;
+        }).join("")}
+        <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">💳 Condiciones de pago</h3>
+      <p class="lead">Asignalas en la ficha del cliente. Al facturar se aplican solas (deuda, recargo o descuento).</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nombre</th><th>Genera deuda</th><th>Plazo</th><th>Recargo %</th><th>Desc. %</th><th>Activa</th><th></th></tr></thead>
+          <tbody>
+            ${condiciones.map((c) => `
+              <tr>
+                <td><strong>${esc(c.nombre)}</strong></td>
+                <td>${Number(c.genera_deuda) ? "Sí" : "No (contado)"}</td>
+                <td class="mono">${esc(c.plazo_dias)} d</td>
+                <td class="mono">${esc(c.recargo_pct)}</td>
+                <td class="mono">${esc(c.descuento_pct)}</td>
+                <td>${Number(c.activo) ? "Sí" : "No"}</td>
+                <td><button type="button" class="btn ghost" data-edit-cond="${c.id}">Editar</button></td>
+              </tr>`).join("") || `<tr><td colspan="7" class="empty">Sin condiciones.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <form id="form-cond-nueva" class="grid form" style="margin-top:14px">
+        <div class="field full"><label>Nueva condición</label><input name="nombre" required placeholder="Ej. Cuenta corriente 21 días"></div>
+        <div class="field"><label>Genera deuda</label>
+          <select name="genera_deuda"><option value="1">Sí</option><option value="0">No (contado)</option></select>
+        </div>
+        <div class="field"><label>Plazo (días)</label><input name="plazo_dias" type="number" min="0" value="30"></div>
+        <div class="field"><label>Recargo %</label><input name="recargo_pct" inputmode="decimal" value="0"></div>
+        <div class="field"><label>Descuento %</label><input name="descuento_pct" inputmode="decimal" value="0"></div>
+        <div class="field full"><button class="btn copper" type="submit">Crear condición</button></div>
+      </form>
+    </div>`;
+  $("#form-precios-caja").onsubmit = async (e) => {
+    e.preventDefault();
+    const raw = Object.fromEntries(new FormData(e.target).entries());
+    const preciosBody = {};
+    const unidades = {};
+    Object.entries(raw).forEach(([k, v]) => {
+      if (k.startsWith("unidad:")) unidades[k.slice(7)] = v;
+      else preciosBody[k] = v;
+    });
+    try {
+      await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades } });
+      toast("Precios guardados");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#form-cond-nueva").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    body.genera_deuda = body.genera_deuda === "1";
+    try {
+      await api("/api/caja/condiciones", { method: "POST", body });
+      toast("Condición creada");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  app().querySelectorAll("[data-edit-cond]").forEach((b) => {
+    b.onclick = () => {
+      const c = condiciones.find((x) => String(x.id) === b.dataset.editCond);
+      if (!c) return;
+      abrirModal(`
+        <h2>Editar condición</h2>
+        <form id="form-cond-edit" class="grid form">
+          <div class="field full"><label>Nombre</label><input name="nombre" value="${esc(c.nombre)}" required></div>
+          <div class="field"><label>Genera deuda</label>
+            <select name="genera_deuda"><option value="1" ${Number(c.genera_deuda) ? "selected" : ""}>Sí</option><option value="0" ${Number(c.genera_deuda) ? "" : "selected"}>No</option></select>
+          </div>
+          <div class="field"><label>Plazo días</label><input name="plazo_dias" type="number" value="${esc(c.plazo_dias)}"></div>
+          <div class="field"><label>Recargo %</label><input name="recargo_pct" value="${esc(c.recargo_pct)}"></div>
+          <div class="field"><label>Descuento %</label><input name="descuento_pct" value="${esc(c.descuento_pct)}"></div>
+          <div class="field"><label>Activa</label>
+            <select name="activo"><option value="1" ${Number(c.activo) ? "selected" : ""}>Sí</option><option value="0" ${Number(c.activo) ? "" : "selected"}>No</option></select>
+          </div>
+          <div class="field full"><button class="btn" type="submit">Guardar</button></div>
+        </form>`);
+      $("#form-cond-edit").onsubmit = async (ev) => {
+        ev.preventDefault();
+        const body = Object.fromEntries(new FormData(ev.target).entries());
+        body.genera_deuda = body.genera_deuda === "1";
+        body.activo = body.activo === "1";
+        try {
+          await api("/api/caja/condiciones/" + c.id, { method: "PUT", body });
+          cerrarModal();
+          toast("Condición actualizada");
+          route();
+        } catch (err) { toast(err.message, true); }
+      };
+    };
+  });
+}
+
+async function vistaVentaImprimir(id, params) {
+  setNav("ventas");
+  const data = await api("/api/caja/ventas/" + id + "/imprimir");
+  const v = data.venta || {};
+  const cfg = data.empresa || {};
+  const items = (data.items || []).map((it) => ({
+    descripcion: it.descripcion,
+    cantidad: it.cantidad,
+    precio_unitario: it.precio_unitario,
+    subtotal: it.subtotal != null ? it.subtotal : it.total,
+  }));
+  if (data.comprobante && data.comprobante.id && params.get("forzar") !== "1") {
+    location.hash = "#/comprobante/" + data.comprobante.id + "/imprimir";
+    return;
+  }
+  const esSalida = v.tipo === "salida" || data.doc === "orden_pago";
+  let tipo = esSalida
+    ? "orden_pago"
+    : (params.get("tipo") || (v.afip_cae ? "factura_b" : "factura_x"));
+  if (!esSalida && !["factura_a", "factura_b", "factura_c", "factura_x"].includes(tipo)) {
+    tipo = "factura_x";
+  }
+  const nro = v.afip_numero
+    || (esSalida ? ("OP-" + String(v.id).padStart(8, "0")) : ("0001-" + String(v.id).padStart(8, "0")));
+  const cliente = {
+    nombre: v.cliente_nombre || (esSalida ? v.descripcion : "Consumidor final"),
+    cuit: v.cliente_cuit || "",
+    direccion: "",
+  };
+  const pintar = () => {
+    const nomArchivo = `${labelDocTipo(tipo).replace(/\s+/g, "_")}_${nro}`;
+    app().innerHTML = `
+      <div class="toolbar no-print">
+        <button type="button" class="btn copper" id="btn-print-v">🖨 Imprimir / Guardar PDF</button>
+        <button type="button" class="btn secondary" id="btn-dl-v">⬇ Descargar</button>
+        <a class="btn ghost" href="#/ventas">← Ventas</a>
+        <a class="btn ghost" href="#/cobrar">Cobrar</a>
+      </div>
+      ${esSalida ? "" : `
+      <div class="toolbar no-print fiscal-switch" style="margin-bottom:8px">
+        <span class="lead" style="margin:0">Formato:</span>
+        ${[["factura_x","X"],["factura_a","A"],["factura_b","B"],["factura_c","C"]].map(([t, l]) =>
+          `<button type="button" class="btn big-soft ${tipo === t ? "on" : ""}" data-vt="${t}">Factura ${l}</button>`
+        ).join("")}
+      </div>`}
+      ${htmlPlantillaComprobante({
+        artId: "art-venta-print",
+        cfg,
+        tipo,
+        numero: nro,
+        fechaTxt: `${fmtFecha(v.fecha)}${v.hora ? " " + v.hora : ""}`,
+        cliente,
+        items: esSalida ? [{ descripcion: v.descripcion, cantidad: 1, precio_unitario: v.total, subtotal: v.total }] : items,
+        total: v.total,
+        totalLabel: esSalida ? "IMPORTE PAGADO" : "TOTAL",
+        condicion: esSalida
+          ? `Orden de pago · ${etiquetaMedio(v.medio_pago) || "Efectivo"}`
+          : `Contado · ${etiquetaMedio(v.medio_pago) || "Efectivo"}`,
+        cae: v.afip_cae || "",
+        caeVto: "",
+        obs: v.usuario_nombre ? ("Registró: " + v.usuario_nombre) : "",
+        firmaIzqLabel: esSalida ? "Autorizó" : "Emisor",
+        firmaDerLabel: esSalida ? "Recibió" : "Cliente",
+        firmaDer: esSalida ? (v.descripcion || "") : (v.cliente_nombre || "Consumidor final"),
+        extraDerecha: esSalida
+          ? `<p>Medio: <b>${esc(etiquetaMedio(v.medio_pago) || "Efectivo")}</b></p>`
+          : (v.estado_factura === "facturado" ? `<p>Estado: <b>Facturado</b></p>` : ""),
+      })}
+      <p class="lead no-print">Para PDF: <b>Imprimir</b> → «Guardar como PDF». Las salidas se emiten como <b>Orden de pago</b>; las ventas como Factura X/A/B/C.</p>`;
+    $("#btn-print-v").onclick = () => window.print();
+    $("#btn-dl-v").onclick = () => descargarArticuloPrint("#art-venta-print", nomArchivo);
+    document.querySelectorAll("[data-vt]").forEach((b) => {
+      b.onclick = () => {
+        tipo = b.dataset.vt;
+        location.hash = "#/venta/" + id + "/imprimir?tipo=" + tipo;
+      };
+    });
+  };
+  pintar();
+}
+
+async function vistaComprobanteImprimir(id) {
+  setNav("ventas");
+  const data = await api("/api/caja/comprobantes/" + id + "/imprimir");
+  const c = data.comprobante || {};
+  const cfg = data.empresa || {};
+  const lineas = membreteLineas(cfg);
+  const letra = ({ factura_a: "A", factura_b: "B", factura_c: "C", factura_x: "X", recibo: "R", remito_interno: "R" })[c.tipo] || "X";
+  const cod = codAfipTipo(c.tipo);
+  const items = c.items || [];
+  const nomArchivo = `${c.tipo_label || "Comprobante"}_${c.numero_txt || id}`;
+  app().innerHTML = `
+    <div class="toolbar no-print">
+      <button type="button" class="btn copper" id="btn-print-comp">🖨 Imprimir / Guardar PDF</button>
+      <button type="button" class="btn secondary" id="btn-dl-comp">⬇ Descargar</button>
+      <a class="btn ghost" href="#/deudas?cliente_id=${c.cliente_id}">Cuenta corriente</a>
+      <a class="btn ghost" href="#/ventas">Ventas</a>
+      <a class="btn ghost" href="#/facturar">Nueva factura</a>
+    </div>
+    <article class="recibo comprobante-print" id="art-comp-print">
+      <div class="comp-copia">ORIGINAL</div>
+      <div class="comp-cabecera">
+        <div class="comp-emisor">
+          <h2>${esc(cfg.empresa || "Gasonor SRL")}</h2>
+          ${lineas.map((l) => `<p>${esc(l)}</p>`).join("")}
+          ${cfg.iibb ? `<p>IIBB ${esc(cfg.iibb)}</p>` : ""}
+          ${cfg.inicio_actividades ? `<p>Inicio act. ${esc(fmtFecha(cfg.inicio_actividades))}</p>` : ""}
+        </div>
+        <div class="comp-letra-box">
+          <div class="comp-letra">${esc(letra)}</div>
+          <small>COD. ${esc(cod)}</small>
+        </div>
+        <div class="comp-datos-doc">
+          <strong>${esc(c.tipo_label || c.tipo)}</strong>
+          <p class="comp-nro">Nº ${esc(c.numero_txt)}</p>
+          <p>Fecha: <b>${fmtFecha(c.fecha)}</b></p>
+          ${c.fecha_vencimiento ? `<p>Vencimiento: <b>${fmtFecha(c.fecha_vencimiento)}</b></p>` : ""}
+          ${c.punto_venta_afip ? `<p>Punto de venta: ${esc(c.punto_venta_afip)}</p>` : ""}
+        </div>
+      </div>
+      <div class="comp-cliente">
+        <p><strong>Señor/es:</strong> ${esc(c.cliente_nombre || "")}</p>
+        <p><strong>CUIT / DNI:</strong> ${esc(c.cliente_cuit || "—")}
+          ${c.cliente_direccion ? ` · <strong>Domicilio:</strong> ${esc(c.cliente_direccion)}` : ""}</p>
+        ${c.condicion?.nombre ? `<p><strong>Condición de venta:</strong> ${esc(c.condicion.nombre)}</p>` : ""}
+      </div>
+      <table class="comp-items">
+        <thead><tr><th>Cant.</th><th>Detalle</th><th>P. unitario</th><th>Importe</th></tr></thead>
+        <tbody>
+          ${items.map((it) => `
+            <tr>
+              <td class="mono">${esc(it.cantidad)}</td>
+              <td>${esc(it.descripcion)}</td>
+              <td class="mono der">${money(it.precio_unitario)}</td>
+              <td class="mono der">${money(it.subtotal)}</td>
+            </tr>`).join("") || `<tr><td colspan="4" class="empty">Sin ítems</td></tr>`}
+        </tbody>
+      </table>
+      <div class="comp-totales">
+        ${Number(c.subtotal) && Number(c.subtotal) !== Number(c.total) ? `<div><span>Subtotal</span><b>${money(c.subtotal)}</b></div>` : ""}
+        ${Number(c.recargo) ? `<div><span>Recargo</span><b>${money(c.recargo)}</b></div>` : ""}
+        ${Number(c.descuento) ? `<div><span>Descuento</span><b>−${money(c.descuento)}</b></div>` : ""}
+        <div class="comp-total-final"><span>TOTAL</span><b>${money(c.total)}</b></div>
+        <div><span>Saldo</span><b>${money(c.saldo)}</b> <small>(${esc(c.estado)})</small></div>
+      </div>
+      ${c.observaciones ? `<p class="comp-obs">Obs.: ${esc(c.observaciones)}</p>` : ""}
+      <div class="comp-pie">
+        ${c.cae ? `<div><strong>CAE N°</strong> ${esc(c.cae)}${c.cae_vto ? `<br><strong>Vto. CAE</strong> ${esc(fmtFecha(c.cae_vto))}` : ""}</div>` : `<div><em>Comprobante interno — no fiscal AFIP</em></div>`}
+        <div class="firmas">
+          <div>Emisor<br>${esc(cfg.empresa || "Gasonor SRL")}</div>
+          <div>Receptor<br>${esc(c.cliente_nombre || "")}</div>
+        </div>
+      </div>
+    </article>
+    <p class="lead no-print">Para PDF: <b>Imprimir</b> → «Guardar como PDF». O <b>Descargar</b> el HTML y abrilo después.</p>`;
+  $("#btn-print-comp").onclick = () => window.print();
+  $("#btn-dl-comp").onclick = () => descargarArticuloPrint("#art-comp-print", nomArchivo);
+}
+
+async function vistaReciboCliente(id) {
+  setNav("deudas");
+  const data = await api("/api/caja/cobros/" + id + "/imprimir");
+  const cobro = data.cobro || {};
+  const cfg = data.empresa || {};
+  const apps = data.aplicaciones || [];
+  const lineas = membreteLineas(cfg);
+  const nro = String(cobro.id).padStart(8, "0");
+  const nomArchivo = `Recibo_${nro}`;
+  app().innerHTML = `
+    <div class="toolbar no-print">
+      <button type="button" class="btn copper" id="btn-print-rc">🖨 Imprimir / Guardar PDF</button>
+      <button type="button" class="btn secondary" id="btn-dl-rc">⬇ Descargar</button>
+      <a class="btn secondary" href="#/deudas?cliente_id=${cobro.cliente_id}">Volver a la cuenta</a>
+      <a class="btn ghost" href="#/deudas?recibo=1">Otro recibo</a>
+    </div>
+    <article class="recibo comprobante-print" id="art-recibo-print">
+      <div class="comp-copia">ORIGINAL</div>
+      <div class="comp-cabecera">
+        <div class="comp-emisor">
+          <h2>${esc(cfg.empresa || "Gasonor SRL")}</h2>
+          ${lineas.map((l) => `<p>${esc(l)}</p>`).join("")}
+        </div>
+        <div class="comp-letra-box">
+          <div class="comp-letra">X</div>
+          <small>RECIBO</small>
+        </div>
+        <div class="comp-datos-doc">
+          <strong>RECIBO DE COBRO</strong>
+          <p class="comp-nro">Nº ${esc(nro)}</p>
+          <p>Fecha: <b>${fmtFecha(cobro.fecha)}</b> ${esc(cobro.hora || "")}</p>
+        </div>
+      </div>
+      <div class="comp-cliente">
+        <p>Recibimos de <strong>${esc(cobro.cliente_nombre || "")}</strong>${cobro.cliente_cuit ? `, CUIT ${esc(cobro.cliente_cuit)}` : ""}${cobro.cliente_direccion ? `, ${esc(cobro.cliente_direccion)}` : ""} la suma de <strong>${money(cobro.total)}</strong>.</p>
+        <p><strong>Medio de pago:</strong> ${esc(etiquetaMedio(cobro.medio_pago))}</p>
+      </div>
+      <table class="comp-items">
+        <thead><tr><th>Comprobante imputado</th><th>Fecha</th><th>Importe aplicado</th></tr></thead>
+        <tbody>
+          ${apps.map((a) => `
+            <tr>
+              <td>${esc(a.tipo_label)} ${esc(a.numero_txt)}</td>
+              <td class="mono">${esc(fmtFecha(a.fecha))}</td>
+              <td class="mono der">${money(a.monto)}</td>
+            </tr>`).join("") || `<tr><td colspan="3">Sin imputaciones</td></tr>`}
+        </tbody>
+      </table>
+      <div class="comp-totales">
+        <div class="comp-total-final"><span>TOTAL RECIBIDO</span><b>${money(cobro.total)}</b></div>
+      </div>
+      ${cobro.observaciones ? `<p class="comp-obs">Obs.: ${esc(cobro.observaciones)}</p>` : ""}
+      <p style="margin-top:12px">Emitido por ${esc(cobro.usuario_nombre || "")}.</p>
+      <div class="firmas">
+        <div>Recibió<br>${esc(cfg.empresa || "")}</div>
+        <div>Entregó<br>${esc(cobro.cliente_nombre || "")}</div>
+      </div>
+    </article>
+    <p class="lead no-print">Para PDF: <b>Imprimir</b> → «Guardar como PDF».</p>`;
+  $("#btn-print-rc").onclick = () => window.print();
+  $("#btn-dl-rc").onclick = () => descargarArticuloPrint("#art-recibo-print", nomArchivo);
 }
 
 async function vistaReciboPago(id) {
@@ -7110,6 +8560,339 @@ async function vistaEmpleadoFicha(id, params) {
   });
 }
 
+function mesCalendarioLabel(mes) {
+  const [y, m] = String(mes || "").split("-").map(Number);
+  const nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  if (!y || !m) return mes || "";
+  return `${nombres[m - 1]} ${y}`;
+}
+
+function shiftMes(mes, delta) {
+  const [y, m] = String(mes).split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function vistaCalendario(params) {
+  setNav("calendario");
+  const mes = params.get("mes") || hoyInput().slice(0, 7);
+  const diaSel = params.get("dia") || "";
+  const data = await api("/api/prospeccion/calendario?mes=" + encodeURIComponent(mes));
+  const porDia = data.por_dia || {};
+  const [anio, mesN] = mes.split("-").map(Number);
+  const primero = new Date(anio, mesN - 1, 1);
+  const diasMes = new Date(anio, mesN, 0).getDate();
+  const offset = (primero.getDay() + 6) % 7;
+  const celdas = [];
+  for (let i = 0; i < offset; i++) celdas.push(`<div class="cal-cell vacia"></div>`);
+  for (let d = 1; d <= diasMes; d++) {
+    const fecha = `${mes}-${String(d).padStart(2, "0")}`;
+    const evs = porDia[fecha] || [];
+    const esHoy = fecha === data.hoy;
+    const sel = fecha === diaSel;
+    const vencidas = evs.filter((e) => e.vencida).length;
+    celdas.push(`
+      <button type="button" class="cal-cell ${esHoy ? "hoy" : ""} ${sel ? "sel" : ""} ${vencidas ? "alerta" : ""}" data-dia="${fecha}">
+        <span class="cal-num">${d}</span>
+        ${evs.length ? `<span class="cal-n">${evs.length}</span>` : ""}
+        ${evs.slice(0, 2).map((e) => `<span class="cal-chip ${e.tarea_estado === "hecha" ? "hecha" : e.vencida ? "vencida" : ""}">${esc((e.proxima_hora || "").slice(0, 5))} ${esc((e.quien || "").split(" ")[0] || e.clase)}</span>`).join("")}
+      </button>`);
+  }
+  const listaDia = diaSel ? (porDia[diaSel] || []) : (data.eventos || []).filter((e) => e.tarea_estado === "pendiente").slice(0, 12);
+  app().innerHTML = `
+    <h1>Calendario</h1>
+    <p class="lead">Actividades de prospección y seguimiento. Pendientes este mes: ${data.pendientes || 0} · hechas: ${data.hechas || 0}.</p>
+    <div class="toolbar">
+      <a class="btn ghost" href="#/calendario?mes=${shiftMes(mes, -1)}">← Mes anterior</a>
+      <strong style="min-width:140px;text-align:center">${esc(mesCalendarioLabel(mes))}</strong>
+      <a class="btn ghost" href="#/calendario?mes=${shiftMes(mes, 1)}">Mes siguiente →</a>
+      <button type="button" class="btn copper" id="btn-cal-nueva">+ Asignar actividad</button>
+      <a class="btn secondary" href="#/prospeccion">Prospección</a>
+    </div>
+    <div class="cal-grid">
+      ${["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"].map((d) => `<div class="cal-head">${d}</div>`).join("")}
+      ${celdas.join("")}
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">${diaSel ? "Actividades del " + esc(fmtFecha(diaSel)) : "Próximas pendientes"}</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cuándo</th><th>Quién</th><th>Tipo</th><th>Qué hacer</th><th></th></tr></thead>
+          <tbody>
+            ${listaDia.map((a) => `
+              <tr class="${a.vencida ? "fila-sin-novedad" : ""}">
+                <td class="mono">${esc(fmtFecha(a.proxima_fecha))} ${esc(a.proxima_hora || "")}</td>
+                <td>${esc(a.quien)}${a.lugar_mostrar ? `<br><small>${esc(a.lugar_mostrar)}</small>` : ""}</td>
+                <td>${esc(a.clase)}</td>
+                <td>${esc(a.proxima_detalle || a.detalle || "")}</td>
+                <td class="actions">
+                  ${a.tarea_estado === "pendiente" ? `<button type="button" class="btn ghost" data-cal-hecha="${a.id}">Hecha</button>` : `<span class="badge badge-okfact">Hecha</span>`}
+                  <a class="btn secondary" href="#/${a.cliente_id ? "clientes/" + a.cliente_id + "?tab=prospeccion" : "prospeccion?prospecto_id=" + a.prospecto_id}">Abrir</a>
+                </td>
+              </tr>`).join("") || `<tr><td colspan="5" class="empty">${diaSel ? "No hay actividades ese día." : "No hay pendientes."}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  app().querySelectorAll("[data-dia]").forEach((b) => {
+    b.onclick = () => { location.hash = "#/calendario?mes=" + mes + "&dia=" + b.dataset.dia; };
+  });
+  app().querySelectorAll("[data-cal-hecha]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api("/api/prospeccion/notas/" + b.dataset.calHecha, { method: "PUT", body: { tarea_estado: "hecha" } });
+        toast("Actividad marcada como hecha");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+  $("#btn-cal-nueva").onclick = () => {
+    abrirModal(`
+      <h2>Asignar actividad</h2>
+      <form id="form-cal" class="grid form">
+        <div class="field"><label>Fecha</label><input name="proxima_fecha" type="date" value="${esc(diaSel || hoyInput())}" required></div>
+        <div class="field"><label>Hora</label><input name="proxima_hora" type="time"></div>
+        <div class="field"><label>Tipo</label>
+          <select name="clase">
+            <option value="visita">Visita</option>
+            <option value="llamada">Llamada</option>
+            <option value="tarea">Tarea</option>
+            <option value="nota">Nota</option>
+          </select>
+        </div>
+        <div class="field full"><label>Qué hay que hacer</label><input name="detalle" required placeholder="Visitar, llamar, pasar a ofrecer…"></div>
+        <div class="field full"><label>Lugar</label><input name="lugar" placeholder="Dirección o referencia"></div>
+        <div class="field full"><label>Buscar cliente (opcional)</label>
+          <input id="cal-cli-q" placeholder="Código o nombre">
+          <input type="hidden" name="cliente_id" id="cal-cli-id">
+          <div id="cal-cli-res" class="cant-rapida clientes-rapidos"></div>
+        </div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar en el calendario</button></div>
+      </form>`);
+    const q = $("#cal-cli-q");
+    let t;
+    q.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        const s = q.value.trim();
+        const box = $("#cal-cli-res");
+        if (s.length < 1) { box.innerHTML = ""; return; }
+        const res = await api("/api/clientes?q=" + encodeURIComponent(s));
+        box.innerHTML = (res.clientes || []).slice(0, 6).map((c) =>
+          `<button type="button" class="btn big-soft" data-cid="${c.id}" data-nom="${esc(c.nombre)}">${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</button>`
+        ).join("") || `<p class="empty">Sin clientes</p>`;
+        box.querySelectorAll("[data-cid]").forEach((b) => {
+          b.onclick = () => {
+            $("#cal-cli-id").value = b.dataset.cid;
+            q.value = b.dataset.nom;
+            box.innerHTML = "";
+          };
+        });
+      }, 220);
+    };
+    $("#form-cal").onsubmit = async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(e.target));
+      if (!body.cliente_id) delete body.cliente_id;
+      try {
+        await api("/api/prospeccion/calendario", { method: "POST", body });
+        cerrarModal();
+        toast("Actividad asignada");
+        location.hash = "#/calendario?mes=" + String(body.proxima_fecha || mes).slice(0, 7) + "&dia=" + (body.proxima_fecha || "");
+      } catch (err) { toast(err.message, true); }
+    };
+  };
+}
+
+async function vistaProspeccion(params) {
+  setNav("prospeccion");
+  const clienteId = params.get("cliente_id");
+  const prospectoId = params.get("prospecto_id");
+  if (clienteId || prospectoId) return vistaProspeccionFicha(params);
+  const data = await api("/api/prospeccion");
+  const tab = params.get("tab") || "agenda";
+  const fila = (frio, html) => `<tr class="${frio ? "fila-sin-novedad" : ""}">${html}</tr>`;
+  const agenda = (data.agenda || []).map((a) => fila(a.vencida, `
+    <td class="mono">${esc(fmtFecha(a.proxima_fecha))} ${esc(a.proxima_hora || "")}</td>
+    <td>${esc(a.quien)}</td>
+    <td>${esc(a.clase || "")}${a.lugar_mostrar ? `<br><small>${esc(a.lugar_mostrar)}</small>` : ""}</td>
+    <td>${esc(a.proxima_detalle || a.detalle || "")}</td>
+    <td>
+      <button type="button" class="btn ghost" data-pros="hecha" data-id="${a.id}">Hecha</button>
+      <a class="btn secondary" href="#/prospeccion?${a.prospecto_id ? "prospecto_id=" + a.prospecto_id : "cliente_id=" + a.cliente_id}">Abrir</a>
+    </td>`)).join("") || `<tr><td colspan="5" class="empty">No hay actividades pendientes.</td></tr>`;
+  const prospectos = (data.prospectos || []).map((p) => fila(p.frio, `
+    <td>${esc(p.nombre)}${p.lugar ? `<br><small>${esc(p.lugar)}</small>` : ""}</td>
+    <td>${esc(p.telefono || "—")}</td>
+    <td class="mono">${p.ultimo ? esc(fmtFecha(p.ultimo)) : "Nunca"}</td>
+    <td>${esc(p.ultimo_detalle || p.notas || "")}</td>
+    <td><a class="btn secondary" href="#/prospeccion?prospecto_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="5" class="empty">No hay prospectos. Cargá el primero.</td></tr>`;
+  const seguidos = (data.seguidos || []).map((p) => fila(p.frio, `
+    <td class="mono">${esc(p.codigo || "—")}</td>
+    <td>${esc(p.nombre)}</td>
+    <td class="mono">${p.ultimo ? esc(fmtFecha(p.ultimo)) : "Nunca"}</td>
+    <td>${esc(p.ultimo_detalle || "")}</td>
+    <td><a class="btn secondary" href="#/prospeccion?cliente_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="5" class="empty">Todavía no hay clientes con seguimiento.</td></tr>`;
+  const dejaron = (data.dejaron || []).map((p) => fila(true, `
+    <td class="mono">${esc(p.codigo || "—")}</td>
+    <td>${esc(p.nombre)}<br><small>${esc(p.direccion || "")}</small></td>
+    <td>${money(p.anterior)}</td>
+    <td class="mono">${esc(fmtFecha(p.ultima_compra))}</td>
+    <td><a class="btn secondary" href="#/prospeccion?cliente_id=${p.id}">Seguir</a></td>`)).join("") || `<tr><td colspan="5" class="empty">No hay clientes de buen consumo que hayan dejado de comprar en el último mes.</td></tr>`;
+  app().innerHTML = `
+    <h1>Prospección</h1>
+    <p class="lead">Prospectos aparte de los clientes. En rojo: sin novedades hace ${data.dias_frio || 21} días, o una visita vencida. Las visitas y llamados se agendan en el calendario.</p>
+    <div class="toolbar">
+      <button class="btn copper" type="button" id="btn-nuevo-pros">+ Nuevo prospecto</button>
+      <a class="btn secondary" href="#/calendario">Calendario</a>
+      <div class="field" style="flex:1"><label>Buscar cliente para seguir</label><input id="pros-cli" placeholder="Código o nombre"></div>
+    </div>
+    <div id="pros-cli-res" class="cant-rapida clientes-rapidos"></div>
+    <div class="tabs">
+      <button data-tab="agenda" class="${tab === "agenda" ? "active" : ""}">Agenda (${(data.agenda || []).length})</button>
+      <button data-tab="prospectos" class="${tab === "prospectos" ? "active" : ""}">Prospectos (${(data.prospectos || []).length})</button>
+      <button data-tab="clientes" class="${tab === "clientes" ? "active" : ""}">Clientes en seguimiento</button>
+      <button data-tab="dejaron" class="${tab === "dejaron" ? "active" : ""}">Dejaron de comprar (${(data.dejaron || []).length})</button>
+    </div>
+    <div class="card table-wrap">
+      ${tab === "agenda" ? `<table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Nota</th><th></th></tr></thead><tbody>${agenda}</tbody></table>` : ""}
+      ${tab === "prospectos" ? `<table><thead><tr><th>Prospecto / lugar</th><th>Teléfono</th><th>Último contacto</th><th>Nota</th><th></th></tr></thead><tbody>${prospectos}</tbody></table>` : ""}
+      ${tab === "clientes" ? `<table><thead><tr><th>Código</th><th>Cliente</th><th>Último contacto</th><th>Nota</th><th></th></tr></thead><tbody>${seguidos}</tbody></table>` : ""}
+      ${tab === "dejaron" ? `<table><thead><tr><th>Código</th><th>Cliente</th><th>Compró antes</th><th>Última compra</th><th></th></tr></thead><tbody>${dejaron}</tbody></table>` : ""}
+    </div>`;
+  app().querySelectorAll("[data-tab]").forEach((b) => {
+    b.onclick = () => { location.hash = "#/prospeccion?tab=" + b.dataset.tab; };
+  });
+  app().querySelectorAll("[data-pros='hecha']").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api("/api/prospeccion/notas/" + b.dataset.id, { method: "PUT", body: { tarea_estado: "hecha" } });
+        toast("Actividad hecha");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+  $("#btn-nuevo-pros").onclick = () => {
+    abrirModal(`
+      <h2>Nuevo prospecto</h2>
+      <form id="form-pros" class="grid form">
+        <div class="field full"><label>Nombre</label><input name="nombre" required></div>
+        <div class="field"><label>Teléfono</label><input name="telefono"></div>
+        <div class="field"><label>CUIT</label><input name="cuit"></div>
+        <div class="field full"><label>Lugar para visitar</label><input name="lugar" placeholder="Dirección o referencia"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion"></div>
+        <div class="field"><label>Localidad</label><input name="localidad"></div>
+        <div class="field"><label>Rubro</label><input name="rubro"></div>
+        <div class="field full"><label>Nota</label><input name="notas"></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar</button></div>
+      </form>`);
+    $("#form-pros").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api("/api/prospeccion/prospectos", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
+        cerrarModal();
+        location.hash = "#/prospeccion?prospecto_id=" + r.prospecto.id;
+      } catch (err) { toast(err.message, true); }
+    };
+  };
+  const q = $("#pros-cli");
+  let timer;
+  q.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const s = q.value.trim();
+      const box = $("#pros-cli-res");
+      if (s.length < 1) { box.innerHTML = ""; return; }
+      const res = await api("/api/clientes?q=" + encodeURIComponent(s));
+      box.innerHTML = (res.clientes || []).slice(0, 8).map((c) =>
+        `<a class="btn big-soft" href="#/prospeccion?cliente_id=${c.id}">${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</a>`
+      ).join("") || `<p class="empty">Sin clientes con ese dato.</p>`;
+    }, 220);
+  };
+}
+
+async function vistaProspeccionFicha(params) {
+  setNav("prospeccion");
+  const clienteId = params.get("cliente_id");
+  const prospectoId = params.get("prospecto_id");
+  const qs = clienteId ? "cliente_id=" + clienteId : "prospecto_id=" + prospectoId;
+  const data = await api("/api/prospeccion/ficha?" + qs);
+  const e = data.entidad || {};
+  const frio = data.frio;
+  app().innerHTML = `
+    <p><a href="#/prospeccion">← Prospección</a></p>
+    <h1 class="${frio ? "titulo-frio" : ""}">${esc(e.nombre)}</h1>
+    <p class="lead">
+      ${e.tipo === "cliente" ? "Cliente" : "Prospecto"}
+      ${e.codigo ? " · código " + esc(e.codigo) : ""}
+      ${e.telefono ? " · " + esc(e.telefono) : ""}
+      ${e.cuit ? " · CUIT " + esc(e.cuit) : ""}
+      <br>${esc(e.lugar || e.direccion || "Sin lugar cargado")}
+      ${frio ? ` · <strong>sin novedades${data.dias != null ? " hace " + data.dias + " días" : ""}</strong>` : ""}
+    </p>
+    <div class="card">
+      <h3 style="margin-top:0">Nuevo contacto</h3>
+      <form id="form-nota" class="grid form">
+        <div class="field"><label>Tipo</label>
+          <select name="clase">
+            <option value="llamada">Llamada</option>
+            <option value="visita">Visita</option>
+            <option value="nota">Nota</option>
+            <option value="tarea">Tarea</option>
+          </select>
+        </div>
+        <div class="field"><label>Fecha</label><input name="fecha" type="date" value="${hoyInput()}"></div>
+        <div class="field full"><label>Qué pasó</label><input name="detalle" required placeholder="Lo que se habló o se vio"></div>
+        <div class="field full"><label>Lugar</label><input name="lugar" value="${esc(e.lugar || e.direccion || "")}"></div>
+        <div class="field"><label>Próximo contacto</label><input name="proxima_fecha" type="date"></div>
+        <div class="field"><label>Hora</label><input name="proxima_hora" type="time"></div>
+        <div class="field full"><label>Qué hay que hacer</label><input name="proxima_detalle" placeholder="Volver a llamar, pasar a ver…"></div>
+        <div class="field full"><button class="btn copper" type="submit">Guardar seguimiento</button></div>
+      </form>
+    </div>
+    ${e.tipo === "prospecto" && e.estado === "activo" ? `<div class="toolbar"><button class="btn secondary" type="button" id="btn-a-cliente">Pasar a cliente</button><button class="btn ghost" type="button" id="btn-descartar">Descartar</button></div>` : ""}
+    <div class="card table-wrap">
+      <h3>Contactos</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Próximo</th></tr></thead>
+        <tbody>
+          ${(data.notas || []).map((n) => `
+            <tr class="${n.tarea_estado === "pendiente" && n.proxima_fecha && n.proxima_fecha < hoyInput() ? "fila-sin-novedad" : ""}">
+              <td class="mono">${esc(fmtFecha(n.fecha))} ${esc(n.hora || "")}</td>
+              <td>${esc(n.clase)}${n.lugar ? `<br><small>${esc(n.lugar)}</small>` : ""}</td>
+              <td>${esc(n.detalle)}</td>
+              <td>${n.proxima_fecha ? esc(fmtFecha(n.proxima_fecha)) + " " + esc(n.proxima_detalle || "") + (n.tarea_estado === "hecha" ? " · hecha" : "") : "—"}</td>
+            </tr>`).join("") || `<tr><td colspan="4" class="empty">Todavía no hay contactos.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#form-nota").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const body = Object.fromEntries(new FormData(ev.target));
+    if (clienteId) body.cliente_id = Number(clienteId);
+    if (prospectoId) body.prospecto_id = Number(prospectoId);
+    try {
+      await api("/api/prospeccion/notas", { method: "POST", body });
+      toast("Seguimiento guardado");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#btn-a-cliente")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/prospeccion/prospectos/" + prospectoId + "/a-cliente", { method: "POST", body: {} });
+      toast("Pasó a cliente");
+      location.hash = "#/clientes/" + r.cliente_id;
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#btn-descartar")?.addEventListener("click", async () => {
+    try {
+      await api("/api/prospeccion/prospectos/" + prospectoId, { method: "PUT", body: { estado: "descartado" } });
+      toast("Prospecto descartado");
+      location.hash = "#/prospeccion?tab=prospectos";
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
 async function route() {
   try {
     if (window.GasonorScan) {
@@ -7131,7 +8914,7 @@ async function route() {
     const { path, params } = parseHash();
     const parts = path.split("/").filter(Boolean);
     const seccion = parts[0] || "inicio";
-    if (rolActual() === "cobrador" && !["cobrar", "facturacion", "facturar", "deudas", "cheques"].includes(seccion)) {
+    if (rolActual() === "cobrador" && !["cobrar", "facturacion", "ventas", "facturar", "deudas", "cheques", "comprobante", "recibo-cliente", "venta", "caja"].includes(seccion)) {
       location.hash = "#/cobrar";
       return;
     }
@@ -7171,15 +8954,31 @@ async function route() {
       if (parts[1] === "cuenta") return vistaCompraCuentas();
       if (parts[1] === "historial") return vistaCompraHistorial(params);
       if (parts[1] === "recibo" && parts[2]) return vistaReciboPago(parts[2]);
-      return vistaCompras();
+      return vistaCompras(params);
     }
     if (seccion === "cheques") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
       return vistaCheques(params);
     }
-    if (seccion === "facturacion") {
+    if (seccion === "facturacion" || seccion === "ventas") {
       if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
       return vistaFacturacion(params);
+    }
+    if (seccion === "caja" && parts[1] === "config") {
+      if (!puede("admin")) return vistaInicio();
+      return vistaConfigCaja();
+    }
+    if (seccion === "comprobante" && parts[1] && parts[2] === "imprimir") {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaComprobanteImprimir(parts[1]);
+    }
+    if (seccion === "venta" && parts[1] && parts[2] === "imprimir") {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaVentaImprimir(parts[1], params);
+    }
+    if (seccion === "recibo-cliente" && parts[1]) {
+      if (rolActual() !== "admin" && rolActual() !== "cobrador") return vistaInicio();
+      return vistaReciboCliente(parts[1]);
     }
     if (seccion === "inicio") return vistaInicio();
     if (seccion === "catalogo" || seccion === "tubos" || seccion === "articulos") {
@@ -7189,6 +8988,14 @@ async function route() {
     if (seccion === "tubo" && parts[1]) {
       if (!puede("admin")) return vistaInicio();
       return vistaTubo(parts[1]);
+    }
+    if (seccion === "prospeccion") {
+      if (!puede("admin")) return vistaInicio();
+      return vistaProspeccion(params);
+    }
+    if (seccion === "calendario") {
+      if (!puede("admin")) return vistaInicio();
+      return vistaCalendario(params);
     }
     if (seccion === "clientes") {
       if (!puede("admin")) return vistaInicio();
@@ -7282,6 +9089,9 @@ function tickReloj() {
   $("#reloj").textContent = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+ajustarMonitorViejo();
+window.addEventListener("resize", ajustarMonitorViejo);
+
 $("#btn-menu")?.addEventListener("click", () => {
   document.querySelector(".sidebar")?.classList.toggle("open");
 });
@@ -7313,7 +9123,7 @@ $("#form-login")?.addEventListener("submit", async (e) => {
     mostrarLogin(false);
     if (rolActual() === "cobrador") {
       aplicarPermisos();
-      const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion"].some((p) => (location.hash || "").startsWith(p));
+      const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion", "#/ventas"].some((p) => (location.hash || "").startsWith(p));
       if (!okCaja) location.hash = "#/cobrar";
       else route();
       return;
@@ -7342,7 +9152,7 @@ setInterval(tickReloj, 15000);
   mostrarLogin(false);
   if (rolActual() === "cobrador") {
     aplicarPermisos();
-    const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion"].some((p) => (location.hash || "").startsWith(p));
+    const okCaja = ["#/cobrar", "#/facturar", "#/deudas", "#/cheques", "#/facturacion", "#/ventas"].some((p) => (location.hash || "").startsWith(p));
     if (!okCaja) location.hash = "#/cobrar";
     else route();
     return;
