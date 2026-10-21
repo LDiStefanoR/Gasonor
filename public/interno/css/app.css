@@ -284,7 +284,19 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   display: none;
   border: 0; background: var(--forest); color: #fff;
   width: 42px; height: 42px; border-radius: 8px; font-size: 1.2rem; cursor: pointer;
+  flex-shrink: 0;
 }
+.menu-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 40, 33, 0.45);
+  z-index: 35;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+body.menu-abierto .menu-backdrop { display: block; }
 .quick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 18px; }
 .quick {
   display: flex; align-items: center; justify-content: center; text-align: center;
@@ -695,9 +707,8 @@ tr.fila-editando .cell-view { vertical-align: middle; }
   }
   .brand-logo { max-height: 56px; }
 }
-/* Monitor cuadrado / 4:3: compactar tipografía SIN zoom (el zoom rompe 100vh y corta el menú) */
+/* Monitor cuadrado / 4:3: menú tipo cajón (se abre/cierra) para no tapar el contenido */
 html.monitor-viejo {
-  --sidebar-w: 200px;
   font-size: 93%;
 }
 html.monitor-viejo .quick {
@@ -707,16 +718,20 @@ html.monitor-viejo .quick {
 html.monitor-viejo .page { padding: 4px 12px 24px; }
 html.monitor-viejo h1 { font-size: 1.25rem; }
 html.monitor-viejo .topbar { padding: 8px 12px 4px; }
+html.monitor-viejo .btn-menu { display: inline-grid; place-items: center; }
 html.monitor-viejo .sidebar {
-  width: var(--sidebar-w);
+  display: none;
+  width: min(270px, 88vw);
   padding: 10px 8px;
   gap: 8px;
+  box-shadow: 8px 0 28px rgba(0, 0, 0, 0.28);
 }
+html.monitor-viejo .sidebar.open { display: flex; z-index: 40; }
 html.monitor-viejo .sidebar .brand-logo { max-height: 48px; }
 html.monitor-viejo .nav-group { margin-top: 6px; padding-top: 6px; }
 html.monitor-viejo .nav-label { padding: 0 8px 4px; font-size: 0.62rem; }
 html.monitor-viejo .sidebar nav a { padding: 7px 8px; font-size: 0.92rem; }
-html.monitor-viejo .main { margin-left: var(--sidebar-w); }
+html.monitor-viejo .main { margin-left: 0; }
 html.monitor-viejo .gas-card,
 html.monitor-viejo .btn.big-soft,
 html.monitor-viejo .btn-grabar,

@@ -116,21 +116,29 @@ function puede(...roles) {
   });
 }
 
-/** Monitor 4:3 o 5:4 chico: achica la interfaz para que no se vea agrandada. */
+/** Monitor 4:3 / cuadrado o bajo: menú desplegable (no tapa la pantalla fijo). */
 function ajustarMonitorViejo() {
   const s = window.screen;
   if (!s || !s.width || !s.height) return;
   const ratio = s.width / s.height;
-  const cuadrado = ratio >= 1.15 && ratio <= 1.4;
+  const cuadrado = ratio >= 1.05 && ratio <= 1.45;
   const chico = s.width <= 1700 && s.height <= 1300 && s.height >= 560;
-  const viejo = cuadrado && chico;
+  const bajo = s.height <= 900 || window.innerHeight <= 820;
+  const viejo = (cuadrado && chico) || bajo;
   document.documentElement.classList.toggle("monitor-viejo", viejo);
-  if (viejo) {
-    const escala = s.width <= 1100 || s.height <= 820 ? 0.74 : 0.8;
-    document.documentElement.style.setProperty("--escala-monitor", String(escala));
-  } else {
-    document.documentElement.style.removeProperty("--escala-monitor");
-  }
+  if (!viejo) cerrarMenuLateral();
+}
+
+function cerrarMenuLateral() {
+  document.querySelector(".sidebar")?.classList.remove("open");
+  document.body.classList.remove("menu-abierto");
+}
+
+function toggleMenuLateral() {
+  const sb = document.querySelector(".sidebar");
+  if (!sb) return;
+  const open = sb.classList.toggle("open");
+  document.body.classList.toggle("menu-abierto", open);
 }
 
 /** Teléfono o tablet. Una PC táctil o una ventana angosta sigue siendo PC. */
@@ -5798,14 +5806,6 @@ function pintarCobrar() {
       <div class="caja-cobro">
         <div class="caja-cobro-head">
           <h1 class="caja-title">Cobrar</h1>
-          <div class="caja-head-links">
-            ${rolActual() === "admin" || esCelular() ? `
-              <a class="btn secondary btn-caja-fact" href="#/ventas">🧾 Ventas</a>
-              <a class="btn secondary btn-caja-fact" href="#/deudas">Deudas</a>
-              <a class="btn secondary btn-caja-fact" href="#/facturar">Nueva factura</a>
-              <a class="btn secondary btn-caja-fact" href="#/cheques?estado=en_cartera">Cheques</a>
-            ` : ""}
-          </div>
         </div>
         ${rolActual() === "admin" || esCelular() ? htmlBannerDeudas(c.alertas) : ""}
         ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
@@ -9164,11 +9164,13 @@ function tickReloj() {
 ajustarMonitorViejo();
 window.addEventListener("resize", ajustarMonitorViejo);
 
-$("#btn-menu")?.addEventListener("click", () => {
-  document.querySelector(".sidebar")?.classList.toggle("open");
-});
+$("#btn-menu")?.addEventListener("click", () => toggleMenuLateral());
+$("#menu-backdrop")?.addEventListener("click", () => cerrarMenuLateral());
 document.querySelectorAll(".sidebar nav a").forEach((a) => {
-  a.addEventListener("click", () => document.querySelector(".sidebar")?.classList.remove("open"));
+  a.addEventListener("click", () => cerrarMenuLateral());
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") cerrarMenuLateral();
 });
 $("#btn-salir")?.addEventListener("click", async () => {
   await api("/api/logout", { method: "POST", body: {} }).catch(() => {});
