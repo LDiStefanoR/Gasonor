@@ -1920,6 +1920,9 @@ async function vistaClienteFicha(id, params) {
         </p>
       </div>
       <div class="toolbar">
+        <button type="button" class="btn ${segOn ? "copper" : "secondary"}" id="btn-seg-head" title="Clientes en seguimiento">
+          ${segOn ? "✓ En seguimiento" : "☐ Seguimiento"}
+        </button>
         <a class="btn secondary" href="#/cliente/despacho">Despachar</a>
         <a class="btn secondary" href="#/cliente/recepcion">Recepcionar</a>
         <a class="btn secondary" href="#/deudas?cliente_id=${c.id}">Cuenta corriente</a>
@@ -1953,6 +1956,15 @@ async function vistaClienteFicha(id, params) {
   app().querySelectorAll("[data-tab]").forEach((b) => {
     b.onclick = () => { location.hash = "#/clientes/" + id + "?tab=" + b.dataset.tab; };
   });
+  const toggleSeg = async () => {
+    try {
+      await api("/api/prospeccion/clientes/" + id + "/activar", { method: "PUT", body: { activo: !segOn } });
+      toast(segOn ? "Sacado de seguimiento" : "Cliente en seguimiento");
+      location.hash = "#/clientes/" + id + (tab === "prospeccion" ? "?tab=prospeccion" : "");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#btn-seg-head")?.addEventListener("click", toggleSeg);
   const box = $("#cli-tab");
 
   if (tab === "tubos") {
@@ -2051,7 +2063,7 @@ async function vistaClienteFicha(id, params) {
             <h3 style="margin:0">Seguimiento comercial</h3>
             <p class="lead" style="margin:6px 0 0">${segOn ? "Prospección activa: este cliente entra en la agenda y en rojo si no hay novedades." : "Activá la prospección para llevar un seguimiento más detallado."}</p>
           </div>
-          <button type="button" class="btn ${segOn ? "ghost" : "copper"}" id="btn-seg-toggle">${segOn ? "Desactivar prospección" : "Activar prospección"}</button>
+          <button type="button" class="btn ${segOn ? "copper" : "secondary"}" id="btn-seg-toggle">${segOn ? "✓ En seguimiento" : "☐ Marcar seguimiento"}</button>
         </div>
         ${segOn ? `
           <form id="form-cli-nota" class="grid form" style="margin-top:14px">
@@ -2088,14 +2100,7 @@ async function vistaClienteFicha(id, params) {
             </table>
           </div>` : ""}
       </div>`;
-    $("#btn-seg-toggle").onclick = async () => {
-      try {
-        await api("/api/prospeccion/clientes/" + id + "/activar", { method: "PUT", body: { activo: !segOn } });
-        toast(segOn ? "Prospección desactivada" : "Prospección activada");
-        location.hash = "#/clientes/" + id + "?tab=prospeccion";
-        route();
-      } catch (err) { toast(err.message, true); }
-    };
+    $("#btn-seg-toggle").onclick = toggleSeg;
     $("#form-cli-nota")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = Object.fromEntries(new FormData(e.target));
@@ -5730,39 +5735,29 @@ function htmlAccionCobrar() {
     </div>`;
 }
 
-function htmlLineaLibreCaja() {
-  const c = state.caja;
-  return `
-    <div class="caja-libre-box">
-      <button type="button" class="btn secondary btn-linea-libre ${c.libreAbierto ? "on" : ""}" data-act="toggle-libre">
-        ${c.libreAbierto ? "✕ Cerrar línea libre" : "＋ Línea libre (concepto)"}
-      </button>
-      ${c.libreAbierto ? `
-        <div class="caja-libre-form">
-          <div class="field full"><label>Concepto</label>
-            <input id="libre-desc" value="${esc(c.libreDesc || "")}" placeholder="Ej. Alquiler de tubo, envío, mano de obra…" autocomplete="off">
-          </div>
-          <div class="grid two">
-            <div class="field"><label>Cantidad</label>
-              <input id="libre-cant" inputmode="decimal" value="${esc(c.libreCant || "1")}">
-            </div>
-            <div class="field"><label>Precio unitario</label>
-              <input id="libre-precio" inputmode="decimal" value="${esc(c.librePrecio || "")}" placeholder="0">
-            </div>
-          </div>
-          <button type="button" class="btn copper btn-sumar-ticket" data-act="sumar-libre">＋ Agregar línea libre al ticket</button>
-        </div>` : ""}
-    </div>`;
-}
-
 function htmlPanelCaja() {
   const c = state.caja;
   if (c.modo === "gas" || c.modo === "regulador") {
     return `
       ${htmlGases(c.modo)}
-      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas y sumalo al ticket. También podés agregar una línea libre.</p>`}
-      ${c.gas ? `<button type="button" class="btn copper btn-sumar-ticket" data-act="sumar">＋ Sumar al ticket</button>` : ""}
-      ${htmlLineaLibreCaja()}
+      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas para sumarlo, o cargá una línea libre con concepto abierto.</p>`}
+      <div class="caja-libre-form">
+        <div class="field full"><label>Línea libre · concepto</label>
+          <input id="libre-desc" value="${esc(c.libreDesc || "")}" placeholder="Ej. Alquiler, envío, mano de obra…" autocomplete="off">
+        </div>
+        <div class="grid two">
+          <div class="field"><label>Cantidad</label>
+            <input id="libre-cant" inputmode="decimal" value="${esc(c.libreCant || "1")}">
+          </div>
+          <div class="field"><label>Precio unitario</label>
+            <input id="libre-precio" inputmode="decimal" value="${esc(c.librePrecio || "")}" placeholder="0">
+          </div>
+        </div>
+      </div>
+      <div class="caja-sumar-row">
+        <button type="button" class="btn copper btn-sumar-ticket" data-act="sumar" ${c.gas ? "" : "disabled"}>＋ Sumar al ticket</button>
+        <button type="button" class="btn secondary btn-sumar-ticket" data-act="sumar-libre">＋ Sumar línea libre</button>
+      </div>
       ${htmlTicket()}
       ${htmlAccionCobrar()}`;
   }
@@ -5966,17 +5961,13 @@ function onCajaClick(e) {
     c.cantidad = 1;
     c.totalOverride = null;
     pintarCobrar();
-  } else if (act === "toggle-libre") {
-    c.libreAbierto = !c.libreAbierto;
-    pintarCobrar();
-    if (c.libreAbierto) $("#libre-desc")?.focus();
   } else if (act === "sumar-libre") {
     const desc = ($("#libre-desc")?.value || c.libreDesc || "").trim();
     const cant = parseMonto($("#libre-cant")?.value || c.libreCant || "1");
     const pu = parseMonto($("#libre-precio")?.value || c.librePrecio || "");
-    if (desc.length < 2) { toast("Escribí el concepto", true); return; }
+    if (desc.length < 2) { toast("Escribí el concepto", true); $("#libre-desc")?.focus(); return; }
     if (!Number.isFinite(cant) || cant <= 0) { toast("Cantidad inválida", true); return; }
-    if (!Number.isFinite(pu) || pu <= 0) { toast("Indicá el precio unitario", true); return; }
+    if (!Number.isFinite(pu) || pu <= 0) { toast("Indicá el precio unitario", true); $("#libre-precio")?.focus(); return; }
     const total = Math.round(cant * pu * 100) / 100;
     c.items = c.items || [];
     c.items.push({
@@ -5990,7 +5981,6 @@ function onCajaClick(e) {
     c.libreDesc = "";
     c.libreCant = "1";
     c.librePrecio = "";
-    c.libreAbierto = false;
     c.totalOverride = null;
     toast("Línea libre sumada al ticket");
     pintarCobrar();
@@ -8790,27 +8780,31 @@ async function vistaProspeccion(params) {
   const data = await api("/api/prospeccion");
   const tab = params.get("tab") || "agenda";
   const fila = (frio, html) => `<tr class="${frio ? "fila-sin-novedad" : ""}">${html}</tr>`;
+  const txtDias = (n, suf = "d") => (n == null ? "—" : `${n}${suf}`);
   const agenda = (data.agenda || []).map((a) => fila(a.vencida, `
     <td class="mono">${esc(fmtFecha(a.proxima_fecha))} ${esc(a.proxima_hora || "")}</td>
-    <td>${esc(a.quien)}</td>
-    <td>${esc(a.clase || "")}${a.lugar_mostrar ? `<br><small>${esc(a.lugar_mostrar)}</small>` : ""}</td>
-    <td>${esc(a.proxima_detalle || a.detalle || "")}</td>
+    <td class="mono">${a.vencida ? `<span class="badge badge-deuda-vencida">${txtDias(a.dias_atraso)} atraso</span>` : `<span class="badge">Al día</span>`}</td>
+    <td><strong>${esc(a.cliente_asignado || a.quien || "—")}</strong>${a.lugar_mostrar ? `<br><small>${esc(a.lugar_mostrar)}</small>` : ""}</td>
+    <td>${esc(a.clase || "")}<br><small>${esc(a.proxima_detalle || a.detalle || "")}</small></td>
+    <td class="mono">${a.dias_ultimo == null ? "Sin contacto" : txtDias(a.dias_ultimo) + " sin novedad"}</td>
     <td>
       <button type="button" class="btn ghost" data-pros="hecha" data-id="${a.id}">Hecha</button>
       <a class="btn secondary" href="#/prospeccion?${a.prospecto_id ? "prospecto_id=" + a.prospecto_id : "cliente_id=" + a.cliente_id}">Abrir</a>
-    </td>`)).join("") || `<tr><td colspan="5" class="empty">No hay actividades pendientes.</td></tr>`;
+    </td>`)).join("") || `<tr><td colspan="6" class="empty">No hay actividades pendientes.</td></tr>`;
   const prospectos = (data.prospectos || []).map((p) => fila(p.frio, `
     <td>${esc(p.nombre)}${p.lugar ? `<br><small>${esc(p.lugar)}</small>` : ""}</td>
     <td>${esc(p.telefono || "—")}</td>
     <td class="mono">${p.ultimo ? esc(fmtFecha(p.ultimo)) : "Nunca"}</td>
+    <td class="mono">${p.dias == null ? "—" : txtDias(p.dias)}</td>
     <td>${esc(p.ultimo_detalle || p.notas || "")}</td>
-    <td><a class="btn secondary" href="#/prospeccion?prospecto_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="5" class="empty">No hay prospectos. Cargá el primero.</td></tr>`;
+    <td><a class="btn secondary" href="#/prospeccion?prospecto_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="6" class="empty">No hay prospectos. Cargá el primero.</td></tr>`;
   const seguidos = (data.seguidos || []).map((p) => fila(p.frio, `
     <td class="mono">${esc(p.codigo || "—")}</td>
     <td>${esc(p.nombre)}</td>
     <td class="mono">${p.ultimo ? esc(fmtFecha(p.ultimo)) : "Nunca"}</td>
+    <td class="mono">${p.dias == null ? "Sin contacto" : txtDias(p.dias)}</td>
     <td>${esc(p.ultimo_detalle || "")}</td>
-    <td><a class="btn secondary" href="#/prospeccion?cliente_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="5" class="empty">Todavía no hay clientes con seguimiento.</td></tr>`;
+    <td><a class="btn secondary" href="#/prospeccion?cliente_id=${p.id}">Abrir</a></td>`)).join("") || `<tr><td colspan="6" class="empty">Todavía no hay clientes con seguimiento. Activá el tilde en la ficha del cliente.</td></tr>`;
   const dejaron = (data.dejaron || []).map((p) => fila(true, `
     <td class="mono">${esc(p.codigo || "—")}</td>
     <td>${esc(p.nombre)}<br><small>${esc(p.direccion || "")}</small></td>
@@ -8833,9 +8827,9 @@ async function vistaProspeccion(params) {
       <button data-tab="dejaron" class="${tab === "dejaron" ? "active" : ""}">Dejaron de comprar (${(data.dejaron || []).length})</button>
     </div>
     <div class="card table-wrap">
-      ${tab === "agenda" ? `<table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Nota</th><th></th></tr></thead><tbody>${agenda}</tbody></table>` : ""}
-      ${tab === "prospectos" ? `<table><thead><tr><th>Prospecto / lugar</th><th>Teléfono</th><th>Último contacto</th><th>Nota</th><th></th></tr></thead><tbody>${prospectos}</tbody></table>` : ""}
-      ${tab === "clientes" ? `<table><thead><tr><th>Código</th><th>Cliente</th><th>Último contacto</th><th>Nota</th><th></th></tr></thead><tbody>${seguidos}</tbody></table>` : ""}
+      ${tab === "agenda" ? `<table><thead><tr><th>Cuándo</th><th>Atraso</th><th>Cliente / prospecto</th><th>Actividad</th><th>Último contacto</th><th></th></tr></thead><tbody>${agenda}</tbody></table>` : ""}
+      ${tab === "prospectos" ? `<table><thead><tr><th>Prospecto / lugar</th><th>Teléfono</th><th>Último contacto</th><th>Días</th><th>Nota</th><th></th></tr></thead><tbody>${prospectos}</tbody></table>` : ""}
+      ${tab === "clientes" ? `<table><thead><tr><th>Código</th><th>Cliente</th><th>Último contacto</th><th>Días sin novedad</th><th>Nota</th><th></th></tr></thead><tbody>${seguidos}</tbody></table>` : ""}
       ${tab === "dejaron" ? `<table><thead><tr><th>Código</th><th>Cliente</th><th>Compró antes</th><th>Última compra</th><th></th></tr></thead><tbody>${dejaron}</tbody></table>` : ""}
     </div>`;
   app().querySelectorAll("[data-tab]").forEach((b) => {

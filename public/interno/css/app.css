@@ -1096,30 +1096,32 @@ tr.fila-salida { background: #fdecec; }
 .precio-grid.precio-grid-4 { grid-template-columns: 1.1fr 0.9fr 1fr 1fr; }
 .precio-grid.precio-grid-5 { grid-template-columns: 1.2fr 0.85fr 0.9fr 0.9fr auto; align-items: center; }
 .btn-sumar-ticket {
-  width: 100%;
-  margin: 12px 0 8px;
-  padding: 16px 14px;
-  font-size: 1.2rem;
+  flex: 1;
+  margin: 0;
+  padding: 16px 12px;
+  font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   min-height: 54px;
   border-radius: 14px;
-  box-shadow: 0 4px 0 rgba(140, 74, 47, 0.35);
+  box-shadow: 0 4px 0 rgba(140, 74, 47, 0.25);
 }
-.btn-linea-libre {
-  width: 100%;
-  margin-top: 8px;
-  min-height: 44px;
-  font-weight: 700;
+.caja-sumar-row {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0 8px;
+  flex-wrap: wrap;
 }
-.btn-linea-libre.on { background: #efe8df; }
-.caja-libre-box { margin: 10px 0 4px; }
 .caja-libre-form {
   margin-top: 10px;
   padding: 12px;
   border: 1px dashed var(--line);
   border-radius: 12px;
   background: #faf7f2;
+}
+@media (max-width: 720px) {
+  .caja-sumar-row { flex-direction: column; }
+  .btn-sumar-ticket { width: 100%; }
 }
 .banner-fact {
   display: block; text-decoration: none; background: #fff4d6; border: 2px solid #e2c27a;

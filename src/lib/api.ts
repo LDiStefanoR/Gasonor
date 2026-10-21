@@ -14,6 +14,7 @@ import {
 } from "./auth";
 import { ensureSchema } from "./schema";
 import { ensureCaja, handleCaja } from "./caja";
+import { ensureProspeccion, handleProspeccion } from "./prospeccion";
 
 const ESTADOS = ["vacio", "en_planta", "cargado", "en_cliente"] as const;
 const CAMPOS_REPARTO = ["direccion", "telefono", "localidad", "tubos"] as const;
@@ -316,6 +317,12 @@ async function handleApiInner(ctx: APIContext) {
     return handleCaja(ctx, u, method, path);
   }
 
+  if (u && path.startsWith("/api/prospeccion")) {
+    await ensureProspeccion();
+    const r = await handleProspeccion(ctx, u, method, path);
+    if (r) return r;
+  }
+
   if (key === "POST /api/login") {
     const data = await body(ctx);
     const user = String(data.usuario || "").trim().toLowerCase();
@@ -567,6 +574,7 @@ async function handleApiInner(ctx: APIContext) {
   const cliGet = path.match(/^\/api\/clientes\/(\d+)$/);
   if (method === "GET" && cliGet) {
     const cid = Number(cliGet[1]);
+    await ensureProspeccion();
     const row = await one("SELECT * FROM clientes WHERE id=?", [cid]);
     if (!row) return err("Cliente no encontrado.", 404);
     const tubos_en_cliente = await fetchTubos(
@@ -579,6 +587,10 @@ async function handleApiInner(ctx: APIContext) {
       [cid],
     );
     const propios_en_poder = tubos_propios.filter((t) => String(t.estado) === "en_cliente");
+    const seguimiento = await all(
+      "SELECT * FROM seguimiento WHERE cliente_id=? ORDER BY fecha DESC, id DESC LIMIT 100",
+      [cid],
+    );
     return json({
       ok: true,
       cliente: row,
@@ -588,12 +600,18 @@ async function handleApiInner(ctx: APIContext) {
         en_cliente_propios: tubos_en_cliente.length - tubos_gn.length,
         registrados_propios: tubos_propios.length,
         propios_en_poder: propios_en_poder.length,
+        seguimiento_activo: Number(row.seguimiento_activo || 0),
+        compra_3m: 0,
+        n_compra_3m: 0,
+        deuda_total: 0,
       },
       tubos_gn,
       tubos_en_cliente,
       tubos_propios,
       movimientos: [],
       ventas: [],
+      deudas: [],
+      seguimiento,
     });
   }
 
