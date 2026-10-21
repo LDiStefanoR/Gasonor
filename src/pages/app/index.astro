@@ -11,12 +11,11 @@ export const prerender = true;
         var s = window.screen;
         if (!s || !s.width || !s.height) return;
         var ratio = s.width / s.height;
-        var cuadrado = ratio >= 1.15 && ratio <= 1.4;
+        var cuadrado = ratio >= 1.05 && ratio <= 1.45;
         var chico = s.width <= 1700 && s.height <= 1300 && s.height >= 560;
-        if (!cuadrado || !chico) return;
+        var bajo = s.height <= 900;
+        if ((!cuadrado || !chico) && !bajo) return;
         document.documentElement.classList.add("monitor-viejo");
-        var escala = (s.width <= 1100 || s.height <= 820) ? 0.74 : 0.8;
-        document.documentElement.style.setProperty("--escala-monitor", String(escala));
       })();
     </script>
     <meta name="robots" content="noindex,nofollow" />
@@ -24,7 +23,7 @@ export const prerender = true;
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/interno/css/app.css?v=104" />
+    <link rel="stylesheet" href="/interno/css/app.css?v=105" />
     <link rel="icon" href="/interno/img/logo.png?v=30" />
   </head>
   <body>
