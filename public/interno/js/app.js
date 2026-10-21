@@ -121,10 +121,11 @@ function ajustarMonitorViejo() {
   const s = window.screen;
   if (!s || !s.width || !s.height) return;
   const ratio = s.width / s.height;
-  const cuadrado = ratio >= 1.05 && ratio <= 1.45;
+  const cuadrado = ratio >= 0.85 && ratio <= 1.45;
   const chico = s.width <= 1700 && s.height <= 1300 && s.height >= 560;
   const bajo = s.height <= 900 || window.innerHeight <= 820;
-  const viejo = (cuadrado && chico) || bajo;
+  const angosto = window.innerWidth <= 1200;
+  const viejo = (cuadrado && chico) || bajo || angosto;
   document.documentElement.classList.toggle("monitor-viejo", viejo);
   if (!viejo) cerrarMenuLateral();
 }

@@ -285,12 +285,14 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   border: 0; background: var(--forest); color: #fff;
   width: 42px; height: 42px; border-radius: 8px; font-size: 1.2rem; cursor: pointer;
   flex-shrink: 0;
+  position: relative;
+  z-index: 45;
 }
 .menu-backdrop {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(18, 40, 33, 0.45);
+  background: rgba(18, 40, 33, 0.35);
   z-index: 35;
   border: 0;
   padding: 0;
@@ -707,7 +709,7 @@ tr.fila-editando .cell-view { vertical-align: middle; }
   }
   .brand-logo { max-height: 56px; }
 }
-/* Monitor cuadrado / 4:3: menú tipo cajón (se abre/cierra) para no tapar el contenido */
+/* Monitor cuadrado / 4:3: menú cajón; al abrir empuja el contenido y se puede cerrar */
 html.monitor-viejo {
   font-size: 93%;
 }
@@ -721,7 +723,7 @@ html.monitor-viejo .topbar { padding: 8px 12px 4px; }
 html.monitor-viejo .btn-menu { display: inline-grid; place-items: center; }
 html.monitor-viejo .sidebar {
   display: none;
-  width: min(270px, 88vw);
+  width: min(250px, 78vw);
   padding: 10px 8px;
   gap: 8px;
   box-shadow: 8px 0 28px rgba(0, 0, 0, 0.28);
@@ -731,7 +733,16 @@ html.monitor-viejo .sidebar .brand-logo { max-height: 48px; }
 html.monitor-viejo .nav-group { margin-top: 6px; padding-top: 6px; }
 html.monitor-viejo .nav-label { padding: 0 8px 4px; font-size: 0.62rem; }
 html.monitor-viejo .sidebar nav a { padding: 7px 8px; font-size: 0.92rem; }
-html.monitor-viejo .main { margin-left: 0; }
+html.monitor-viejo .main {
+  margin-left: 0;
+  transition: margin-left 0.15s ease;
+}
+html.monitor-viejo body.menu-abierto .main {
+  margin-left: min(250px, 78vw);
+}
+html.monitor-viejo body.menu-abierto .menu-backdrop {
+  left: min(250px, 78vw);
+}
 html.monitor-viejo .gas-card,
 html.monitor-viejo .btn.big-soft,
 html.monitor-viejo .btn-grabar,
