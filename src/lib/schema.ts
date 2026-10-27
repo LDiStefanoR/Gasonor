@@ -186,6 +186,8 @@ export async function ensureSchema() {
     "ALTER TABLE usuarios ADD COLUMN ultima_lat REAL",
     "ALTER TABLE usuarios ADD COLUMN ultima_lng REAL",
     "ALTER TABLE clientes ADD COLUMN seguimiento_activo INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE clientes ADD COLUMN factura_tipo TEXT",
+    "ALTER TABLE clientes ADD COLUMN condicion_pago_id INTEGER",
   ]) {
     try {
       await run(col);

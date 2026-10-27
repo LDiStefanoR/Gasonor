@@ -220,9 +220,11 @@ async function crearClienteCaja(data: Record<string, unknown>) {
   if (!cuit) return { error: "El CUIT es obligatorio para un cliente nuevo." };
   if (!direccion) return { error: "La dirección es obligatoria para un cliente nuevo." };
   try {
+    let facturaTipo = String(data.factura_tipo || "").trim().toLowerCase();
+    if (!["ri", "exento", "a", "b", "c", "x"].includes(facturaTipo)) facturaTipo = "";
     const r = await run(
-      "INSERT INTO clientes (nombre, direccion, telefono, cuit, activo, creado_en) VALUES (?,?,?,?,1,?)",
-      [nombre, direccion, "", cuit, ahora()],
+      "INSERT INTO clientes (nombre, direccion, telefono, cuit, factura_tipo, activo, creado_en) VALUES (?,?,?,?,?,1,?)",
+      [nombre, direccion, "", cuit, facturaTipo || null, ahora()],
     );
     const row = await one("SELECT * FROM clientes WHERE id=?", [Number(r.lastInsertRowid)]);
     return { cliente: row };
@@ -274,7 +276,7 @@ export async function handleCaja(
     sql += " ORDER BY v.fecha DESC, v.id DESC LIMIT 400";
     const ventas = await all(sql, args);
     const recientes = await all(
-      `SELECT c.id, c.nombre, c.cuit, c.direccion
+      `SELECT c.id, c.nombre, c.cuit, c.direccion, c.codigo, c.factura_tipo
        FROM ventas_caja v JOIN clientes c ON c.id=v.cliente_id
        GROUP BY c.id ORDER BY MAX(v.id) DESC LIMIT 8`,
     );

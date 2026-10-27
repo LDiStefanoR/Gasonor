@@ -560,15 +560,34 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   if (key === "POST /api/clientes") {
-    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
     const nombre = String(data.nombre || "").trim().toUpperCase();
     if (!nombre) return err("El nombre del cliente es obligatorio.");
-    const r = await run(
-      "INSERT INTO clientes (nombre, direccion, telefono, activo, creado_en) VALUES (?,?,?,1,?)",
-      [nombre, String(data.direccion || "").trim(), String(data.telefono || "").trim(), ahora()],
-    );
-    return json({ ok: true, cliente: await one("SELECT * FROM clientes WHERE id=?", [Number(r.lastInsertRowid)]) });
+    const direccion = String(data.direccion || "").trim();
+    const cuit = String(data.cuit || "").trim();
+    if (!direccion) return err("La dirección es obligatoria.");
+    if (!cuit) return err("El CUIT es obligatorio.");
+    let facturaTipo = String(data.factura_tipo || "").trim().toLowerCase();
+    if (!["ri", "exento", "a", "b", "c", "x"].includes(facturaTipo)) facturaTipo = "";
+    let codigo = String(data.codigo || "").trim();
+    if (!codigo) {
+      const rows = await all("SELECT codigo FROM clientes");
+      const nums = rows
+        .map((r) => String(r.codigo || "").trim())
+        .filter((s) => /^\d+$/.test(s))
+        .map((s) => Number(s));
+      codigo = String(nums.length ? Math.max(...nums) + 1 : 1);
+    }
+    try {
+      const r = await run(
+        "INSERT INTO clientes (codigo, nombre, direccion, telefono, cuit, factura_tipo, activo, creado_en) VALUES (?,?,?,?,?,?,1,?)",
+        [codigo, nombre, direccion, String(data.telefono || "").trim(), cuit, facturaTipo || null, ahora()],
+      );
+      return json({ ok: true, cliente: await one("SELECT * FROM clientes WHERE id=?", [Number(r.lastInsertRowid)]) });
+    } catch {
+      return err("Ya existe un cliente con ese nombre o ese código.");
+    }
   }
 
   const cliGet = path.match(/^\/api\/clientes\/(\d+)$/);
@@ -617,19 +636,32 @@ async function handleApiInner(ctx: APIContext) {
 
   const cliPut = path.match(/^\/api\/clientes\/(\d+)$/);
   if (method === "PUT" && cliPut) {
-    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     const cid = Number(cliPut[1]);
     const row = await one("SELECT * FROM clientes WHERE id=?", [cid]);
     if (!row) return err("Cliente no encontrado.", 404);
     const data = await body(ctx);
     const nombre = String(data.nombre ?? row.nombre).trim().toUpperCase();
-    await run("UPDATE clientes SET nombre=?, direccion=?, telefono=?, activo=? WHERE id=?", [
-      nombre,
-      String(data.direccion ?? row.direccion ?? "").trim(),
-      String(data.telefono ?? row.telefono ?? "").trim(),
-      data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
-      cid,
-    ]);
+    let facturaTipo = row.factura_tipo as string | null;
+    if ("factura_tipo" in data) {
+      const v = String(data.factura_tipo || "").trim().toLowerCase();
+      facturaTipo = ["ri", "exento", "a", "b", "c", "x"].includes(v) ? v : null;
+    }
+    await run(
+      `UPDATE clientes SET codigo=?, nombre=?, direccion=?, telefono=?, cuit=?, localidad=?, provincia=?, activo=?, factura_tipo=? WHERE id=?`,
+      [
+        String(data.codigo ?? row.codigo ?? "").trim(),
+        nombre,
+        String(data.direccion ?? row.direccion ?? "").trim(),
+        String(data.telefono ?? row.telefono ?? "").trim(),
+        String(data.cuit ?? row.cuit ?? "").trim(),
+        String(data.localidad ?? row.localidad ?? "").trim(),
+        String(data.provincia ?? row.provincia ?? "").trim(),
+        data.activo === undefined ? Number(row.activo) : data.activo ? 1 : 0,
+        facturaTipo,
+        cid,
+      ],
+    );
     return json({ ok: true, cliente: await one("SELECT * FROM clientes WHERE id=?", [cid]) });
   }
 
@@ -1006,7 +1038,7 @@ async function handleApiInner(ctx: APIContext) {
   }
 
   if (key === "POST /api/tubos") {
-    if (!puede(u, "admin", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
+    if (!puede(u, "admin", "despacho", "reparto", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
     const numero = String(data.numero || "").trim();
     if (!numero) return err("El número de tubo es obligatorio.");

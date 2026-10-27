@@ -1925,6 +1925,7 @@ async function vistaClienteFicha(id, params) {
           ${c.localidad ? " · " + esc(c.localidad) : ""}
           ${c.cuit ? " · CUIT " + esc(c.cuit) : ""}
           ${c.telefono ? " · " + esc(c.telefono) : ""}
+          ${c.factura_tipo ? " · " + esc(etiquetaFacturaTipo(c.factura_tipo)) : ""}
           ${c.activo ? "" : " · <em>Inactivo</em>"}
         </p>
       </div>
@@ -2143,6 +2144,10 @@ async function vistaClienteFicha(id, params) {
             </select>
             <small class="lead">Al facturar se aplica sola (deuda, recargo o descuento).</small>
           </div>
+          <div class="field full"><label>Tipo de factura</label>
+            ${htmlSelectFacturaTipo(c.factura_tipo || "")}
+            <small class="lead">RI, exento, A, B, C o X. En Cobrar (venta en blanco) se elige solo.</small>
+          </div>
           <div class="field full"><button class="btn" type="submit">Guardar cambios</button></div>
         </form>
       </div>`;
@@ -2309,7 +2314,8 @@ async function vistaClientes(params) {
         <div class="field full"><label>Nombre</label><input name="nombre" required autocomplete="organization"></div>
         <div class="field"><label>Código</label><input name="codigo" placeholder="Vacío = el siguiente"></div>
         <div class="field full"><label>Dirección</label><input name="direccion" required autocomplete="street-address"></div>
-        <div class="field full"><label>CUIT</label><input name="cuit" required inputmode="numeric" autocomplete="off"></div>
+        <div class="field"><label>CUIT</label><input name="cuit" required inputmode="numeric" autocomplete="off"></div>
+        <div class="field"><label>Tipo de factura</label>${htmlSelectFacturaTipo("")}</div>
         <div class="field full"><button class="btn copper" type="submit">Crear cliente</button></div>
       </form>`);
     $("#form-cli-nuevo").onsubmit = async (e) => {
@@ -5624,28 +5630,58 @@ function htmlCantidad(esGas) {
     </div>`;
 }
 
-function htmlCliente() {
+const FACTURA_TIPOS_CLIENTE = [
+  ["", "Sin definir"],
+  ["ri", "RI · Factura A"],
+  ["exento", "Exento · Factura B"],
+  ["a", "Factura A"],
+  ["b", "Factura B"],
+  ["c", "Factura C"],
+  ["x", "Factura X"],
+];
+
+function etiquetaFacturaTipo(v) {
+  return (FACTURA_TIPOS_CLIENTE.find((x) => x[0] === v) || ["", v || "—"])[1] || "—";
+}
+
+function cbteDesdeFacturaTipo(t) {
+  const m = { ri: "factura_a", exento: "factura_b", a: "factura_a", b: "factura_b", c: "factura_c", x: "factura_x" };
+  return m[String(t || "").toLowerCase()] || "factura_b";
+}
+
+function htmlSelectFacturaTipo(valor, name = "factura_tipo", id = "") {
+  const opts = FACTURA_TIPOS_CLIENTE.map(([v, l]) =>
+    `<option value="${esc(v)}" ${String(valor || "") === v ? "selected" : ""}>${esc(l)}</option>`
+  ).join("");
+  return `<select name="${esc(name)}"${id ? ` id="${esc(id)}"` : ""}>${opts}</select>`;
+}
+
+function aplicarClienteCaja(cli) {
+  if (!state.caja || !cli) return;
+  state.caja.cliente = {
+    id: Number(cli.id),
+    nombre: cli.nombre || "",
+    cuit: cli.cuit || "",
+    direccion: cli.direccion || "",
+    codigo: cli.codigo || "",
+    factura_tipo: cli.factura_tipo || "",
+  };
+  state.caja.nuevo = false;
+  if (cli.factura_tipo) state.caja.cbte = cbteDesdeFacturaTipo(cli.factura_tipo);
+}
+
+function htmlClienteResumen() {
   const c = state.caja.cliente;
-  if (c) {
-    return `<div class="cliente-elegido"><div><strong>${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</strong><br><small>${esc(c.cuit || "")}</small></div>
-      <button type="button" class="btn ghost" data-act="quitar-cli">Cambiar</button></div>`;
+  if (!c) {
+    return `<button type="button" class="btn secondary btn-cli-popup" data-act="abrir-cli">Elegir cliente…</button>`;
   }
-  const recientes = state.caja.recientes || [];
-  return `
-    <p class="caja-label">Cliente</p>
-    ${recientes.length ? `<div class="cant-rapida clientes-rapidos">${recientes.map((r) => `
-      <button type="button" class="btn big-soft" data-act="cli" data-id="${r.id}" data-nombre="${esc(r.nombre)}" data-cuit="${esc(r.cuit || "")}" data-dir="${esc(r.direccion || "")}" data-codigo="${esc(r.codigo || "")}">${r.codigo ? esc(r.codigo) + " · " : ""}${esc(r.nombre)}</button>
-    `).join("")}</div>` : ""}
-    <div class="field"><label>Buscar por código, nombre o CUIT</label>
-      <input id="cli-q" type="search" placeholder="Escribí para buscar" autocomplete="off">
+  return `<div class="cliente-elegido">
+    <div>
+      <strong>${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</strong>
+      <br><small>${esc(c.cuit || "")}${c.factura_tipo ? " · " + esc(etiquetaFacturaTipo(c.factura_tipo)) : ""}</small>
     </div>
-    <div id="cli-res" class="cant-rapida clientes-rapidos"></div>
-    <button type="button" class="btn big-soft" data-act="nuevo">${state.caja.nuevo ? "Cancelar cliente nuevo" : "Cliente nuevo"}</button>
-    ${state.caja.nuevo ? `
-      <div class="field"><label>Nombre o razón social</label><input id="cli-nom" autocomplete="name"></div>
-      <div class="field"><label>CUIT</label><input id="cli-cuit" inputmode="numeric" autocomplete="off"></div>
-      <div class="field"><label>Dirección</label><input id="cli-dir" autocomplete="street-address"></div>
-    ` : ""}`;
+    <button type="button" class="btn ghost" data-act="abrir-cli">Cambiar</button>
+  </div>`;
 }
 
 function htmlFacturarCaja() {
@@ -5655,18 +5691,337 @@ function htmlFacturarCaja() {
   return `
     <div class="fiscal-switch">
       <button type="button" class="btn big-soft ${f === "negro" ? "on" : ""}" data-act="fiscal" data-f="negro">En negro</button>
-      <button type="button" class="btn big-soft ${f === "blanco" ? "on" : ""}" data-act="fiscal" data-f="blanco">En blanco (AFIP)</button>
+      <button type="button" class="btn big-soft ${f === "blanco" ? "on" : ""}" data-act="fiscal" data-f="blanco">En blanco</button>
     </div>
     ${f === "blanco" ? `
-      <div class="field"><label>Comprobante AFIP</label>
-        <select id="caja-cbte">
-          <option value="factura_a" ${cbte === "factura_a" ? "selected" : ""}>Factura A</option>
-          <option value="factura_b" ${cbte === "factura_b" ? "selected" : ""}>Factura B</option>
-          <option value="factura_c" ${cbte === "factura_c" ? "selected" : ""}>Factura C</option>
+      <div class="fiscal-blanco-row">
+        ${htmlClienteResumen()}
+        <div class="field field-cbte-mini">
+          <label>Comprobante</label>
+          <select id="caja-cbte">
+            <option value="factura_a" ${cbte === "factura_a" ? "selected" : ""}>Factura A</option>
+            <option value="factura_b" ${cbte === "factura_b" ? "selected" : ""}>Factura B</option>
+            <option value="factura_c" ${cbte === "factura_c" ? "selected" : ""}>Factura C</option>
+            <option value="factura_x" ${cbte === "factura_x" ? "selected" : ""}>Factura X</option>
+          </select>
+        </div>
+      </div>
+    ` : ""}`;
+}
+
+function precioAcetilenoKg() {
+  const p = precioCaja("gas", "acetileno");
+  return p ? Number(p.precio) || 0 : 0;
+}
+
+async function buscarTuboPorNumero(numero) {
+  const n = String(numero || "").trim();
+  if (!n) return null;
+  const data = await api("/api/tubos?q=" + encodeURIComponent(n));
+  const lista = data.tubos || [];
+  const exact = lista.find((t) => String(t.numero).toLowerCase() === n.toLowerCase());
+  return exact || lista[0] || null;
+}
+
+function abrirModalAltaAcetileno(onOk) {
+  abrirModal(`
+    <h2>Alta rápida · cilindro acetileno</h2>
+    <p class="lead">Lo deja cargado en la base para usarlo en este cobro.</p>
+    <form id="form-alta-ace" class="grid form">
+      <div class="field"><label>Número de tubo</label><input name="numero" required autocomplete="off"></div>
+      <div class="field"><label>Estado</label>
+        <select name="estado">
+          <option value="vacio">Vacío</option>
+          <option value="cargado" selected>Cargado (lleno)</option>
         </select>
       </div>
-      ${htmlCliente()}
-    ` : ""}`;
+      <div class="field"><label>Código artículo</label><input name="codigo" value="ACE" placeholder="ACE"></div>
+      <div class="field"><label>Capacidad</label><input name="capacidad" placeholder="kg / m³"></div>
+      <div class="field full"><button class="btn copper" type="submit">Registrar y usar</button></div>
+    </form>`);
+  $("#form-alta-ace").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target));
+    try {
+      const r = await api("/api/tubos", {
+        method: "POST",
+        body: {
+          numero: fd.numero,
+          codigo: fd.codigo || "ACE",
+          grupo: "ACETILENO",
+          tipo_gas: "ACETILENO",
+          descripcion: "ACETILENO",
+          capacidad: fd.capacidad || "",
+          estado: fd.estado === "vacio" ? "vacio" : "cargado",
+          lote: fd.estado === "cargado" ? "ACE" : "",
+          propiedad: "empresa",
+        },
+      });
+      toast("Cilindro acetileno registrado");
+      cerrarModal();
+      if (typeof onOk === "function") onOk(r.tubo || { numero: fd.numero });
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+function abrirModalAcetileno() {
+  const st = {
+    paso: 1,
+    esCliente: null,
+    cliente: null,
+    vacio: "",
+    lleno: "",
+    kilos: "",
+  };
+  const pu = precioAcetilenoKg();
+
+  const render = () => {
+    if (st.paso === 1) {
+      abrirModal(`
+        <h2>⚠ Acetileno · rotación</h2>
+        <div class="aviso-ace">
+          <p><strong>El acetileno trabaja por rotación.</strong></p>
+          <p>Informá al cliente que su tubo tarda en cargarse: <b>alrededor de 2 meses</b>.</p>
+          <ul>
+            <li><b>Si es cliente:</b> se hace recambio (entrega un vacío y se lleva un lleno).</li>
+            <li><b>Si no es cliente:</b> tiene que pagar por adelantado para mandarlo a cargar.</li>
+          </ul>
+        </div>
+        <div class="toolbar ace-acciones">
+          <button type="button" class="btn copper" id="ace-cont">Continuar</button>
+        </div>`);
+      $("#ace-cont").onclick = () => { st.paso = 2; render(); };
+      return;
+    }
+    if (st.paso === 2) {
+      abrirModal(`
+        <h2>Acetileno · ¿es cliente?</h2>
+        <p class="lead">Elegí cómo sigue el cobro.</p>
+        <div class="ace-split">
+          <button type="button" class="btn copper" id="ace-si">Sí, es cliente · recambio</button>
+          <button type="button" class="btn secondary" id="ace-no">No es cliente · pago adelantado</button>
+        </div>`);
+      $("#ace-si").onclick = () => {
+        st.esCliente = true;
+        abrirModalClienteCobrar({
+          titulo: "Cliente del acetileno",
+          onPick: (cli) => {
+            st.cliente = cli;
+            st.paso = 3;
+            cerrarModal();
+            render();
+          },
+        });
+      };
+      $("#ace-no").onclick = () => {
+        st.esCliente = false;
+        st.paso = 4;
+        render();
+      };
+      return;
+    }
+    if (st.paso === 3) {
+      abrirModal(`
+        <h2>Acetileno · tubos del recambio</h2>
+        <p class="lead">Cliente: <b>${esc(st.cliente?.codigo ? st.cliente.codigo + " · " : "")}${esc(st.cliente?.nombre || "")}</b></p>
+        <p class="lead">Tomá el número del <b>vacío que deja</b> y del <b>lleno que se lleva</b>. Tienen que estar en la base.</p>
+        <div class="grid form">
+          <div class="field"><label>Tubo vacío (deja)</label>
+            <input id="ace-vacio" value="${esc(st.vacio)}" placeholder="Nº vacío" autocomplete="off">
+          </div>
+          <div class="field"><label>Tubo lleno (lleva)</label>
+            <input id="ace-lleno" value="${esc(st.lleno)}" placeholder="Nº lleno" autocomplete="off">
+          </div>
+        </div>
+        <div id="ace-tubo-msg" class="lead"></div>
+        <div class="toolbar ace-acciones">
+          <button type="button" class="btn ghost" id="ace-alta">＋ Registrar cilindro acetileno</button>
+          <button type="button" class="btn copper" id="ace-tubos-ok">Continuar</button>
+        </div>`);
+      $("#ace-alta").onclick = () => {
+        st.vacio = $("#ace-vacio")?.value || st.vacio;
+        st.lleno = $("#ace-lleno")?.value || st.lleno;
+        abrirModalAltaAcetileno((tubo) => {
+          if (!st.vacio) st.vacio = tubo.numero || "";
+          else if (!st.lleno) st.lleno = tubo.numero || "";
+          render();
+        });
+      };
+      $("#ace-tubos-ok").onclick = async () => {
+        const vacio = ($("#ace-vacio")?.value || "").trim();
+        const lleno = ($("#ace-lleno")?.value || "").trim();
+        const msg = $("#ace-tubo-msg");
+        if (!vacio || !lleno) {
+          if (msg) msg.textContent = "Completá vacío y lleno.";
+          return;
+        }
+        if (vacio.toLowerCase() === lleno.toLowerCase()) {
+          if (msg) msg.textContent = "El vacío y el lleno no pueden ser el mismo número.";
+          return;
+        }
+        try {
+          const tV = await buscarTuboPorNumero(vacio);
+          const tL = await buscarTuboPorNumero(lleno);
+          if (!tV) {
+            if (msg) msg.innerHTML = `El vacío <b>${esc(vacio)}</b> no está en la base. Registrate con el botón de alta.`;
+            return;
+          }
+          if (!tL) {
+            if (msg) msg.innerHTML = `El lleno <b>${esc(lleno)}</b> no está en la base. Registrate con el botón de alta.`;
+            return;
+          }
+          st.vacio = tV.numero;
+          st.lleno = tL.numero;
+          st.paso = 4;
+          render();
+        } catch (err) { toast(err.message, true); }
+      };
+      return;
+    }
+    // paso 4: kilos + importe + grabar
+    const kilos = parseMonto(st.kilos);
+    const total = Number.isFinite(kilos) && kilos > 0 && pu > 0 ? Math.round(kilos * pu * 100) / 100 : 0;
+    abrirModal(`
+      <h2>Acetileno · kilos e importe</h2>
+      <p class="lead">${st.esCliente
+        ? `Recambio · vacío ${esc(st.vacio)} · lleno ${esc(st.lleno)} · ${esc(st.cliente?.nombre || "")}`
+        : "No es cliente: cobrá por adelantado para mandar a cargar (tarda ~2 meses)."}</p>
+      ${pu <= 0 ? `<div class="banner-fact">Falta el precio de acetileno en Configuración de caja.</div>` : ""}
+      <div class="grid form">
+        <div class="field"><label>Kilos cargados del cilindro lleno</label>
+          <input id="ace-kg" inputmode="decimal" value="${esc(st.kilos)}" placeholder="Ej. 5,5" autofocus>
+        </div>
+        <div class="field"><label>Precio por kg</label>
+          <input value="${esc(money(pu))}" disabled>
+        </div>
+        <div class="field full"><label>Importe a cobrar</label>
+          <div class="ace-total" id="ace-total">${money(total)}</div>
+        </div>
+      </div>
+      <div class="toolbar ace-acciones">
+        <button type="button" class="btn copper" id="ace-grabar" ${total > 0 ? "" : "disabled"}>Cobrar y cerrar comprobante</button>
+      </div>`);
+    const recalc = () => {
+      st.kilos = $("#ace-kg")?.value || "";
+      const k = parseMonto(st.kilos);
+      const t = Number.isFinite(k) && k > 0 && pu > 0 ? Math.round(k * pu * 100) / 100 : 0;
+      const el = $("#ace-total");
+      if (el) el.textContent = money(t);
+      const btn = $("#ace-grabar");
+      if (btn) btn.disabled = !(t > 0);
+    };
+    $("#ace-kg").oninput = recalc;
+    $("#ace-grabar").onclick = async () => {
+      recalc();
+      const k = parseMonto(st.kilos);
+      const t = Number.isFinite(k) && k > 0 && pu > 0 ? Math.round(k * pu * 100) / 100 : 0;
+      if (!(t > 0)) { toast("Indicá los kilos", true); return; }
+      if (!state.caja) return;
+      const desc = st.esCliente
+        ? `Acetileno ${fmtCantCaja(k)} kg · vacío ${st.vacio} · lleno ${st.lleno}`
+        : `Acetileno ${fmtCantCaja(k)} kg · adelanto (no cliente)`;
+      state.caja.modo = "gas";
+      state.caja.gas = null;
+      state.caja.items = [{
+        tipo: "gas",
+        gas: "acetileno",
+        descripcion: desc,
+        cantidad: k,
+        precio: pu,
+        total: t,
+      }];
+      state.caja.totalOverride = null;
+      state.caja.cantidad = 1;
+      if (st.esCliente && st.cliente) {
+        aplicarClienteCaja(st.cliente);
+        state.caja.fiscal = "blanco";
+        state.caja.facturar = true;
+        if (st.cliente.factura_tipo) state.caja.cbte = cbteDesdeFacturaTipo(st.cliente.factura_tipo);
+      } else {
+        state.caja.fiscal = "negro";
+        state.caja.facturar = false;
+        state.caja.cliente = null;
+      }
+      cerrarModal();
+      try {
+        await grabarCaja();
+      } catch (err) { toast(err.message, true); }
+    };
+  };
+  render();
+}
+
+function abrirModalClienteCobrar(opts = {}) {
+  const onPick = typeof opts.onPick === "function" ? opts.onPick : null;
+  const titulo = opts.titulo || "Elegir cliente";
+  abrirModal(`
+    <h2>${esc(titulo)}</h2>
+    <p class="lead">Buscá por código, nombre o CUIT. El tipo de factura del cliente se aplica solo.</p>
+    <div class="field"><label>Buscar</label>
+      <input id="m-cli-q" type="search" placeholder="Código, nombre o CUIT…" autocomplete="off" autofocus>
+    </div>
+    <div id="m-cli-res" class="cli-popup-lista"></div>
+    <details class="cli-nuevo-det">
+      <summary>Cliente nuevo</summary>
+      <form id="m-cli-nuevo" class="grid form" style="margin-top:8px">
+        <div class="field full"><label>Nombre</label><input name="nombre" required></div>
+        <div class="field"><label>CUIT</label><input name="cuit" required inputmode="numeric"></div>
+        <div class="field"><label>Código</label><input name="codigo" placeholder="Auto"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion" required></div>
+        <div class="field full"><label>Tipo de factura</label>${htmlSelectFacturaTipo("", "factura_tipo")}</div>
+        <div class="field full"><button class="btn copper" type="submit">Crear y elegir</button></div>
+      </form>
+    </details>`);
+  const pintarLista = (lista) => {
+    const box = $("#m-cli-res");
+    if (!box) return;
+    box.innerHTML = (lista || []).slice(0, 12).map((cli) => `
+      <button type="button" class="btn big-soft cli-pick" data-id="${cli.id}">
+        <strong>${cli.codigo ? esc(cli.codigo) + " · " : ""}${esc(cli.nombre)}</strong>
+        <small>${esc(cli.cuit || "—")}${cli.factura_tipo ? " · " + esc(etiquetaFacturaTipo(cli.factura_tipo)) : ""}</small>
+      </button>`).join("") || `<p class="empty">Sin coincidencias. Creá un cliente nuevo abajo.</p>`;
+    box.querySelectorAll(".cli-pick").forEach((btn) => {
+      btn.onclick = () => {
+        const cli = (lista || []).find((x) => String(x.id) === String(btn.dataset.id));
+        if (!cli) return;
+        if (onPick) onPick(cli);
+        else {
+          aplicarClienteCaja(cli);
+          cerrarModal();
+          pintarCobrar();
+        }
+      };
+    });
+  };
+  let timer;
+  const buscar = async () => {
+    const s = ($("#m-cli-q")?.value || "").trim();
+    if (s.length < 1) {
+      pintarLista(state.caja?.recientes || []);
+      return;
+    }
+    try {
+      const res = await api("/api/clientes?q=" + encodeURIComponent(s));
+      pintarLista(res.clientes || []);
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#m-cli-q").oninput = () => { clearTimeout(timer); timer = setTimeout(buscar, 180); };
+  pintarLista(state.caja?.recientes || []);
+  $("#m-cli-nuevo").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    try {
+      const r = await api("/api/clientes", { method: "POST", body });
+      const cli = r.cliente;
+      if (onPick) onPick(cli);
+      else {
+        aplicarClienteCaja(cli);
+        cerrarModal();
+        pintarCobrar();
+      }
+      toast("Cliente creado");
+    } catch (err) { toast(err.message, true); }
+  };
 }
 
 function htmlTicket() {
@@ -5749,24 +6104,25 @@ function htmlPanelCaja() {
   if (c.modo === "gas" || c.modo === "regulador") {
     return `
       ${htmlGases(c.modo)}
-      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas para sumarlo, o cargá una línea libre con concepto abierto.</p>`}
-      <div class="caja-libre-form">
-        <div class="field full"><label>Línea libre · concepto</label>
-          <input id="libre-desc" value="${esc(c.libreDesc || "")}" placeholder="Ej. Alquiler, envío, mano de obra…" autocomplete="off">
+      ${c.gas ? htmlCantidad(c.modo === "gas") : `<p class="lead caja-hint">Elegí el gas. Acetileno abre el aviso de rotación.</p>`}
+      <div class="caja-sumar-row">
+        <button type="button" class="btn copper btn-sumar-ticket" data-act="sumar" ${c.gas ? "" : "disabled"}>＋ Sumar al ticket</button>
+        <button type="button" class="btn secondary btn-sumar-ticket" data-act="toggle-libre">${c.libreAbierto ? "Ocultar línea libre" : "＋ Línea libre"}</button>
+      </div>
+      ${c.libreAbierto ? `<div class="caja-libre-form">
+        <div class="field full"><label>Concepto</label>
+          <input id="libre-desc" value="${esc(c.libreDesc || "")}" placeholder="Ej. Alquiler, envío…" autocomplete="off">
         </div>
         <div class="grid two">
-          <div class="field"><label>Cantidad</label>
+          <div class="field"><label>Cant.</label>
             <input id="libre-cant" inputmode="decimal" value="${esc(c.libreCant || "1")}">
           </div>
-          <div class="field"><label>Precio unitario</label>
+          <div class="field"><label>P. unit.</label>
             <input id="libre-precio" inputmode="decimal" value="${esc(c.librePrecio || "")}" placeholder="0">
           </div>
         </div>
-      </div>
-      <div class="caja-sumar-row">
-        <button type="button" class="btn copper btn-sumar-ticket" data-act="sumar" ${c.gas ? "" : "disabled"}>＋ Sumar al ticket</button>
-        <button type="button" class="btn secondary btn-sumar-ticket" data-act="sumar-libre">＋ Sumar línea libre</button>
-      </div>
+        <button type="button" class="btn secondary btn-sumar-ticket" data-act="sumar-libre">Sumar línea libre</button>
+      </div>` : ""}
       ${htmlTicket()}
       ${htmlAccionCobrar()}`;
   }
@@ -5869,25 +6225,6 @@ function pintarCobrar() {
       if (tot) tot.value = String(totalCaja()).replace(".", ",");
     });
   }
-  const q = $("#cli-q");
-  if (q) {
-    let timer;
-    q.oninput = () => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const s = q.value.trim();
-        const box = $("#cli-res");
-        if (!box) return;
-        if (s.length < 1) { box.innerHTML = ""; return; }
-        try {
-          const res = await api("/api/clientes?q=" + encodeURIComponent(s));
-          box.innerHTML = res.clientes.slice(0, 8).map((cli) => `
-            <button type="button" class="btn big-soft" data-act="cli" data-id="${cli.id}" data-nombre="${esc(cli.nombre)}" data-cuit="${esc(cli.cuit || "")}" data-dir="${esc(cli.direccion || "")}" data-codigo="${esc(cli.codigo || "")}">${cli.codigo ? esc(cli.codigo) + " · " : ""}${esc(cli.nombre)}</button>
-          `).join("") || `<p class="empty">No está en la lista. Usá Cliente nuevo.</p>`;
-        } catch (err) { toast(err.message, true); }
-      }, 250);
-    };
-  }
 }
 
 function onCajaClick(e) {
@@ -5962,6 +6299,10 @@ function onCajaClick(e) {
     c.cantidad = 1;
     c.totalOverride = null;
     pintarCobrar();
+  } else if (act === "toggle-libre") {
+    c.libreAbierto = !c.libreAbierto;
+    pintarCobrar();
+    if (c.libreAbierto) $("#libre-desc")?.focus();
   } else if (act === "sumar-libre") {
     const desc = ($("#libre-desc")?.value || c.libreDesc || "").trim();
     const cant = parseMonto($("#libre-cant")?.value || c.libreCant || "1");
@@ -5982,6 +6323,7 @@ function onCajaClick(e) {
     c.libreDesc = "";
     c.libreCant = "1";
     c.librePrecio = "";
+    c.libreAbierto = false;
     c.totalOverride = null;
     toast("Línea libre sumada al ticket");
     pintarCobrar();
@@ -5995,10 +6337,20 @@ function onCajaClick(e) {
     if (c.fiscal !== "blanco") {
       c.cliente = null;
       c.nuevo = false;
+      pintarCobrar();
+    } else {
+      pintarCobrar();
+      if (!c.cliente) abrirModalClienteCobrar();
     }
-    pintarCobrar();
+  } else if (act === "abrir-cli") {
+    abrirModalClienteCobrar();
   } else if (act === "gas") {
-    c.gas = btn.dataset.gas;
+    const gas = btn.dataset.gas;
+    if (gas === "acetileno" && c.modo === "gas") {
+      abrirModalAcetileno();
+      return;
+    }
+    c.gas = gas;
     c.totalOverride = null;
     pintarCobrar();
   } else if (act === "cant") {
@@ -6021,23 +6373,20 @@ function onCajaClick(e) {
     if (!c.facturar) { c.cliente = null; c.nuevo = false; }
     pintarCobrar();
   } else if (act === "cli") {
-    c.cliente = {
+    aplicarClienteCaja({
       id: Number(btn.dataset.id),
       nombre: btn.dataset.nombre,
       cuit: btn.dataset.cuit || "",
       direccion: btn.dataset.dir || "",
       codigo: btn.dataset.codigo || "",
-    };
-    c.nuevo = false;
+      factura_tipo: btn.dataset.factura || "",
+    });
     pintarCobrar();
   } else if (act === "quitar-cli") {
     c.cliente = null;
     pintarCobrar();
   } else if (act === "nuevo") {
-    c.nuevo = !c.nuevo;
-    c.cliente = null;
-    pintarCobrar();
-    $("#cli-nom")?.focus();
+    abrirModalClienteCobrar();
   } else if (act === "preset") {
     c.descripcion = btn.dataset.txt || "";
     pintarCobrar();
@@ -6078,13 +6427,15 @@ async function grabarCaja() {
       return;
     }
   }
+  const cbte = c.cbte || "factura_b";
+  const enBlanco = c.fiscal === "blanco" && c.modo !== "salida";
   const body = {
     tipo: c.modo,
     gas: c.gas,
     cantidad: c.cantidad,
-    facturar: c.fiscal === "blanco" && c.modo !== "salida",
-    fiscal: c.fiscal === "blanco" ? "afip" : "interno",
-    cbte: c.cbte || "factura_b",
+    facturar: enBlanco,
+    fiscal: enBlanco && cbte !== "factura_x" ? "afip" : "interno",
+    cbte,
     descripcion: c.descripcion,
     medio_pago: c.medioPago || "efectivo",
   };
@@ -6124,13 +6475,12 @@ async function grabarCaja() {
     body.total = tot;
   }
   if (body.facturar) {
-    if (c.nuevo) {
-      body.cliente_nuevo = {
-        nombre: ($("#cli-nom")?.value || "").trim(),
-        cuit: ($("#cli-cuit")?.value || "").trim(),
-        direccion: ($("#cli-dir")?.value || "").trim(),
-      };
-    } else if (c.cliente) body.cliente_id = c.cliente.id;
+    if (!c.cliente) {
+      toast("Elegí el cliente para la venta en blanco", true);
+      abrirModalClienteCobrar();
+      return;
+    }
+    body.cliente_id = c.cliente.id;
   }
   try {
     const r = await api("/api/caja/ventas", { method: "POST", body });
