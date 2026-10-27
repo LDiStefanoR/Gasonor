@@ -1106,10 +1106,56 @@ body.es-celular .sidebar nav a[data-solo-pc="1"] { display: none !important; }
 .caja-modos { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; gap: 6px; }
 .caja-modos .btn { min-height: 44px; font-size: .95rem; padding: 8px 6px; }
 .caja-modos .btn-os { grid-column: 1 / -1; min-height: 40px; font-weight: 800; }
-.os-checks { display: grid; gap: 8px; }
-.os-checks .check-inline { font-weight: 700; }
+.field input[type="checkbox"],
+.field input[type="radio"],
+.check-inline input[type="checkbox"],
+.check-inline input[type="radio"] {
+  width: auto !important;
+  min-width: 1.15rem;
+  max-width: 1.25rem;
+  height: 1.15rem;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--forest);
+}
+.os-checks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 0 2px;
+}
+.os-checks .check-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: auto;
+  max-width: 100%;
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--ink);
+  padding: 7px 2px;
+  margin: 0;
+}
+.os-pago-modo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+}
+.os-pago-modo .check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 6px 2px;
+}
 .os-lineas { margin: 0 0 6px; padding-left: 1.1rem; }
 .os-form { margin-top: 4px; }
+.badge-por-cobrar { background: #fff3e8; color: #8a5a12; border: 1px solid #e7c48a; }
 .precio-grid.precio-grid-2 { grid-template-columns: 1.4fr 1fr; align-items: center; }
 .caja-venta { margin-top: 0; padding: 12px; }
 .caja-historial { margin-top: 0; }

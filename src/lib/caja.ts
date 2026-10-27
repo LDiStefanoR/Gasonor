@@ -490,6 +490,67 @@ export async function handleCaja(
     return json({ ok: true, orden });
   }
 
+  const osCobrar = path.match(/^\/api\/caja\/ordenes-servicio\/(\d+)\/cobrar$/);
+  if (method === "POST" && osCobrar) {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const oid = Number(osCobrar[1]);
+    const row = await one("SELECT * FROM ordenes_servicio WHERE id=?", [oid]);
+    if (!row) return err("Orden no encontrada.", 404);
+    if (row.venta_id) return err("Esta orden ya fue cobrada.");
+    const total = Number(row.total || 0);
+    if (total <= 0) return err("La orden no tiene importe para cobrar.");
+    const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
+    let items: { descripcion?: string; cantidad?: number; precio?: number; total?: number; clave?: string }[] = [];
+    try { items = JSON.parse(String(row.items_json || "[]")); } catch { items = []; }
+    if (!items.length) {
+      items = [{ descripcion: String(row.descripcion_item || `OS #${oid}`), cantidad: 1, precio: total, total, clave: "" }];
+    }
+    const t = ahora();
+    const fecha = hoy();
+    const hora = t.slice(11, 16);
+    const facturar = [1, true, "1", "true", "si", "sí"].includes(data.facturar as never)
+      ? 1
+      : Number(row.facturar || 0);
+    const medio = normalizarMedio(data.medio_pago || "efectivo", "gas");
+    const descVenta = `OS #${oid} · ${row.descripcion_item} · ${String(row.trabajo || "").replace(/,/g, " + ")}`;
+    const vcur = await run(
+      `INSERT INTO ventas_caja (
+        fecha, hora, tipo, gas, descripcion, cantidad, precio_unitario, total, medio_pago,
+        facturar, estado_factura, cliente_id, cliente_nombre, cliente_cuit, usuario_id, creado_en, actualizado_en
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        fecha, hora, "general", "", descVenta, 1, total, total, medio,
+        facturar, facturar ? "pendiente" : "no",
+        row.cliente_id, row.cliente_nombre, row.cliente_cuit || "", u.id, t, t,
+      ],
+    );
+    const ventaId = Number(vcur.lastInsertRowid);
+    for (const it of items) {
+      await run(
+        `INSERT INTO ventas_caja_items (venta_id, tipo, gas, descripcion, cantidad, precio_unitario, total, precio_clave)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          ventaId, "general", "",
+          it.descripcion || "Servicio",
+          Number(it.cantidad || 1),
+          Number(it.precio || it.total || 0),
+          Number(it.total || 0),
+          it.clave || "",
+        ],
+      );
+    }
+    let nuevoEstado = String(data.estado || "entregado").trim().toLowerCase();
+    if (!["pendiente", "en_proceso", "listo", "entregado", "cancelado"].includes(nuevoEstado)) {
+      nuevoEstado = "entregado";
+    }
+    await run("UPDATE ordenes_servicio SET venta_id=?, estado=?, actualizado_en=? WHERE id=?", [
+      ventaId, nuevoEstado, t, oid,
+    ]);
+    const orden = await one("SELECT * FROM ordenes_servicio WHERE id=?", [oid]);
+    if (orden) orden.items = items;
+    return json({ ok: true, orden, venta_id: ventaId });
+  }
+
   if (key === "GET /api/caja/ventas") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     let desde = parseFecha(q.get("desde") || q.get("fecha") || hoy());

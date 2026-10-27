@@ -6008,6 +6008,7 @@ function abrirModalOrdenServicio() {
     direccion: "",
     facturar: false,
     medio_pago: "efectivo",
+    paga_al_retirar: true,
   };
 
   const pintarTotal = () => {
@@ -6017,7 +6018,12 @@ function abrirModalOrdenServicio() {
     box.innerHTML = `
       <ul class="os-lineas">${lineas.map((l) => `<li>${esc(l.desc)} · <b>${money(l.precio)}</b></li>`).join("") || "<li>Elegí un trabajo</li>"}</ul>
       <div class="ace-total">${money(total)}</div>
-      <small class="lead">La carga de gas e IVA de factura se suman aparte si corresponde.</small>`;
+      <small class="lead">${st.paga_al_retirar
+        ? "Queda por cobrar: se cobra cuando el cliente retira."
+        : "Se cobra ahora al crear la orden."}
+        La carga de gas e IVA de factura se suman aparte si corresponde.</small>`;
+    const btn = $("#os-grabar");
+    if (btn) btn.textContent = st.paga_al_retirar ? "Crear orden (paga al retirar)" : "Crear orden y cobrar ahora";
   };
 
   const leerForm = () => {
@@ -6033,6 +6039,8 @@ function abrirModalOrdenServicio() {
     st.direccion = $("#os-dir")?.value || st.direccion;
     st.facturar = !!$("#os-fc")?.checked;
     st.medio_pago = $("#os-medio")?.value || "efectivo";
+    const pago = document.querySelector('input[name="os-pago"]:checked');
+    st.paga_al_retirar = !pago || pago.value === "retirar";
   };
 
   const render = () => {
@@ -6074,17 +6082,27 @@ function abrirModalOrdenServicio() {
             <option value="grande" ${st.capacidad === "grande" ? "selected" : ""}>Mayor a 3 m³</option>
           </select>
         </div>
-        <div class="field full os-checks">
-          <label class="check-inline"><input type="checkbox" id="os-ph" ${st.ph ? "checked" : ""}> Prueba hidráulica (PH)</label>
-          <label class="check-inline"><input type="checkbox" id="os-cambio" ${st.cambio_gas ? "checked" : ""}> Cambio de gas</label>
-          <label class="check-inline"><input type="checkbox" id="os-rob" ${st.robinete ? "checked" : ""}> Cambio de robinete</label>
-          <label class="check-inline"><input type="checkbox" id="os-otro" ${st.otro ? "checked" : ""}> Otro</label>
+        <div class="field full">
+          <label>Trabajos</label>
+          <div class="os-checks">
+            <label class="check-inline"><input type="checkbox" id="os-ph" ${st.ph ? "checked" : ""}> Prueba hidráulica (PH)</label>
+            <label class="check-inline"><input type="checkbox" id="os-cambio" ${st.cambio_gas ? "checked" : ""}> Cambio de gas</label>
+            <label class="check-inline"><input type="checkbox" id="os-rob" ${st.robinete ? "checked" : ""}> Cambio de robinete</label>
+            <label class="check-inline"><input type="checkbox" id="os-otro" ${st.otro ? "checked" : ""}> Otro</label>
+          </div>
         </div>
         <div class="field full" id="os-otro-wrap" ${st.otro ? "" : "hidden"}>
           <label>Detalle / importe otro</label>
           <div class="grid two">
             <input id="os-detalle" value="${esc(st.detalle)}" placeholder="Descripción">
             <input id="os-otro-monto" inputmode="decimal" value="${esc(st.otro_monto)}" placeholder="Monto">
+          </div>
+        </div>
+        <div class="field full">
+          <label>¿Cuándo paga?</label>
+          <div class="os-pago-modo">
+            <label class="check-inline"><input type="radio" name="os-pago" value="retirar" ${st.paga_al_retirar ? "checked" : ""}> Paga cuando retira</label>
+            <label class="check-inline"><input type="radio" name="os-pago" value="ahora" ${st.paga_al_retirar ? "" : "checked"}> Cobrar ahora</label>
           </div>
         </div>
         <div class="field"><label>Medio de pago</label>
@@ -6095,12 +6113,16 @@ function abrirModalOrdenServicio() {
             <option value="cheque">Cheque</option>
           </select>
         </div>
-        <div class="field"><label class="check-inline" style="margin-top:22px"><input type="checkbox" id="os-fc" ${st.facturar ? "checked" : ""}> Quiere factura (FC) · + IVA aparte</label></div>
+        <div class="field full">
+          <div class="os-checks">
+            <label class="check-inline"><input type="checkbox" id="os-fc" ${st.facturar ? "checked" : ""}> Quiere factura (FC) · + IVA aparte</label>
+          </div>
+        </div>
         <div class="field full" id="os-total-box"></div>
       </div>
       <div class="toolbar ace-acciones">
         <a class="btn ghost" href="#/ordenes-servicio">Ver órdenes</a>
-        <button type="button" class="btn copper" id="os-grabar" ${total > 0 && st.cliente ? "" : ""}>Crear orden y cobrar</button>
+        <button type="button" class="btn copper" id="os-grabar">${st.paga_al_retirar ? "Crear orden (paga al retirar)" : "Crear orden y cobrar ahora"}</button>
       </div>`);
     const bindCalc = () => {
       leerForm();
@@ -6111,6 +6133,9 @@ function abrirModalOrdenServicio() {
       const el = document.getElementById(id);
       if (el) el.addEventListener("change", bindCalc);
       if (el) el.addEventListener("input", bindCalc);
+    });
+    document.querySelectorAll('input[name="os-pago"]').forEach((el) => {
+      el.addEventListener("change", bindCalc);
     });
     $("#os-pick-cli").onclick = () => {
       leerForm();
@@ -6158,11 +6183,15 @@ function abrirModalOrdenServicio() {
             otro_monto: st.otro_monto,
             facturar: st.facturar,
             medio_pago: st.medio_pago,
-            cobrar: true,
+            cobrar: !st.paga_al_retirar,
           },
         });
         cerrarModal();
-        toast(`Orden #${r.orden?.id} creada` + (r.venta_id ? ` · cobro #${r.venta_id}` : ""));
+        if (st.paga_al_retirar) {
+          toast(`Orden #${r.orden?.id} creada · paga cuando retira`);
+        } else {
+          toast(`Orden #${r.orden?.id} creada` + (r.venta_id ? ` · cobro #${r.venta_id}` : ""));
+        }
         if (state.caja) await vistaCobrar();
       } catch (err) { toast(err.message, true); }
     };
@@ -6221,9 +6250,11 @@ async function vistaOrdenesServicio(params) {
     </form>
     <div class="card table-wrap" style="margin-top:12px">
       <table>
-        <thead><tr><th>Nº</th><th>Fecha</th><th>Cliente</th><th>Deja</th><th>Trabajo</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Nº</th><th>Fecha</th><th>Cliente</th><th>Deja</th><th>Trabajo</th><th>Total</th><th>Pago</th><th>Estado</th><th></th></tr></thead>
         <tbody>
-          ${ordenes.map((o) => `
+          ${ordenes.map((o) => {
+            const porCobrar = !o.venta_id && Number(o.total) > 0 && o.estado !== "cancelado";
+            return `
             <tr>
               <td class="mono"><b>#${o.id}</b></td>
               <td class="mono">${esc(fmtFecha(o.fecha))} ${esc(o.hora || "")}</td>
@@ -6234,15 +6265,22 @@ async function vistaOrdenesServicio(params) {
               <td>${esc(o.descripcion_item)}</td>
               <td><small>${esc(String(o.trabajo || "").replace(/,/g, " · "))}${o.capacidad ? " · " + (o.capacidad === "grande" ? ">3 m³" : "≤3 m³") : ""}</small></td>
               <td class="mono">${money(o.total)}</td>
+              <td>${porCobrar
+                ? `<span class="badge badge-por-cobrar">Paga al retirar</span>`
+                : (o.venta_id ? `<span class="badge">Cobrado</span>` : "—")}</td>
               <td><span class="badge">${esc(etiquetaEstadoOs(o.estado))}</span></td>
               <td class="actions">
+                ${porCobrar && puede("admin", "cobrador")
+                  ? `<button type="button" class="btn copper" data-os-cobrar="${o.id}">Cobrar al retirar</button>`
+                  : ""}
                 <select data-os-estado="${o.id}" title="Cambiar estado">
                   ${["pendiente", "en_proceso", "listo", "entregado", "cancelado"].map((e) =>
                     `<option value="${e}" ${o.estado === e ? "selected" : ""}>${esc(etiquetaEstadoOs(e))}</option>`
                   ).join("")}
                 </select>
               </td>
-            </tr>`).join("") || `<tr><td colspan="8" class="empty">No hay órdenes con ese filtro.</td></tr>`}
+            </tr>`;
+          }).join("") || `<tr><td colspan="9" class="empty">No hay órdenes con ese filtro.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -6269,6 +6307,51 @@ async function vistaOrdenesServicio(params) {
       } catch (err) { toast(err.message, true); }
     };
   });
+  app().querySelectorAll("[data-os-cobrar]").forEach((btn) => {
+    btn.onclick = () => abrirModalCobrarOrdenServicio(Number(btn.dataset.osCobrar), ordenes);
+  });
+}
+
+function abrirModalCobrarOrdenServicio(oid, lista) {
+  const o = (lista || []).find((x) => Number(x.id) === Number(oid));
+  if (!o) return toast("Orden no encontrada", true);
+  abrirModal(`
+    <h2>Cobrar al retirar · OS #${o.id}</h2>
+    <p class="lead"><b>${esc(o.cliente_nombre)}</b> · ${esc(o.descripcion_item)}</p>
+    <p class="ace-total" style="margin:8px 0">${money(o.total)}</p>
+    <div class="grid form">
+      <div class="field"><label>Medio de pago</label>
+        <select id="os-cob-medio">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+      <div class="field full">
+        <div class="os-checks">
+          <label class="check-inline"><input type="checkbox" id="os-cob-fc" ${Number(o.facturar) ? "checked" : ""}> Quiere factura (FC)</label>
+        </div>
+      </div>
+    </div>
+    <div class="toolbar ace-acciones">
+      <button type="button" class="btn copper" id="os-cob-ok">Cobrar y marcar entregado</button>
+    </div>`);
+  $("#os-cob-ok").onclick = async () => {
+    try {
+      const r = await api("/api/caja/ordenes-servicio/" + oid + "/cobrar", {
+        method: "POST",
+        body: {
+          medio_pago: $("#os-cob-medio")?.value || "efectivo",
+          facturar: !!$("#os-cob-fc")?.checked,
+          estado: "entregado",
+        },
+      });
+      cerrarModal();
+      toast(`OS #${oid} cobrada` + (r.venta_id ? ` · venta #${r.venta_id}` : ""));
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
 }
 
 function abrirModalClienteCobrar(opts = {}) {
