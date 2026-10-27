@@ -107,6 +107,45 @@ export async function ensureCaja() {
   }
   await run("UPDATE precios_caja SET unidad='kg' WHERE clave='gas:co2' AND unidad IN ('m','m³')");
   await run("UPDATE precios_caja SET unidad='m3' WHERE tipo='gas' AND clave!='gas:co2' AND unidad IN ('m','m³')");
+  const serviciosPrecio: [string, string, number, number][] = [
+    ["serv:robinete", "Cambio de robinete", 65000, 90],
+    ["serv:ph_chico", "PH tubo ≤ 3 m³", 30000, 91],
+    ["serv:ph_grande", "PH tubo > 3 m³", 40000, 92],
+    ["serv:cambio_gas_chico", "Cambio de gas ≤ 3 m³", 90000, 93],
+    ["serv:cambio_gas_grande", "Cambio de gas > 3 m³", 105000, 94],
+  ];
+  for (const [clave, nombre, precio, orden] of serviciosPrecio) {
+    await run(
+      "INSERT OR IGNORE INTO precios_caja (clave, nombre, tipo, precio, unidad, orden) VALUES (?,?,?,?,?,?)",
+      [clave, nombre, "servicio", precio, "u", orden],
+    );
+    await run("UPDATE precios_caja SET precio=? WHERE clave=? AND IFNULL(precio,0)=0", [precio, clave]);
+  }
+  await run(`CREATE TABLE IF NOT EXISTS ordenes_servicio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha TEXT NOT NULL,
+    hora TEXT NOT NULL,
+    cliente_id INTEGER,
+    cliente_nombre TEXT NOT NULL,
+    cliente_telefono TEXT,
+    cliente_direccion TEXT,
+    cliente_cuit TEXT,
+    descripcion_item TEXT NOT NULL,
+    trabajo TEXT NOT NULL,
+    capacidad TEXT,
+    detalle TEXT,
+    items_json TEXT,
+    total REAL NOT NULL DEFAULT 0,
+    facturar INTEGER NOT NULL DEFAULT 0,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    venta_id INTEGER,
+    usuario_id INTEGER,
+    observaciones TEXT,
+    creado_en TEXT NOT NULL,
+    actualizado_en TEXT NOT NULL
+  )`);
+  try { await run("CREATE INDEX IF NOT EXISTS idx_os_fecha ON ordenes_servicio(fecha)"); } catch { /* ok */ }
+  try { await run("CREATE INDEX IF NOT EXISTS idx_os_estado ON ordenes_servicio(estado)"); } catch { /* ok */ }
   for (const col of ["afip_cae", "afip_numero"] as const) {
     try {
       await run(`ALTER TABLE ventas_caja ADD COLUMN ${col} TEXT`);
@@ -259,6 +298,198 @@ export async function handleCaja(
     return json({ cheques: await all(sql, args) });
   }
 
+  async function precioServ(clave: string) {
+    const row = await one("SELECT precio FROM precios_caja WHERE clave=?", [clave]);
+    return Number(row?.precio || 0);
+  }
+
+  async function armarItemsOs(data: Record<string, unknown>) {
+    let capacidad = String(data.capacidad || "").trim().toLowerCase();
+    capacidad = ["grande", ">", "gt", "sup", "superior"].includes(capacidad) ? "grande" : "chico";
+    let trabajos = data.trabajos;
+    if (typeof trabajos === "string") trabajos = trabajos.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!Array.isArray(trabajos)) trabajos = [];
+    let lista = (trabajos as unknown[]).map((t) => String(t).trim().toLowerCase());
+    const uno = String(data.trabajo || "").trim().toLowerCase();
+    if (uno && !lista.includes(uno)) lista.push(uno);
+    let robinete = [1, true, "1", "true", "si", "sí", "on"].includes(data.robinete as never);
+    if (lista.includes("robinete")) {
+      robinete = true;
+      lista = lista.filter((t) => t !== "robinete");
+    }
+    const items: { clave: string; descripcion: string; cantidad: number; precio: number; total: number }[] = [];
+    if (lista.some((t) => ["ph", "prueba_hidraulica", "prueba"].includes(t))) {
+      const clave = capacidad === "grande" ? "serv:ph_grande" : "serv:ph_chico";
+      const precio = await precioServ(clave);
+      items.push({
+        clave,
+        descripcion: capacidad === "grande" ? "PH tubo > 3 m³" : "PH tubo ≤ 3 m³",
+        cantidad: 1,
+        precio,
+        total: precio,
+      });
+    }
+    if (lista.some((t) => ["cambio_gas", "cambio"].includes(t))) {
+      const clave = capacidad === "grande" ? "serv:cambio_gas_grande" : "serv:cambio_gas_chico";
+      const precio = await precioServ(clave);
+      items.push({
+        clave,
+        descripcion: capacidad === "grande" ? "Cambio de gas > 3 m³" : "Cambio de gas ≤ 3 m³",
+        cantidad: 1,
+        precio,
+        total: precio,
+      });
+    }
+    if (lista.includes("otro")) {
+      let otroMonto = 0;
+      try { otroMonto = parseMonto(data.otro_monto || 0); } catch { otroMonto = 0; }
+      const detalleOtro = String(data.detalle || data.otro_detalle || "Otro trabajo").trim();
+      if (otroMonto > 0) {
+        items.push({ clave: "serv:otro", descripcion: detalleOtro.slice(0, 120), cantidad: 1, precio: otroMonto, total: otroMonto });
+      }
+    }
+    if (robinete) {
+      const precio = await precioServ("serv:robinete");
+      items.push({ clave: "serv:robinete", descripcion: "Cambio de robinete", cantidad: 1, precio, total: precio });
+    }
+    const total = Math.round(items.reduce((s, it) => s + Number(it.total), 0) * 100) / 100;
+    const trabajoTxt = [...lista, ...(robinete ? ["robinete"] : [])].sort().join(",");
+    return { items, total, capacidad, trabajoTxt };
+  }
+
+  if (key === "GET /api/caja/ordenes-servicio") {
+    if (!puede(u, "admin", "cobrador", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
+    const estado = String(q.get("estado") || "").trim().toLowerCase();
+    let sql = "SELECT * FROM ordenes_servicio WHERE 1=1";
+    const args: (string | number)[] = [];
+    if (["pendiente", "en_proceso", "listo", "entregado", "cancelado"].includes(estado)) {
+      sql += " AND estado=?";
+      args.push(estado);
+    } else if (estado === "abiertas") {
+      sql += " AND estado IN ('pendiente','en_proceso','listo')";
+    }
+    const qq = String(q.get("q") || "").trim();
+    if (qq) {
+      sql += " AND (cliente_nombre LIKE ? OR IFNULL(cliente_telefono,'') LIKE ? OR descripcion_item LIKE ? OR CAST(id AS TEXT)=?)";
+      const like = `%${qq}%`;
+      args.push(like, like, like, qq);
+    }
+    sql += " ORDER BY fecha DESC, id DESC LIMIT 300";
+    const ordenes = await all(sql, args);
+    for (const r of ordenes) {
+      try { r.items = JSON.parse(String(r.items_json || "[]")); } catch { r.items = []; }
+    }
+    const precios = (await preciosLista()).filter((p) => p.tipo === "servicio");
+    return json({ ok: true, ordenes, precios });
+  }
+
+  const osOne = path.match(/^\/api\/caja\/ordenes-servicio\/(\d+)$/);
+  if (method === "GET" && osOne) {
+    if (!puede(u, "admin", "cobrador", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
+    const row = await one("SELECT * FROM ordenes_servicio WHERE id=?", [Number(osOne[1])]);
+    if (!row) return err("Orden no encontrada.", 404);
+    try { row.items = JSON.parse(String(row.items_json || "[]")); } catch { row.items = []; }
+    return json({ ok: true, orden: row });
+  }
+
+  if (key === "POST /api/caja/ordenes-servicio") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
+    let nombre = String(data.cliente_nombre || "").trim();
+    let telefono = String(data.cliente_telefono || "").trim();
+    let direccion = String(data.cliente_direccion || "").trim();
+    let cuit = String(data.cliente_cuit || "").trim();
+    let clienteId: number | null = null;
+    try {
+      clienteId = data.cliente_id ? Number(data.cliente_id) : null;
+      if (!clienteId) clienteId = null;
+    } catch { clienteId = null; }
+    if (clienteId) {
+      const cli = await one("SELECT * FROM clientes WHERE id=?", [clienteId]);
+      if (!cli) return err("Cliente no encontrado.", 404);
+      nombre = nombre || String(cli.nombre || "");
+      telefono = telefono || String(cli.telefono || "");
+      direccion = direccion || String(cli.direccion || "");
+      cuit = cuit || String(cli.cuit || "");
+    }
+    if (!nombre) return err("Indicá el cliente que deja el trabajo.");
+    if (!telefono) return err("El teléfono es obligatorio para avisar cuando esté listo.");
+    if (!direccion) return err("La dirección es obligatoria.");
+    const descItem = String(data.descripcion_item || data.descripcion || "").trim();
+    if (descItem.length < 2) return err("Describí qué deja el cliente (tubo, regulador, etc.).");
+    const { items, total, capacidad, trabajoTxt } = await armarItemsOs(data);
+    if (!items.length) return err("Elegí al menos un trabajo: PH, cambio de gas, robinete u otro.");
+    const detalle = String(data.detalle || "").trim();
+    const facturar = [1, true, "1", "true", "si", "sí"].includes(data.facturar as never) ? 1 : 0;
+    const cobrado = ![0, false, "0", "false", "no"].includes(data.cobrar as never);
+    const t = ahora();
+    const fecha = hoy();
+    const hora = t.slice(11, 16);
+    const cur = await run(
+      `INSERT INTO ordenes_servicio (
+        fecha, hora, cliente_id, cliente_nombre, cliente_telefono, cliente_direccion, cliente_cuit,
+        descripcion_item, trabajo, capacidad, detalle, items_json, total, facturar, estado,
+        venta_id, usuario_id, observaciones, creado_en, actualizado_en
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        fecha, hora, clienteId, nombre, telefono, direccion, cuit,
+        descItem, trabajoTxt, capacidad, detalle, JSON.stringify(items),
+        total, facturar, "pendiente", null, u.id,
+        String(data.observaciones || "").trim(), t, t,
+      ],
+    );
+    const oid = Number(cur.lastInsertRowid);
+    let ventaId: number | null = null;
+    if (cobrado && total > 0) {
+      const descVenta = `OS #${oid} · ${descItem} · ${trabajoTxt.replace(/,/g, " + ")}`;
+      const vcur = await run(
+        `INSERT INTO ventas_caja (
+          fecha, hora, tipo, gas, descripcion, cantidad, precio_unitario, total, medio_pago,
+          facturar, estado_factura, cliente_id, cliente_nombre, cliente_cuit, usuario_id, creado_en, actualizado_en
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          fecha, hora, "general", "", descVenta, 1, total, total,
+          normalizarMedio(data.medio_pago || "efectivo", "gas"),
+          facturar, facturar ? "pendiente" : "no",
+          clienteId, nombre, cuit, u.id, t, t,
+        ],
+      );
+      ventaId = Number(vcur.lastInsertRowid);
+      for (const it of items) {
+        await run(
+          `INSERT INTO ventas_caja_items (venta_id, tipo, gas, descripcion, cantidad, precio_unitario, total, precio_clave)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [ventaId, "general", "", it.descripcion, it.cantidad, it.precio, it.total, it.clave || ""],
+        );
+      }
+      await run("UPDATE ordenes_servicio SET venta_id=? WHERE id=?", [ventaId, oid]);
+    }
+    const orden = await one("SELECT * FROM ordenes_servicio WHERE id=?", [oid]);
+    if (orden) orden.items = items;
+    return json({ ok: true, orden, venta_id: ventaId });
+  }
+
+  if (method === "PUT" && osOne) {
+    if (!puede(u, "admin", "cobrador", "despacho", "reparto")) return err("No tiene permiso para esta acción.", 403);
+    const oid = Number(osOne[1]);
+    const row = await one("SELECT * FROM ordenes_servicio WHERE id=?", [oid]);
+    if (!row) return err("Orden no encontrada.", 404);
+    const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
+    const estado = String(data.estado || row.estado).trim().toLowerCase();
+    if (!["pendiente", "en_proceso", "listo", "entregado", "cancelado"].includes(estado)) {
+      return err("Estado inválido.");
+    }
+    const obs = data.observaciones === undefined ? row.observaciones : data.observaciones;
+    await run("UPDATE ordenes_servicio SET estado=?, observaciones=?, actualizado_en=? WHERE id=?", [
+      estado, String(obs || "").trim(), ahora(), oid,
+    ]);
+    const orden = await one("SELECT * FROM ordenes_servicio WHERE id=?", [oid]);
+    if (orden) {
+      try { orden.items = JSON.parse(String(orden.items_json || "[]")); } catch { orden.items = []; }
+    }
+    return json({ ok: true, orden });
+  }
+
   if (key === "GET /api/caja/ventas") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
     let desde = parseFecha(q.get("desde") || q.get("fecha") || hoy());
@@ -276,7 +507,7 @@ export async function handleCaja(
     sql += " ORDER BY v.fecha DESC, v.id DESC LIMIT 400";
     const ventas = await all(sql, args);
     const recientes = await all(
-      `SELECT c.id, c.nombre, c.cuit, c.direccion, c.codigo, c.factura_tipo
+      `SELECT c.id, c.nombre, c.cuit, c.direccion, c.telefono, c.codigo, c.factura_tipo
        FROM ventas_caja v JOIN clientes c ON c.id=v.cliente_id
        GROUP BY c.id ORDER BY MAX(v.id) DESC LIMIT 8`,
     );

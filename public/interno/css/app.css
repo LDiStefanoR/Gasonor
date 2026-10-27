@@ -1105,6 +1105,12 @@ body.es-celular .sidebar nav a[data-solo-pc="1"] { display: none !important; }
 .caja-modos, .cant-rapida, .gas-grid { display: grid; gap: 8px; }
 .caja-modos { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; gap: 6px; }
 .caja-modos .btn { min-height: 44px; font-size: .95rem; padding: 8px 6px; }
+.caja-modos .btn-os { grid-column: 1 / -1; min-height: 40px; font-weight: 800; }
+.os-checks { display: grid; gap: 8px; }
+.os-checks .check-inline { font-weight: 700; }
+.os-lineas { margin: 0 0 6px; padding-left: 1.1rem; }
+.os-form { margin-top: 4px; }
+.precio-grid.precio-grid-2 { grid-template-columns: 1.4fr 1fr; align-items: center; }
 .caja-venta { margin-top: 0; padding: 12px; }
 .caja-historial { margin-top: 0; }
 .caja-historial.cerrado {

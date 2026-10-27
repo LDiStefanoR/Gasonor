@@ -2358,6 +2358,10 @@ async function vistaEnvios(tipo) {
         <strong>Recepción</strong>
         <p class="lead">${esPlanta ? "Retorno de tubos cargados desde planta" : "Ingreso de tubos que vuelven del cliente"}</p>
       </a>
+      <a class="card envio-pick" href="#/ordenes-servicio" style="border-left:4px solid var(--copper)">
+        <strong>Órdenes de servicio</strong>
+        <p class="lead">Prueba hidráulica, cambio de gas y robinete</p>
+      </a>
     </div>
     ${rolActual() === "admin" ? `
       <p class="lead" style="margin-top:18px">También podés operar por lotes en la PC:</p>
@@ -5663,6 +5667,7 @@ function aplicarClienteCaja(cli) {
     nombre: cli.nombre || "",
     cuit: cli.cuit || "",
     direccion: cli.direccion || "",
+    telefono: cli.telefono || "",
     codigo: cli.codigo || "",
     factura_tipo: cli.factura_tipo || "",
   };
@@ -5951,6 +5956,321 @@ function abrirModalAcetileno() {
   render();
 }
 
+function precioServicio(clave) {
+  const p = (state.caja?.precios || []).find((x) => x.clave === clave);
+  return p ? Number(p.precio) || 0 : 0;
+}
+
+function calcTotalOrdenServicio(form) {
+  const cap = form.capacidad === "grande" ? "grande" : "chico";
+  let total = 0;
+  const lineas = [];
+  if (form.ph) {
+    const clave = cap === "grande" ? "serv:ph_grande" : "serv:ph_chico";
+    const precio = precioServicio(clave);
+    lineas.push({ desc: cap === "grande" ? "PH > 3 m³" : "PH ≤ 3 m³", precio });
+    total += precio;
+  }
+  if (form.cambio_gas) {
+    const clave = cap === "grande" ? "serv:cambio_gas_grande" : "serv:cambio_gas_chico";
+    const precio = precioServicio(clave);
+    lineas.push({ desc: cap === "grande" ? "Cambio de gas > 3 m³" : "Cambio de gas ≤ 3 m³", precio });
+    total += precio;
+  }
+  if (form.robinete) {
+    const precio = precioServicio("serv:robinete");
+    lineas.push({ desc: "Cambio de robinete", precio });
+    total += precio;
+  }
+  if (form.otro) {
+    const precio = parseMonto(form.otro_monto) || 0;
+    if (precio > 0) {
+      lineas.push({ desc: form.detalle || "Otro", precio });
+      total += precio;
+    }
+  }
+  return { total: Math.round(total * 100) / 100, lineas, capacidad: cap };
+}
+
+function abrirModalOrdenServicio() {
+  const st = {
+    paso: 1,
+    cliente: null,
+    descripcion_item: "",
+    capacidad: "chico",
+    ph: true,
+    cambio_gas: false,
+    robinete: false,
+    otro: false,
+    detalle: "",
+    otro_monto: "",
+    telefono: "",
+    direccion: "",
+    facturar: false,
+    medio_pago: "efectivo",
+  };
+
+  const pintarTotal = () => {
+    const { total, lineas } = calcTotalOrdenServicio(st);
+    const box = $("#os-total-box");
+    if (!box) return;
+    box.innerHTML = `
+      <ul class="os-lineas">${lineas.map((l) => `<li>${esc(l.desc)} · <b>${money(l.precio)}</b></li>`).join("") || "<li>Elegí un trabajo</li>"}</ul>
+      <div class="ace-total">${money(total)}</div>
+      <small class="lead">La carga de gas e IVA de factura se suman aparte si corresponde.</small>`;
+  };
+
+  const leerForm = () => {
+    st.descripcion_item = $("#os-desc")?.value || st.descripcion_item;
+    st.capacidad = $("#os-cap")?.value || st.capacidad;
+    st.ph = !!$("#os-ph")?.checked;
+    st.cambio_gas = !!$("#os-cambio")?.checked;
+    st.robinete = !!$("#os-rob")?.checked;
+    st.otro = !!$("#os-otro")?.checked;
+    st.detalle = $("#os-detalle")?.value || "";
+    st.otro_monto = $("#os-otro-monto")?.value || "";
+    st.telefono = $("#os-tel")?.value || st.telefono;
+    st.direccion = $("#os-dir")?.value || st.direccion;
+    st.facturar = !!$("#os-fc")?.checked;
+    st.medio_pago = $("#os-medio")?.value || "efectivo";
+  };
+
+  const render = () => {
+    if (st.paso === 1) {
+      abrirModal(`
+        <h2>🔧 Orden de servicio</h2>
+        <div class="aviso-ace">
+          <p><strong>Prueba hidráulica o cambio de gas</strong></p>
+          <p>El cliente deja el tubo/regulador. La <b>prueba hidráulica tarda alrededor de 2 días</b>, según el trabajo que haya.</p>
+          <p>Hay que <b>desvalvularlo</b> con una llave inglesa grande: si el robinete (válvula) está muy deteriorado <b>puede romperse</b>. En ese caso se coloca uno nuevo — es de lo más caro de cambiar en un envase.</p>
+          <p>Si es <b>cambio de gas</b>, hay que dejarlo preparado para el gas que corresponda.</p>
+          <p>Pedile al cliente <b>nombre, teléfono y dirección</b>, e informale los tiempos.</p>
+        </div>
+        <div class="toolbar ace-acciones">
+          <button type="button" class="btn copper" id="os-cont">Continuar</button>
+        </div>`);
+      $("#os-cont").onclick = () => { st.paso = 2; render(); };
+      return;
+    }
+    const cliTxt = st.cliente
+      ? `${st.cliente.codigo ? st.cliente.codigo + " · " : ""}${st.cliente.nombre}`
+      : "Elegir cliente…";
+    const { total } = calcTotalOrdenServicio(st);
+    abrirModal(`
+      <h2>Nueva orden de servicio</h2>
+      <div class="grid form os-form">
+        <div class="field full">
+          <label>Cliente que deja el trabajo</label>
+          <button type="button" class="btn secondary" id="os-pick-cli" style="width:100%">${esc(cliTxt)}</button>
+        </div>
+        <div class="field"><label>Teléfono</label><input id="os-tel" value="${esc(st.telefono)}" required inputmode="tel" placeholder="Para avisar cuando esté listo"></div>
+        <div class="field"><label>Dirección</label><input id="os-dir" value="${esc(st.direccion)}" required placeholder="Domicilio"></div>
+        <div class="field full"><label>¿Qué deja? (tubo, regulador…)</label>
+          <input id="os-desc" value="${esc(st.descripcion_item)}" placeholder="Ej. Tubo O2 10 m³ nº 12345" required>
+        </div>
+        <div class="field full"><label>Capacidad del tubo</label>
+          <select id="os-cap">
+            <option value="chico" ${st.capacidad !== "grande" ? "selected" : ""}>≤ 3 m³</option>
+            <option value="grande" ${st.capacidad === "grande" ? "selected" : ""}>Mayor a 3 m³</option>
+          </select>
+        </div>
+        <div class="field full os-checks">
+          <label class="check-inline"><input type="checkbox" id="os-ph" ${st.ph ? "checked" : ""}> Prueba hidráulica (PH)</label>
+          <label class="check-inline"><input type="checkbox" id="os-cambio" ${st.cambio_gas ? "checked" : ""}> Cambio de gas</label>
+          <label class="check-inline"><input type="checkbox" id="os-rob" ${st.robinete ? "checked" : ""}> Cambio de robinete</label>
+          <label class="check-inline"><input type="checkbox" id="os-otro" ${st.otro ? "checked" : ""}> Otro</label>
+        </div>
+        <div class="field full" id="os-otro-wrap" ${st.otro ? "" : "hidden"}>
+          <label>Detalle / importe otro</label>
+          <div class="grid two">
+            <input id="os-detalle" value="${esc(st.detalle)}" placeholder="Descripción">
+            <input id="os-otro-monto" inputmode="decimal" value="${esc(st.otro_monto)}" placeholder="Monto">
+          </div>
+        </div>
+        <div class="field"><label>Medio de pago</label>
+          <select id="os-medio">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="cheque">Cheque</option>
+          </select>
+        </div>
+        <div class="field"><label class="check-inline" style="margin-top:22px"><input type="checkbox" id="os-fc" ${st.facturar ? "checked" : ""}> Quiere factura (FC) · + IVA aparte</label></div>
+        <div class="field full" id="os-total-box"></div>
+      </div>
+      <div class="toolbar ace-acciones">
+        <a class="btn ghost" href="#/ordenes-servicio">Ver órdenes</a>
+        <button type="button" class="btn copper" id="os-grabar" ${total > 0 && st.cliente ? "" : ""}>Crear orden y cobrar</button>
+      </div>`);
+    const bindCalc = () => {
+      leerForm();
+      $("#os-otro-wrap").hidden = !st.otro;
+      pintarTotal();
+    };
+    ["os-cap", "os-ph", "os-cambio", "os-rob", "os-otro", "os-otro-monto", "os-detalle", "os-fc", "os-medio"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("change", bindCalc);
+      if (el) el.addEventListener("input", bindCalc);
+    });
+    $("#os-pick-cli").onclick = () => {
+      leerForm();
+      abrirModalClienteCobrar({
+        titulo: "Cliente de la orden",
+        onPick: (cli) => {
+          st.cliente = cli;
+          st.telefono = cli.telefono || st.telefono || "";
+          st.direccion = cli.direccion || st.direccion || "";
+          if (cli.factura_tipo && cli.factura_tipo !== "x") st.facturar = true;
+          cerrarModal();
+          render();
+        },
+      });
+    };
+    pintarTotal();
+    $("#os-grabar").onclick = async () => {
+      leerForm();
+      if (!st.cliente) { toast("Elegí el cliente", true); return; }
+      if (!st.telefono.trim()) { toast("Falta el teléfono", true); return; }
+      if (!st.direccion.trim()) { toast("Falta la dirección", true); return; }
+      if (!st.descripcion_item.trim()) { toast("Describí qué deja el cliente", true); return; }
+      if (!st.ph && !st.cambio_gas && !st.robinete && !st.otro) {
+        toast("Elegí al menos un trabajo", true);
+        return;
+      }
+      const trabajos = [];
+      if (st.ph) trabajos.push("ph");
+      if (st.cambio_gas) trabajos.push("cambio_gas");
+      if (st.otro) trabajos.push("otro");
+      try {
+        const r = await api("/api/caja/ordenes-servicio", {
+          method: "POST",
+          body: {
+            cliente_id: st.cliente.id,
+            cliente_nombre: st.cliente.nombre,
+            cliente_telefono: st.telefono,
+            cliente_direccion: st.direccion,
+            cliente_cuit: st.cliente.cuit || "",
+            descripcion_item: st.descripcion_item,
+            capacidad: st.capacidad,
+            trabajos,
+            robinete: st.robinete,
+            detalle: st.detalle,
+            otro_monto: st.otro_monto,
+            facturar: st.facturar,
+            medio_pago: st.medio_pago,
+            cobrar: true,
+          },
+        });
+        cerrarModal();
+        toast(`Orden #${r.orden?.id} creada` + (r.venta_id ? ` · cobro #${r.venta_id}` : ""));
+        if (state.caja) await vistaCobrar();
+      } catch (err) { toast(err.message, true); }
+    };
+  };
+  // Asegurar precios cargados
+  (async () => {
+    if (!state.caja?.precios?.length) {
+      try {
+        const data = await api("/api/caja/ventas");
+        if (!state.caja) state.caja = cajaInicial();
+        state.caja.precios = data.precios || [];
+      } catch (_) { /* ok */ }
+    }
+    render();
+  })();
+}
+
+function etiquetaEstadoOs(e) {
+  const m = {
+    pendiente: "Pendiente",
+    en_proceso: "En proceso",
+    listo: "Listo",
+    entregado: "Entregado",
+    cancelado: "Cancelado",
+  };
+  return m[e] || e || "—";
+}
+
+async function vistaOrdenesServicio(params) {
+  setNav("ordenes-servicio");
+  if (!puede("admin", "cobrador", "despacho", "reparto")) {
+    app().innerHTML = `<p class="empty">Sin permiso.</p>`;
+    return;
+  }
+  const estado = params.get("estado") || "abiertas";
+  const q = params.get("q") || "";
+  const qs = new URLSearchParams();
+  if (estado) qs.set("estado", estado);
+  if (q) qs.set("q", q);
+  const data = await api("/api/caja/ordenes-servicio?" + qs.toString());
+  const ordenes = data.ordenes || [];
+  app().innerHTML = `
+    <h1>🔧 Órdenes de servicio</h1>
+    <p class="lead">Prueba hidráulica, cambio de gas y robinete. Informá al cliente ~2 días según el trabajo.</p>
+    <div class="toolbar">
+      <a class="btn copper" href="#/cobrar" id="os-nueva-btn">＋ Nueva desde Cobrar</a>
+      <a class="btn ${estado === "abiertas" ? "" : "secondary"}" href="#/ordenes-servicio?estado=abiertas">Abiertas</a>
+      <a class="btn ${estado === "pendiente" ? "" : "secondary"}" href="#/ordenes-servicio?estado=pendiente">Pendientes</a>
+      <a class="btn ${estado === "listo" ? "" : "secondary"}" href="#/ordenes-servicio?estado=listo">Listas</a>
+      <a class="btn ${estado === "entregado" ? "" : "secondary"}" href="#/ordenes-servicio?estado=entregado">Entregadas</a>
+      <a class="btn ${!estado || estado === "todas" ? "" : "ghost"}" href="#/ordenes-servicio?estado=todas">Todas</a>
+    </div>
+    <form id="f-os-q" class="toolbar" style="margin-top:8px">
+      <div class="field" style="flex:1"><label>Buscar</label><input name="q" value="${esc(q)}" placeholder="Cliente, teléfono o nº de orden"></div>
+      <button class="btn" type="submit">Buscar</button>
+    </form>
+    <div class="card table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Nº</th><th>Fecha</th><th>Cliente</th><th>Deja</th><th>Trabajo</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${ordenes.map((o) => `
+            <tr>
+              <td class="mono"><b>#${o.id}</b></td>
+              <td class="mono">${esc(fmtFecha(o.fecha))} ${esc(o.hora || "")}</td>
+              <td>
+                <strong>${esc(o.cliente_nombre)}</strong>
+                <br><small>${esc(o.cliente_telefono || "")}${o.cliente_direccion ? " · " + esc(o.cliente_direccion) : ""}</small>
+              </td>
+              <td>${esc(o.descripcion_item)}</td>
+              <td><small>${esc(String(o.trabajo || "").replace(/,/g, " · "))}${o.capacidad ? " · " + (o.capacidad === "grande" ? ">3 m³" : "≤3 m³") : ""}</small></td>
+              <td class="mono">${money(o.total)}</td>
+              <td><span class="badge">${esc(etiquetaEstadoOs(o.estado))}</span></td>
+              <td class="actions">
+                <select data-os-estado="${o.id}" title="Cambiar estado">
+                  ${["pendiente", "en_proceso", "listo", "entregado", "cancelado"].map((e) =>
+                    `<option value="${e}" ${o.estado === e ? "selected" : ""}>${esc(etiquetaEstadoOs(e))}</option>`
+                  ).join("")}
+                </select>
+              </td>
+            </tr>`).join("") || `<tr><td colspan="8" class="empty">No hay órdenes con ese filtro.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <p class="lead" style="margin-top:12px"><a href="#/envios/planta">← Envíos planta</a> · <a href="#/envios/cliente">Envíos cliente</a> · <a href="#/cobrar">Cobrar</a></p>`;
+  $("#f-os-q").onsubmit = (e) => {
+    e.preventDefault();
+    const qq = new FormData(e.target).get("q") || "";
+    location.hash = "#/ordenes-servicio?estado=" + encodeURIComponent(estado) + (qq ? "&q=" + encodeURIComponent(qq) : "");
+  };
+  $("#os-nueva-btn").onclick = (e) => {
+    e.preventDefault();
+    location.hash = "#/cobrar";
+    setTimeout(() => abrirModalOrdenServicio(), 200);
+  };
+  app().querySelectorAll("[data-os-estado]").forEach((sel) => {
+    sel.onchange = async () => {
+      try {
+        await api("/api/caja/ordenes-servicio/" + sel.dataset.osEstado, {
+          method: "PUT",
+          body: { estado: sel.value },
+        });
+        toast("Estado actualizado");
+        route();
+      } catch (err) { toast(err.message, true); }
+    };
+  });
+}
+
 function abrirModalClienteCobrar(opts = {}) {
   const onPick = typeof opts.onPick === "function" ? opts.onPick : null;
   const titulo = opts.titulo || "Elegir cliente";
@@ -6168,6 +6488,7 @@ function pintarCobrar() {
         ${(c.precios || []).some((p) => Number(p.precio) > 0) ? "" : `<div class="banner-fact">Faltan los precios. Pedile al administrador que los cargue en Facturación.</div>`}
         <div class="caja-modos" id="caja-root-modos">
           ${modos.map(([id, nom]) => `<button type="button" class="btn big-soft ${c.modo === id ? "active" : ""}" data-act="modo" data-modo="${id}">${nom}</button>`).join("")}
+          <button type="button" class="btn secondary btn-os" data-act="orden-servicio">Orden de servicio</button>
         </div>
         <div class="card caja-venta" id="caja-root">
           ${htmlPanelCaja()}
@@ -6344,6 +6665,8 @@ function onCajaClick(e) {
     }
   } else if (act === "abrir-cli") {
     abrirModalClienteCobrar();
+  } else if (act === "orden-servicio") {
+    abrirModalOrdenServicio();
   } else if (act === "gas") {
     const gas = btn.dataset.gas;
     if (gas === "acetileno" && c.modo === "gas") {
@@ -8384,6 +8707,19 @@ async function vistaConfigCaja() {
             <div><button type="button" class="btn ghost" data-del-gas="${esc(g.gas)}" style="color:#9b2c2c" title="Quitar gas">Quitar</button></div>
           </div>`;
         }).join("") || `<p class="empty">No hay gases. Agregá uno abajo.</p>`}
+        ${(() => {
+          const serv = precios.filter((p) => p.tipo === "servicio");
+          if (!serv.length) return "";
+          return `
+            <h3 style="margin:18px 0 8px">🔧 Órdenes de servicio</h3>
+            <p class="lead">PH, cambio de gas y robinete. Se usan en Cobrar → Orden de servicio.</p>
+            <div class="precio-grid precio-grid-2" style="margin-bottom:8px"><strong>Concepto</strong><strong>Precio</strong></div>
+            ${serv.map((s) => `
+              <div class="precio-grid precio-grid-2">
+                <div><strong>${esc(s.nombre)}</strong><br><small class="mono">${esc(s.clave)}</small></div>
+                <div class="field"><input name="${esc(s.clave)}" inputmode="decimal" value="${esc(s.precio)}"></div>
+              </div>`).join("")}`;
+        })()}
         <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
       </form>
       <form id="form-gas-nuevo" class="grid form" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
@@ -9428,6 +9764,10 @@ async function route() {
     if (seccion === "operaciones") {
       if (!puede("admin")) return vistaInicio();
       return vistaOperaciones(params);
+    }
+    if (seccion === "ordenes-servicio" || (seccion === "envios" && parts[1] === "servicio")) {
+      if (!puede("admin", "cobrador", "despacho", "reparto")) return vistaInicio();
+      return vistaOrdenesServicio(params);
     }
     if (seccion === "envios") {
       if (!puede("admin", "despacho", "reparto")) return vistaInicio();
