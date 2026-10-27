@@ -19,15 +19,15 @@ export const prerender = true;
       })();
     </script>
     <meta name="robots" content="noindex,nofollow" />
-    <title>Gasonor SRL â€” Trazabilidad de tubos</title>
+    <title>Gasonor SRL — Trazabilidad de tubos</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/interno/css/app.css?v=110" />
+    <link rel="stylesheet" href="/interno/css/app.css?v=111" />
     <link rel="icon" href="/interno/img/logo.png?v=30" />
   </head>
   <body>
-    <button type="button" class="menu-backdrop" id="menu-backdrop" aria-label="Cerrar menÃº"></button>
+    <button type="button" class="menu-backdrop" id="menu-backdrop" aria-label="Cerrar menú"></button>
     <aside class="sidebar">
       <div class="brand">
         <img class="brand-logo" src="/interno/img/logo.png?v=30" alt="Gasonor SRL" />
@@ -40,54 +40,54 @@ export const prerender = true;
         <a href="#/inicio" data-nav="inicio">Inicio</a>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">CatÃ¡logo</span>
+          <span class="nav-label">Catálogo</span>
           <a href="#/proveedores" data-nav="proveedores" data-roles="admin">Proveedores</a>
           <a href="#/compras" data-nav="compras" data-roles="admin" data-solo-pc="1">Compras y deudas</a>
           <a href="#/clientes" data-nav="clientes" data-roles="admin">Clientes</a>
-          <a href="#/catalogo" data-nav="catalogo" data-roles="admin">Tubos y artÃ­culos</a>
+          <a href="#/catalogo" data-nav="catalogo" data-roles="admin">Tubos y artículos</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">EnvÃ­os y recepciones</span>
+          <span class="nav-label">Envíos y recepciones</span>
           <a href="#/envios/planta" data-nav="envios" data-roles="admin,despacho" data-solo-celular="1">Planta</a>
           <a href="#/envios/cliente" data-nav="envios" data-roles="admin,reparto" data-solo-celular="1">Cliente</a>
-          <a href="#/ordenes-servicio" data-nav="ordenes-servicio" data-roles="admin,cobrador,despacho,reparto">ğŸ”§ Ã“rdenes de servicio</a>
+          <a href="#/ordenes-servicio" data-nav="ordenes-servicio" data-roles="admin,cobrador,despacho,reparto">?? Órdenes de servicio</a>
           <a href="#/planta/completar" data-nav="planta" data-roles="admin" data-solo-pc="1">Completar despachos y recepciones</a>
           <a href="#/operaciones" data-nav="operaciones" data-roles="admin">Ciclo de despacho</a>
         </div>
 
         <div class="nav-group" data-nav-group>
           <span class="nav-label">Caja</span>
-          <a href="#/cobrar" data-nav="cobrar" data-roles="cobrador,admin">ğŸ’µ Cobrar</a>
-          <a href="#/ventas" data-nav="ventas" data-roles="cobrador,admin">ğŸ§¾ Ventas</a>
-          <a href="#/deudas" data-nav="deudas" data-roles="cobrador,admin">ğŸ“‰ Deudas</a>
-          <a href="#/cheques" data-nav="cheques" data-roles="cobrador,admin">ğŸ¦ Cheques</a>
-          <a href="#/caja/config" data-nav="caja-config" data-roles="admin">âš™ ConfiguraciÃ³n</a>
+          <a href="#/cobrar" data-nav="cobrar" data-roles="cobrador,admin">?? Cobrar</a>
+          <a href="#/ventas" data-nav="ventas" data-roles="cobrador,admin">?? Ventas</a>
+          <a href="#/deudas" data-nav="deudas" data-roles="cobrador,admin">?? Deudas</a>
+          <a href="#/cheques" data-nav="cheques" data-roles="cobrador,admin">?? Cheques</a>
+          <a href="#/caja/config" data-nav="caja-config" data-roles="admin">? Configuración</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">LogÃ­stica</span>
+          <span class="nav-label">Logística</span>
           <a href="#/reparto" data-nav="reparto" data-roles="admin,reparto">Reparto</a>
-          <a href="#/prospeccion" data-nav="prospeccion" data-roles="admin">ProspecciÃ³n</a>
+          <a href="#/prospeccion" data-nav="prospeccion" data-roles="admin">Prospección</a>
           <a href="#/calendario" data-nav="calendario" data-roles="admin">Calendario</a>
         </div>
 
         <div class="nav-group" data-nav-group>
-          <span class="nav-label">AdministraciÃ³n</span>
+          <span class="nav-label">Administración</span>
           <a href="#/usuarios" data-nav="usuarios" data-roles="admin">Usuarios</a>
-          <a href="#/informe" data-nav="informe" data-roles="admin">Informe de expediciÃ³n</a>
+          <a href="#/informe" data-nav="informe" data-roles="admin">Informe de expedición</a>
           <a href="#/movimientos" data-nav="movimientos" data-roles="admin">Historial</a>
           <a href="#/config" data-nav="config" data-roles="admin">Empresa</a>
         </div>
       </nav>
-      <p class="sidebar-foot">Ciclo: vacÃ­o â†’ cargado â†’ cliente â†’ vacÃ­o</p>
+      <p class="sidebar-foot">Ciclo: vacío ? cargado ? cliente ? vacío</p>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <button type="button" class="btn-menu" id="btn-menu" aria-label="MenÃº">â˜°</button>
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="Menú">?</button>
         <form id="busqueda-global" class="search" autocomplete="off">
-          <input id="q-global" type="search" placeholder="Buscar nÃºmero de tubo, lote o clienteâ€¦" autocomplete="off" />
+          <input id="q-global" type="search" placeholder="Buscar número de tubo, lote o cliente…" autocomplete="off" />
           <button type="submit">Buscar</button>
         </form>
         <div class="topbar-meta">
@@ -111,6 +111,6 @@ export const prerender = true;
     </div>
     <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script is:inline src="/interno/js/scan.js?v=36"></script>
-    <script is:inline src="/interno/js/app.js?v=110"></script>
+    <script is:inline src="/interno/js/app.js?v=111"></script>
   </body>
 </html>

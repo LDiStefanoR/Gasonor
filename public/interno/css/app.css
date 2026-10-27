@@ -1156,6 +1156,55 @@ body.es-celular .sidebar nav a[data-solo-pc="1"] { display: none !important; }
 .os-lineas { margin: 0 0 6px; padding-left: 1.1rem; }
 .os-form { margin-top: 4px; }
 .badge-por-cobrar { background: #fff3e8; color: #8a5a12; border: 1px solid #e7c48a; }
+.fac-pasos {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  margin: 0 0 10px; font-size: 0.92rem;
+}
+.fac-paso { color: var(--muted); padding: 4px 8px; border-radius: 8px; }
+.fac-paso.on { background: var(--forest); color: #fff; font-weight: 800; }
+.fac-paso.done { color: var(--forest); font-weight: 700; }
+.fac-paso-sep { color: var(--muted); }
+.fac-teclado { margin: 0 0 12px; font-size: 0.88rem; }
+.fac-panel { max-width: 980px; }
+.fac-hits {
+  list-style: none; margin: 8px 0 0; padding: 0;
+  max-height: min(42vh, 340px); overflow: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff;
+}
+.fac-hits[hidden] { display: none !important; }
+.fac-hits li {
+  padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.fac-hits li:last-child { border-bottom: 0; }
+.fac-hits li.on, .fac-hits li:hover { background: #fff3e8; }
+.fac-hits li small { color: var(--muted); font-weight: 600; }
+.fac-cli-card {
+  margin-top: 14px; padding: 12px 14px; border-radius: 12px;
+  background: #f4f7f2; border: 1px solid var(--line);
+}
+.fac-cli-card p { margin: 4px 0; }
+.fac-scan-bar { align-items: end; }
+.fac-items input.fac-edit {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 8px; background: #fff;
+}
+.fac-tubos-box {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin: 12px 0; padding: 10px 12px; border-radius: 12px;
+  background: #f7f1e8; border: 1px solid #e7d5b8;
+}
+.fac-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fac-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 999px; background: #fff;
+  border: 1px solid var(--line); font-weight: 700; font-size: 0.9rem;
+}
+.fac-chip button { border: 0; background: transparent; cursor: pointer; font-size: 1rem; color: #9b2c2c; }
+.fac-resumen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 12px; }
+@media (max-width: 800px) {
+  .fac-tubos-box, .fac-resumen-grid { grid-template-columns: 1fr; }
+}
 .precio-grid.precio-grid-2 { grid-template-columns: 1.4fr 1fr; align-items: center; }
 .caja-venta { margin-top: 0; padding: 12px; }
 .caja-historial { margin-top: 0; }
