@@ -313,7 +313,7 @@ async function handleApiInner(ctx: APIContext) {
 
   if (method === "OPTIONS") return new Response(null, { status: 204 });
 
-  if (u && path.startsWith("/api/caja/")) {
+  if (u && (path.startsWith("/api/caja/") || path.startsWith("/api/afip/"))) {
     return handleCaja(ctx, u, method, path);
   }
 
@@ -366,23 +366,46 @@ async function handleApiInner(ctx: APIContext) {
     const rows = await all("SELECT clave, valor FROM config");
     const config: Record<string, string> = {};
     for (const r of rows) config[String(r.clave)] = String(r.valor ?? "");
+    delete config.afip_cert;
+    delete config.afip_key;
+    try {
+      const { resumenAfip } = await import("./afip");
+      Object.assign(config, await resumenAfip());
+    } catch {
+      /* AFIP opcional */
+    }
     return json({ ok: true, config });
   }
 
   if (key === "PUT /api/config") {
     if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
     const data = await body(ctx);
-    for (const clave of ["empresa", "cuit", "condicion_iva", "direccion", "localidad", "telefono", "email", "titulo_informe", "codigo_informe"]) {
-      if (clave in data) {
-        await run(
-          "INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
-          [clave, String(data[clave]).trim()],
-        );
-      }
+    const clavesConfig = [
+      "empresa", "cuit", "condicion_iva", "direccion", "localidad", "telefono", "email",
+      "titulo_informe", "codigo_informe",
+      "afip_cuit", "afip_pto_vta", "afip_ambiente", "afip_condicion",
+      "afip_cert", "afip_key", "iva_alicuota", "precios_con_iva", "afip_iva_id",
+    ];
+    for (const clave of clavesConfig) {
+      if (!(clave in data)) continue;
+      const valor = String(data[clave] ?? "").trim();
+      if ((clave === "afip_cert" || clave === "afip_key") && !valor) continue;
+      await run(
+        "INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
+        [clave, valor],
+      );
     }
     const rows = await all("SELECT clave, valor FROM config");
     const config: Record<string, string> = {};
     for (const r of rows) config[String(r.clave)] = String(r.valor ?? "");
+    delete config.afip_cert;
+    delete config.afip_key;
+    try {
+      const { resumenAfip } = await import("./afip");
+      Object.assign(config, await resumenAfip());
+    } catch {
+      /* ok */
+    }
     return json({ ok: true, config });
   }
 

@@ -884,8 +884,41 @@ function codProvItem(it) {
   return it.codigo_proveedor || it.articulo_codigo_proveedor || "—";
 }
 
-function marcaRetener(v) {
-  return Number(v) ? `<span class="retener-ok" title="Retener">✓</span>` : "";
+function marcaRetener(v, tuboId) {
+  if (!Number(v)) return "";
+  const href = tuboId ? `#/tubo/${tuboId}` : "";
+  return href
+    ? `<a class="retener-warn" href="${href}" title="Retener — abrir ficha">⚠</a>`
+    : `<span class="retener-warn" title="Retener">⚠</span>`;
+}
+
+function estadoLlenado(it) {
+  const e = String(it?.estado || "");
+  if (e === "cargado" || e === "en_cliente") return "cargado";
+  return "vacio";
+}
+
+function dondeEstaTubo(it) {
+  const e = String(it?.estado || "");
+  if (e === "en_cliente") {
+    const nom = it.cliente_nombre || "Cliente";
+    const cod = it.cliente_codigo ? ` (${it.cliente_codigo})` : "";
+    return `Cliente · ${nom}${cod}`;
+  }
+  if (e === "en_planta") {
+    return `Planta · ${it.proveedor_nombre || "cargándose"}`;
+  }
+  return "Gasonor";
+}
+
+function htmlPropiedadTubo(it) {
+  const esCli = it.propiedad === "cliente";
+  const nom = it.propietario_nombre || (esCli ? it.cliente_nombre : "");
+  const cod = it.propietario_codigo || (esCli ? it.cliente_codigo : "");
+  const tip = esCli && nom
+    ? ` data-tip="${esc((cod ? cod + " · " : "") + nom)}"`
+    : "";
+  return `<span class="badge ${esCli ? "cliente prop-tip" : "empresa"}"${tip}>${esCli ? "Cliente" : "GN"}</span>`;
 }
 
 function htmlUltimoMov(it) {
@@ -897,11 +930,7 @@ function htmlUltimoMov(it) {
 }
 
 function lugarTubo(it) {
-  if (it.estado === "en_cliente") return it.cliente_nombre ? `En cliente · ${it.cliente_nombre}` : "En cliente";
-  if (it.estado === "en_planta") return it.proveedor_nombre ? `En planta · ${it.proveedor_nombre}` : "En planta";
-  if (it.estado === "cargado") return "En la empresa · cargado";
-  if (it.estado === "vacio") return "En la empresa · vacío";
-  return it.cliente_nombre || "—";
+  return dondeEstaTubo(it);
 }
 
 function htmlCatalogo(items, mostrarLugar) {
@@ -917,12 +946,13 @@ function htmlCatalogo(items, mostrarLugar) {
             <th>Código / Nº</th>
             <th>Últ. movimiento</th>
             <th>Cód. proveedor</th>
-            <th>Descripción / gas</th>
+            <th>Gas</th>
+            <th>Descripción</th>
             <th>Cap.</th>
             <th>Estado</th>
             <th>Propiedad</th>
             <th>Retener</th>
-            <th>Cliente</th>
+            <th>Dónde está</th>
             <th>Vto. hidráulica</th>
           </tr>
         </thead>
@@ -938,16 +968,18 @@ function htmlCatalogo(items, mostrarLugar) {
               <td class="mono cell-view" data-f="codigo">${esc(it.codigo)}</td>
               <td>${htmlUltimoMov(it)}</td>
               <td class="mono cell-view" data-f="codigo_proveedor">${esc(codProvItem(it) === "—" ? "" : codProvItem(it))}</td>
+              <td>—</td>
               <td class="cell-view" data-f="descripcion">${esc(it.descripcion)}</td>
               <td class="cell-view" data-f="capacidad">${esc(it.capacidad || "")}</td>
               <td>—</td>
-              <td>En empresa</td>
+              <td>GN</td>
               <td class="retener-cell cell-view" data-f="retener">${marcaRetener(it.retener)}</td>
               <td>—</td>
               <td>—</td>
             </tr>`;
             }
             const codp = it.codigo_proveedor || it.articulo_codigo_proveedor || "";
+            const llenado = estadoLlenado(it);
             return `
             <tr data-row-key="${esc(key)}" data-kind="tubo" data-id="${it.id}" data-articulo-id="${it.articulo_id || ""}">
               <td class="sticky-col"><input type="checkbox" class="sel-box sel-item" data-kind="tubo" value="${it.id}"></td>
@@ -959,12 +991,13 @@ function htmlCatalogo(items, mostrarLugar) {
               </td>
               <td>${htmlUltimoMov(it)}</td>
               <td class="mono cell-view" data-f="codigo_proveedor">${esc(codp)}</td>
-              <td class="cell-view" data-f="descripcion">${esc(it.articulo_descripcion || it.grupo || "")}</td>
+              <td class="cell-view" data-f="gas"><strong>${esc(it.articulo_gas || it.grupo || "—")}</strong></td>
+              <td class="cell-view" data-f="descripcion">${esc(it.articulo_descripcion || "")}</td>
               <td class="cell-view" data-f="capacidad">${esc(it.capacidad || "")}</td>
-              <td>${badge(it.estado)}</td>
-              <td class="cell-view" data-f="propiedad"><span class="badge ${it.propiedad === "cliente" ? "cliente" : "empresa"}">${it.propiedad === "cliente" ? "Cliente" : "GN"}</span></td>
-              <td class="retener-cell cell-view" data-f="retener">${marcaRetener(it.retener || it.articulo_retener)}</td>
-              <td>${esc(mostrarLugar ? lugarTubo(it) : (it.cliente_nombre || "—"))}</td>
+              <td>${badge(llenado)}</td>
+              <td class="cell-view" data-f="propiedad">${htmlPropiedadTubo(it)}</td>
+              <td class="retener-cell cell-view" data-f="retener">${marcaRetener(it.retener || it.articulo_retener, it.id)}</td>
+              <td>${esc(dondeEstaTubo(it))}</td>
               <td class="mono cell-view" data-f="fecha_vto">${fmtFecha(it.fecha_vto) || "—"}</td>
             </tr>`;
           }).join("")}
@@ -995,21 +1028,30 @@ function modalEditarCatalogoItem(it, onSaved) {
       ` : `
         ${htmlBuscaArticulo({ id: it.articulo_id, codigo: it.articulo_codigo, descripcion: it.articulo_descripcion })}
         <div class="field"><label>Número de tubo</label><input name="numero" required value="${esc(it.numero || "")}"></div>
-        <div class="field"><label>Estado</label>
-          <select name="estado" id="edit-estado">
-            ${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${it.estado === k ? "selected" : ""}>${v}</option>`).join("")}
+        <div class="field"><label>Estado (lleno)</label>
+          <select name="llenado" id="edit-estado">
+            <option value="vacio" ${estadoLlenado(it) === "vacio" ? "selected" : ""}>Vacío</option>
+            <option value="cargado" ${estadoLlenado(it) === "cargado" ? "selected" : ""}>Cargado</option>
           </select>
+          <small class="hint">Ubicación actual: <b>${esc(dondeEstaTubo(it))}</b></small>
         </div>
         <div class="field full" id="edit-wrap-planta" ${it.estado === "en_planta" ? "" : "hidden"}>
           <label>Planta / proveedor</label>
           <select name="proveedor_id" id="edit-proveedor">
             <option value="">Cargando plantas…</option>
           </select>
-          <small class="hint">Obligatorio si el estado es “En planta”: el tubo queda a cargo de ese proveedor.</small>
+          <small class="hint">Si está en planta, el tubo queda a cargo de ese proveedor.</small>
         </div>
         <div class="field"><label>Cód. proveedor</label><input name="codigo_proveedor" value="${esc(it.codigo_proveedor || it.articulo_codigo_proveedor || "")}"></div>
-        <div class="field"><label>Descripción / gas</label><input name="descripcion" value="${esc(it.articulo_descripcion || it.grupo || "")}"></div>
-        <div class="field"><label>Capacidad</label><input name="capacidad" value="${esc(it.capacidad || "")}"></div>
+        <div class="field"><label>Gas</label>
+          <input name="gas" list="lista-gas" value="${esc(it.articulo_gas || it.grupo || "")}" placeholder="OXIGENO, ACETILENO…">
+          <datalist id="lista-gas">
+            <option value="OXIGENO"><option value="OXIGENO MEDICINAL"><option value="ACETILENO"><option value="CO2">
+            <option value="NITROGENO"><option value="ARGON"><option value="ATHAL"><option value="HELIO"><option value="AIRE">
+          </datalist>
+        </div>
+        <div class="field"><label>Descripción (comentario)</label><input name="descripcion" value="${esc(it.articulo_descripcion || "")}"></div>
+        <div class="field"><label>Capacidad (m³ o kg)</label><input name="capacidad" value="${esc(it.capacidad || "")}" placeholder="Ej. 6"></div>
         <div class="field"><label>Número de lote</label><input name="lote" value="${esc(it.lote || "")}" placeholder="Lote de carga / gas"></div>
         <div class="field"><label>Propiedad</label>
           <select name="propiedad" id="edit-propiedad">
@@ -1041,8 +1083,7 @@ function modalEditarCatalogoItem(it, onSaved) {
   const syncPlanta = () => {
     const wrap = $("#edit-wrap-planta");
     if (!wrap) return;
-    const estadoSel = $("#edit-estado")?.value || "";
-    wrap.hidden = !(estadoSel === "en_planta" && it.estado === "en_planta");
+    wrap.hidden = it.estado !== "en_planta";
   };
   const syncPropiedad = () => {
     const wrap = $("#edit-wrap-cliente");
@@ -1073,9 +1114,11 @@ function modalEditarCatalogoItem(it, onSaved) {
       propiedad: fd.propiedad || "empresa",
       fecha_vto: fd.fecha_vto || "",
       lote: fd.lote || "",
-      estado: fd.estado || it.estado,
+      llenado: fd.llenado || estadoLlenado(it),
+      estado: fd.llenado || estadoLlenado(it),
       retener: fd.retener === "1" ? 1 : 0,
       articulo_id: Number(fd.articulo_id || it.articulo_id || 0),
+      proveedor_id: fd.proveedor_id || it.proveedor_id || "",
     };
     if (!body.articulo_id) throw new Error("Elegí el artículo escribiendo el código nuestro");
     if (body.propiedad === "cliente") {
@@ -1094,12 +1137,14 @@ function modalEditarCatalogoItem(it, onSaved) {
     }
     await api("/api/tubos/" + it.id, { method: "PUT", body });
     if (String(body.articulo_id) === String(it.articulo_id) && it.articulo_id) {
+      const gas = (fd.gas || it.articulo_gas || "").trim().toUpperCase();
       await api("/api/articulos/" + it.articulo_id, {
         method: "PUT",
         body: {
           codigo: it.articulo_codigo,
           descripcion: fd.descripcion || it.articulo_descripcion,
-          grupo: fd.descripcion || it.grupo || "",
+          gas,
+          grupo: gas || it.grupo || "",
           capacidad: fd.capacidad || "",
           codigo_proveedor: fd.codigo_proveedor || it.articulo_codigo,
           retener: fd.retener === "1" ? 1 : 0,
@@ -1109,8 +1154,8 @@ function modalEditarCatalogoItem(it, onSaved) {
       });
     }
     cerrarModal();
-    toast(fd.estado && fd.estado !== it.estado
-      ? `Guardado · estado ${ESTADOS[it.estado] || it.estado} → ${ESTADOS[fd.estado] || fd.estado}`
+    toast(fd.llenado && fd.llenado !== estadoLlenado(it)
+      ? `Guardado · ${fd.llenado === "cargado" ? "Cargado" : "Vacío"}`
       : "Guardado");
     if (onSaved) await onSaved();
   };
@@ -1158,58 +1203,16 @@ function modalEditarCatalogoItem(it, onSaved) {
         }
       }
 
-      const entraAPlanta = fd.estado === "en_planta" && it.estado !== "en_planta";
-      if (entraAPlanta) {
-        const box = mostrarAviso(`
-          <div class="alerta-reparto" role="alert">
-            <strong>Advertencia:</strong> estás pasando el tubo de
-            <strong>${esc(ESTADOS[it.estado] || it.estado || "—")}</strong> a
-            <strong>En planta</strong>. Tenés que indicar a qué planta / proveedor se asigna:
-            el tubo queda a cargo de ese proveedor (como en un despacho).
-          </div>
-          <div class="grid form" style="margin-top:10px">
-            <div class="field full"><label>Planta / proveedor</label>
-              <select id="aviso-proveedor">
-                <option value="">Elegí la planta…</option>
-                ${optsProveedores(listaProveedores, fd.proveedor_id || it.proveedor_id || "")}
-              </select>
-            </div>
-          </div>
-          <div class="toolbar" style="margin-top:10px;flex-wrap:wrap;gap:8px">
-            <button type="button" class="btn copper" id="btn-confirmar-planta">Asignar planta y guardar</button>
-            <button type="button" class="btn ghost" id="btn-cancel-aviso">Cancelar</button>
-          </div>`);
-        if (!box) return;
-        if (!listaProveedores.length) {
-          api("/api/proveedores").then((data) => {
-            listaProveedores = data.proveedores || [];
-            pintarOptsProv($("#aviso-proveedor"), fd.proveedor_id || it.proveedor_id);
-          }).catch((err) => toast(err.message, true));
-        }
-        $("#btn-cancel-aviso").onclick = () => { box.hidden = true; box.innerHTML = ""; };
-        $("#btn-confirmar-planta").onclick = async () => {
-          const pid = ($("#aviso-proveedor")?.value || "").trim();
-          if (!pid) return toast("Elegí a qué planta asignar el tubo", true);
-          fd.proveedor_id = pid;
-          try { await guardarTubo(fd); } catch (err) { toast(err.message, true); }
-        };
-        $("#aviso-proveedor")?.focus();
-        return;
+      if (it.estado === "en_planta" && !fd.proveedor_id) {
+        fd.proveedor_id = it.proveedor_id || "";
       }
 
-      if (fd.estado === "en_planta" && !fd.proveedor_id) {
-        syncPlanta();
-        $("#edit-proveedor")?.focus();
-        return toast("Elegí a qué planta va el tubo", true);
-      }
-
-      const saleDePlanta = it.estado === "en_planta" && fd.estado && fd.estado !== "en_planta";
+      const saleDePlanta = it.estado === "en_planta" && fd.llenado === "cargado";
       if (saleDePlanta) {
         const box = mostrarAviso(`
           <div class="alerta-reparto" role="alert">
-            <strong>Advertencia:</strong> este tubo está en planta. Si cambiás el estado a
-            <strong>${esc(ESTADOS[fd.estado] || fd.estado)}</strong> no va a quedar la trazabilidad de recepción
-            a menos que completes ahora el <b>nº de lote</b> y el <b>nº de trazabilidad</b>.
+            <strong>Advertencia:</strong> este tubo está en planta. Al marcarlo
+            <strong>Cargado</strong> vuelve a Gasonor. Completá el <b>nº de lote</b> y el <b>nº de trazabilidad</b> si corresponde.
           </div>
           <div class="grid form" style="margin-top:10px">
             <div class="field"><label>Número de lote</label>
@@ -1714,23 +1717,31 @@ function modalAltaCatalogo() {
 }
 
 async function vistaTubo(id) {
-  setNav("tubos");
-  const data = await api("/api/tubos/" + id);
+  setNav("catalogo");
+  const [data, coms] = await Promise.all([
+    api("/api/tubos/" + id),
+    api("/api/tubos/" + id + "/comentarios").catch(() => ({ comentarios: [] })),
+  ]);
   const t = data.tubo;
+  const comentarios = coms.comentarios || [];
+  const llenado = estadoLlenado(t);
   app().innerHTML = `
+    <p class="fac-nav-row"><a class="btn ghost" href="#/catalogo?lista=1&tipo=tubo">← Volver a tubos y artículos</a></p>
     <h1>Tubo ${esc(t.numero)}</h1>
-    <p class="lead">${esc(t.articulo_codigo)} · ${esc(t.articulo_descripcion)}</p>
+    <p class="lead"><b>${esc(t.articulo_gas || t.grupo || "—")}</b>
+      · ${esc(t.articulo_codigo)} · ${esc(t.articulo_descripcion || "")}
+      ${t.capacidad ? ` · <b>${esc(t.capacidad)} m³</b>` : ""}</p>
     <div class="grid two">
       <div class="card">
-        <p>${badge(t.estado)} ${t.cliente_nombre ? " · " + esc(t.cliente_nombre) : ""}</p>
+        <p>${badge(llenado)} · Dónde está: <b>${esc(dondeEstaTubo(t))}</b>
+          ${Number(t.retener) || Number(t.articulo_retener) ? ` · <span class="retener-warn" title="Retener">⚠ Retener</span>` : ""}</p>
         <p><b>Propiedad:</b> ${t.propiedad === "cliente"
-          ? (t.cliente_id
-            ? `del cliente (S/P) · <a href="#/clientes/${t.cliente_id}">${esc(t.cliente_nombre || "Ver ficha")}</a>`
-            : "del cliente (S/P) · <em>sin cliente asignado</em>")
-          : "de la empresa (Gasonor)"}</p>
-        <p><b>Retener:</b> ${Number(t.retener) || Number(t.articulo_retener) ? "✓ Sí" : "No"}</p>
+          ? `Cliente · ${esc(t.propietario_codigo || t.cliente_codigo || "")} ${esc(t.propietario_nombre || t.cliente_nombre || "")}`
+          : "Gasonor (GN)"}</p>
+        <p><b>Gas:</b> ${esc(t.articulo_gas || t.grupo || "—")}</p>
+        <p><b>Capacidad:</b> <span class="mono">${esc(t.capacidad || "—")}</span></p>
         <p><b>Lote:</b> <span class="mono">${esc(t.lote || "—")}</span> &nbsp; <b>Vto.:</b> <span class="mono">${fmtFecha(t.fecha_vto) || "—"}</span></p>
-        <p><b>Notas:</b> ${esc(t.notas || "—")}</p>
+        <p><b>Notas fijas:</b> ${esc(t.notas || "—")}</p>
         <div class="toolbar">
           <button class="btn secondary" id="btn-editar">Editar datos</button>
           ${t.activo ? `<button class="btn danger" id="btn-baja">Dar de baja</button>` : ""}
@@ -1751,7 +1762,34 @@ async function vistaTubo(id) {
           </tbody>
         </table>
       </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">Comentarios del artículo / tubo</h3>
+      <p class="lead">Dejá un registro con fecha y hora ante cualquier inconveniente.</p>
+      <form id="form-tubo-com" class="toolbar" style="align-items:end;gap:8px">
+        <div class="field" style="flex:1;min-width:220px"><label>Nuevo comentario</label>
+          <input name="texto" required placeholder="Ej. Rayado en válvula, reclamo cliente…" autocomplete="off">
+        </div>
+        <button class="btn copper" type="submit">Agregar</button>
+      </form>
+      <ul class="tubo-coms">
+        ${comentarios.map((c) => `
+          <li>
+            <div class="tubo-com-meta"><span class="mono">${esc(c.creado_en || "")}</span>
+              ${c.usuario_nombre ? ` · ${esc(c.usuario_nombre)}` : ""}</div>
+            <div>${esc(c.texto)}</div>
+          </li>`).join("") || `<li class="empty">Sin comentarios todavía.</li>`}
+      </ul>
     </div>`;
+  $("#form-tubo-com").onsubmit = async (e) => {
+    e.preventDefault();
+    const texto = new FormData(e.target).get("texto");
+    try {
+      await api("/api/tubos/" + id + "/comentarios", { method: "POST", body: { texto } });
+      toast("Comentario guardado");
+      route();
+    } catch (err) { toast(err.message, true); }
+  };
   $("#btn-editar").onclick = async () => {
     let provs = [];
     try {
@@ -1762,10 +1800,12 @@ async function vistaTubo(id) {
       <form id="form-edit" class="grid form">
         ${htmlBuscaArticulo({ id: t.articulo_id, codigo: t.articulo_codigo, descripcion: t.articulo_descripcion })}
         <div class="field"><label>Número</label><input name="numero" value="${esc(t.numero)}" required></div>
-        <div class="field"><label>Estado</label>
-          <select name="estado" id="ficha-estado">
-            ${Object.entries(ESTADOS).map(([k, v]) => `<option value="${k}" ${t.estado === k ? "selected" : ""}>${v}</option>`).join("")}
+        <div class="field"><label>Estado (lleno)</label>
+          <select name="llenado" id="ficha-estado">
+            <option value="vacio" ${estadoLlenado(t) === "vacio" ? "selected" : ""}>Vacío</option>
+            <option value="cargado" ${estadoLlenado(t) === "cargado" ? "selected" : ""}>Cargado</option>
           </select>
+          <small class="hint">Dónde está: <b>${esc(dondeEstaTubo(t))}</b></small>
         </div>
         <div class="field full" id="ficha-wrap-planta" ${t.estado === "en_planta" ? "" : "hidden"}>
           <label>Planta / proveedor</label>
@@ -1801,14 +1841,12 @@ async function vistaTubo(id) {
     const sync = () => {
       const wrap = $("#ficha-wrap-planta");
       if (!wrap) return;
-      const estadoSel = $("#ficha-estado")?.value || "";
-      wrap.hidden = !(estadoSel === "en_planta" && t.estado === "en_planta");
+      wrap.hidden = t.estado !== "en_planta";
     };
     const syncProp = () => {
       const wrap = $("#ficha-wrap-cliente");
       if (wrap) wrap.hidden = ($("#ficha-propiedad")?.value || "") !== "cliente";
     };
-    $("#ficha-estado").onchange = sync;
     $("#ficha-propiedad").onchange = syncProp;
     sync();
     syncProp();
@@ -1821,55 +1859,26 @@ async function vistaTubo(id) {
       body.articulo_id = Number($("#art-id")?.value || body.articulo_id || 0);
       if (!body.articulo_id) return toast("Elegí el artículo escribiendo el código nuestro", true);
       body.cliente_id = body.cliente_id || $("#ficha-cli-id")?.value || "";
+      body.llenado = body.llenado || estadoLlenado(t);
+      body.estado = body.llenado;
+      if (t.estado === "en_planta") body.proveedor_id = body.proveedor_id || t.proveedor_id;
       const guardar = async () => {
         if (body.propiedad === "cliente") {
           if (!body.cliente_id) return toast("Elegí de qué cliente es el tubo", true);
           body.cliente_id = Number(body.cliente_id);
-        } else if (body.estado !== "en_cliente") {
-          body.cliente_id = null;
+          body.propietario_cliente_id = body.cliente_id;
+        } else if (body.llenado !== "cargado" || t.estado !== "en_cliente") {
+          if (t.estado !== "en_cliente") body.cliente_id = null;
         }
-        if (body.estado === "en_planta") {
+        if (t.estado === "en_planta" && body.llenado === "vacio") {
           if (!body.proveedor_id) return toast("Elegí a qué planta va el tubo", true);
           body.proveedor_id = Number(body.proveedor_id);
-        } else {
-          body.proveedor_id = null;
         }
         try {
           await api("/api/tubos/" + t.id, { method: "PUT", body });
           cerrarModal(); toast("Tubo actualizado"); route();
         } catch (err) { toast(err.message, true); }
       };
-      if (body.estado === "en_planta" && t.estado !== "en_planta") {
-        const box = $("#aviso-ficha-estado");
-        if (!box) return;
-        box.hidden = false;
-        box.innerHTML = `
-          <div class="alerta-reparto" role="alert">
-            <strong>Advertencia:</strong> estás pasando el tubo a <strong>En planta</strong>.
-            Indicá a qué planta / proveedor se asigna.
-          </div>
-          <div class="grid form" style="margin-top:10px">
-            <div class="field full"><label>Planta / proveedor</label>
-              <select id="aviso-ficha-prov">
-                <option value="">Elegí la planta…</option>
-                ${optsProveedores(provs, body.proveedor_id || t.proveedor_id || "")}
-              </select>
-            </div>
-          </div>
-          <div class="toolbar" style="margin-top:10px;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn copper" id="btn-ficha-planta">Asignar planta y guardar</button>
-            <button type="button" class="btn ghost" id="btn-ficha-cancel">Cancelar</button>
-          </div>`;
-        box.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        $("#btn-ficha-cancel").onclick = () => { box.hidden = true; box.innerHTML = ""; };
-        $("#btn-ficha-planta").onclick = () => {
-          const pid = ($("#aviso-ficha-prov")?.value || "").trim();
-          if (!pid) return toast("Elegí a qué planta asignar el tubo", true);
-          body.proveedor_id = pid;
-          guardar();
-        };
-        return;
-      }
       await guardar();
     };
   };
@@ -2802,7 +2811,7 @@ async function vistaInforme(params) {
       <button class="btn secondary" type="button" onclick="window.print()">Imprimir</button>
     </form>
     <div class="report card" id="informe">
-      <img class="report-logo" src="/interno/img/logo.png?v=30" alt="Gasonor SRL" />
+      <img class="report-logo" src="/static/img/logo.png?v=4" alt="Gasonor SRL" />
       <div class="report-head">
         <div>[ ${esc(cfg.codigo_informe || "InfTubo5")} * ]</div>
         <div>${stamp} &nbsp; Pág. 1</div>
@@ -2907,8 +2916,8 @@ async function vistaConfig() {
       </form>
     </div>
     <div class="card" style="max-width:720px;margin-top:16px">
-      <h2 style="margin-top:0">AFIP / ARCA</h2>
-      <p class="lead">Para emitir en blanco. El certificado y la clave los da AFIP al habilitar factura electrónica. Mientras no estén cargados, el cobro en blanco queda guardado y se puede emitir después.</p>
+      <h2 style="margin-top:0">AFIP / ARCA e IVA</h2>
+      <p class="lead">Precios con IVA incluido. Al emitir se calcula neto + IVA para ARCA. Certificado y clave: AFIP factura electrónica.</p>
       <form id="form-afip" class="grid form">
         <div class="field"><label>CUIT emisor</label><input name="afip_cuit" value="${esc(cfg.afip_cuit || cfg.cuit || "")}" placeholder="30-00000000-0"></div>
         <div class="field"><label>Punto de venta</label><input name="afip_pto_vta" value="${esc(cfg.afip_pto_vta || "1")}"></div>
@@ -2923,6 +2932,19 @@ async function vistaConfig() {
             <option value="homo" ${cfg.afip_ambiente === "prod" ? "" : "selected"}>Homologación (pruebas)</option>
             <option value="prod" ${cfg.afip_ambiente === "prod" ? "selected" : ""}>Producción</option>
           </select>
+        </div>
+        <div class="field"><label>Alícuota IVA %</label>
+          <input name="iva_alicuota" inputmode="decimal" value="${esc(cfg.iva_alicuota || "21")}" placeholder="21">
+        </div>
+        <div class="field"><label>Precios</label>
+          <select name="precios_con_iva">
+            <option value="1" ${String(cfg.precios_con_iva ?? "1") !== "0" ? "selected" : ""}>Con IVA incluido</option>
+            <option value="0" ${String(cfg.precios_con_iva ?? "1") === "0" ? "selected" : ""}>Neto (IVA se suma)</option>
+          </select>
+        </div>
+        <div class="field"><label>Id alícuota ARCA (opcional)</label>
+          <input name="afip_iva_id" value="${esc(cfg.afip_iva_id || "")}" placeholder="5 = 21% · vacío = auto">
+          <small class="hint">3=0% · 4=10,5% · 5=21% · 6=27%</small>
         </div>
         <div class="field full"><label>Certificado (.crt)</label>
           <textarea name="afip_cert" rows="4" placeholder="${cfg.afip_cert_ok ? "Certificado cargado. Pegá otro solo si lo vas a cambiar." : "Pegá el PEM del certificado"}"></textarea>
@@ -6976,36 +6998,88 @@ function totalFacturarItems(items) {
   return Math.round((items || []).reduce((s, it) => s + Number(it.cantidad || 0) * Number(it.precio_unitario || 0), 0) * 100) / 100;
 }
 
+function ivaConfigFacturar() {
+  const cfg = state.config || {};
+  let alicuota = Number(String(cfg.iva_alicuota || "21").replace(",", "."));
+  if (!Number.isFinite(alicuota) || alicuota < 0) alicuota = 21;
+  const conIva = String(cfg.precios_con_iva ?? "1") !== "0";
+  return { alicuota, conIva };
+}
+
 function totalesFacturar(f) {
   const sub = totalFacturarItems(f.items);
   const cond = (f.condiciones || []).find((c) => String(c.id) === String(f.condicion_pago_id));
   const rec = cond && Number(cond.recargo_pct) ? Math.round(sub * Number(cond.recargo_pct) / 100 * 100) / 100 : 0;
   const des = cond && Number(cond.descuento_pct) ? Math.round(sub * Number(cond.descuento_pct) / 100 * 100) / 100 : 0;
+  let total = Math.round((sub + rec - des) * 100) / 100;
+  const { alicuota, conIva } = ivaConfigFacturar();
+  const esC = f.tipo === "factura_c" || String(state.config?.afip_condicion || "").includes("mono");
+  let neto = total;
+  let iva = 0;
+  let alic = alicuota;
+  if (esC || alicuota <= 0) {
+    alic = 0;
+  } else if (conIva) {
+    neto = Math.round((total / (1 + alicuota / 100)) * 100) / 100;
+    iva = Math.round((total - neto) * 100) / 100;
+  } else {
+    iva = Math.round((total * alicuota / 100) * 100) / 100;
+    neto = total;
+    total = Math.round((neto + iva) * 100) / 100;
+  }
   return {
     sub,
     rec,
     des,
-    total: Math.round((sub + rec - des) * 100) / 100,
+    total,
+    neto,
+    iva,
+    alicuota: alic,
+    preciosConIva: conIva,
     cond,
   };
 }
 
 function parseCapacidadM3(cap) {
-  const s = String(cap || "").trim().replace(",", ".").toLowerCase().replace(/\s*m³?\s*/g, "");
+  const raw = String(cap || "").trim();
+  const bad = /^(l|xl|m|p|m60|m50|99|98|97|96|95|01)$/i;
+  if (!raw || bad.test(raw)) return null;
+  const s = raw.replace(",", ".").toLowerCase().replace(/\s*m³?\s*/g, "");
   if (!s) return null;
   if (s.includes("/")) {
     const [a, b] = s.split("/");
     const n = Number(a) / Number(b);
     return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : null;
   }
-  const m = s.match(/(\d+(?:\.\d+)?)/);
+  const m = s.match(/^(\d+(?:\.\d+)?)$/);
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function slugGasDesdeGrupo(grupo, descripcion) {
-  const raw = `${grupo || ""} ${descripcion || ""}`
+function capacidadDesdeDescripcion(desc, grupo) {
+  const d = String(desc || "").toUpperCase().replace(/³/g, "3");
+  let m = d.match(/(\d+[.,]?\d*)\s*M\s*3\b/);
+  if (m) return parseCapacidadM3(m[1]);
+  m = d.match(/(\d+[.,]?\d*)\s*K\s*G\.?\b/);
+  if (m) return parseCapacidadM3(m[1]);
+  const g = String(grupo || "").toUpperCase();
+  if (/\bGRANDE\b/.test(d)) {
+    if (/OXIMED|MEDICINAL/.test(d + " " + g)) return 6;
+    return 10;
+  }
+  if (/\bCHICO\b|\bCHICA\b/.test(d)) return 1;
+  return null;
+}
+
+function capacidadEfectivaTubo(t) {
+  return parseCapacidadM3(t?.capacidad)
+    || capacidadDesdeDescripcion(t?.articulo_descripcion || t?.descripcion, t?.grupo)
+    || null;
+}
+
+function slugGasDesdeGrupo(grupo, descripcion, gas) {
+  const raw = `${gas || ""} ${grupo || ""} ${descripcion || ""}`
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
@@ -7039,9 +7113,9 @@ function precioGasPorSlug(precios, slug) {
 }
 
 function precioLineaDesdeTubo(t, precios) {
-  const slug = slugGasDesdeGrupo(t.grupo, t.articulo_descripcion || t.descripcion);
+  const slug = slugGasDesdeGrupo(t.grupo, t.articulo_descripcion || t.descripcion, t.articulo_gas || t.gas);
   const p = precioGasPorSlug(precios, slug);
-  const m3 = parseCapacidadM3(t.capacidad);
+  const m3 = capacidadEfectivaTubo(t);
   if (!p || !m3) {
     return {
       cantidad: 1,
@@ -7084,8 +7158,7 @@ function htmlFacturarPasos(paso) {
   ];
   return `<nav class="fac-pasos" aria-label="Pasos">${pasos.map(([n, nom]) =>
     `<span class="fac-paso ${paso === n ? "on" : ""} ${paso > n ? "done" : ""}"><b>${n}</b> ${esc(nom)}</span>`
-  ).join('<span class="fac-paso-sep">→</span>')}</nav>
-  <p class="fac-teclado lead">Teclado: ↑↓ elegir · Enter confirmar · Esc atrás · F2 siguiente · F9 grabar</p>`;
+  ).join('<span class="fac-paso-sep">→</span>')}</nav>`;
 }
 
 function htmlChequeForm(prefix, ch, montoHint) {
@@ -7174,9 +7247,14 @@ function facSiguiente() {
     if (!f.cliente) { toast("Elegí un cliente (Enter sobre el resultado)", true); return; }
     f.paso = 2;
   } else if (f.paso === 2) {
-    if (!f.condicion_pago_id && f.modoPago === "cuenta") {
-      /* permitido: manual */
+    const hit = (f.hits || [])[f.hitIdx || 0];
+    if (hit) {
+      f.condicion_pago_id = hit.id || "";
+      if (hit.id) aplicarCondicionFacturar(f);
+      else f.modoPago = f.modoPago || "cuenta";
     }
+    f.hits = [];
+    f.hitIdx = 0;
     f.paso = 3;
   } else if (f.paso === 3) {
     if (!f.items.length && !f.vacios.length && !f.llenos.length) {
@@ -7236,30 +7314,25 @@ function pintarFacturarPasoCliente() {
   const f = state.facturar;
   const hits = f.hits || [];
   app().innerHTML = `
-    <h1>Facturar</h1>
-    ${htmlFacturarPasos(1)}
-    <div class="card fac-panel">
-      <h2 style="margin-top:0">1 · Cliente a facturar</h2>
-      <p class="lead">Buscá por <b>código</b>, <b>nombre</b> o <b>CUIT</b>. Enter elige. F2 / Enter con cliente listo → condición.</p>
-      <div class="field full">
-        <label>Buscar cliente</label>
-        <input id="fac-cli-q" class="fac-focus" type="search" autocomplete="off" placeholder="Código, nombre o CUIT…" value="">
+    <div class="fac-solo fac-solo-cli">
+      ${htmlFacturarPasos(1)}
+      <div class="fac-nav-row">
+        <a class="btn ghost" href="#/ventas">← Ventas</a>
       </div>
-      <ul id="fac-hits" class="fac-hits" ${hits.length ? "" : "hidden"}>
+      <h1>¿A quién facturás?</h1>
+      <p class="lead">Filtrá por <b>código</b>, <b>nombre</b>, <b>CUIT</b> o <b>dirección</b> · ↑↓ · <b>Enter</b></p>
+      <input id="fac-cli-q" class="fac-focus fac-big-input" type="search" autocomplete="off" placeholder="Código, nombre, CUIT o dirección…">
+      <div id="fac-hits" class="fac-cli-table" ${hits.length ? "" : "hidden"}>
+        <div class="fac-cli-head"><span>Código</span><span>Nombre</span><span>CUIT</span><span>Dirección</span><span>Factura</span></div>
         ${hits.map((c, i) => `
-          <li class="${i === f.hitIdx ? "on" : ""}" data-fac="pick-cli" data-id="${c.id}">
-            <strong>${c.codigo ? esc(c.codigo) + " · " : ""}${esc(c.nombre)}</strong>
-            <small>${esc(c.cuit || "—")}${c.factura_tipo ? " · " + esc(etiquetaFacturaTipo(c.factura_tipo)) : ""}${c.condicion_pago_id ? "" : ""}</small>
-            <span class="cli-dir">${esc(c.direccion || "")}</span>
-          </li>`).join("")}
-      </ul>
-      ${f.cliente ? `
-        <div class="fac-cli-card">
-          <strong>${f.cliente.codigo ? esc(f.cliente.codigo) + " · " : ""}${esc(f.cliente.nombre)}</strong>
-          <p>CUIT ${esc(f.cliente.cuit || "—")} · ${esc(etiquetaFacturaTipo(f.cliente.factura_tipo) || "Sin tipo de factura")}</p>
-          <p>${esc(f.cliente.direccion || "Sin dirección")}${f.cliente.localidad ? " · " + esc(f.cliente.localidad) : ""}</p>
-          <button type="button" class="btn copper" data-fac="next">Siguiente · condición de pago (F2)</button>
-        </div>` : `<p class="empty">Escribí para buscar. Las condiciones de factura (A/B/C/X) y de pago deben estar en la ficha del cliente.</p>`}
+          <button type="button" class="fac-cli-row ${i === f.hitIdx ? "on" : ""}" data-fac="pick-cli" data-id="${c.id}">
+            <span class="mono">${esc(c.codigo || "—")}</span>
+            <span><strong>${esc(c.nombre || "")}</strong></span>
+            <span class="mono">${esc(c.cuit || "—")}</span>
+            <span>${esc(c.direccion || "—")}${c.localidad ? " · " + esc(c.localidad) : ""}</span>
+            <span>${esc(etiquetaFacturaTipo(c.factura_tipo) || "—")}</span>
+          </button>`).join("")}
+      </div>
     </div>`;
   app().onclick = onFacturarClick;
   const q = $("#fac-cli-q");
@@ -7277,7 +7350,7 @@ function pintarFacturarPasoCliente() {
       }
       try {
         const data = await api("/api/clientes?q=" + encodeURIComponent(term));
-        state.facturar.hits = (data.clientes || []).slice(0, 12);
+        state.facturar.hits = (data.clientes || []).slice(0, 20);
         state.facturar.hitIdx = 0;
         pintarFacturar();
         const inp = $("#fac-cli-q");
@@ -7290,70 +7363,36 @@ function pintarFacturarPasoCliente() {
 
 function pintarFacturarPasoCondicion() {
   const f = state.facturar;
-  const conds = f.condiciones || [];
-  const cond = conds.find((c) => String(c.id) === String(f.condicion_pago_id));
+  const conds = [
+    { id: "", nombre: "Sin condición (manual)", genera_deuda: 1, plazo_dias: 0, recargo_pct: 0, descuento_pct: 0 },
+    ...(f.condiciones || []),
+  ];
+  let idx = conds.findIndex((c) => String(c.id) === String(f.condicion_pago_id || ""));
+  if (idx < 0) idx = 0;
+  f.hitIdx = idx;
+  f.hits = conds;
+  const tipoLabel = ({ factura_a: "Factura A", factura_b: "Factura B", factura_c: "Factura C", factura_x: "Factura X" })[f.tipo] || f.tipo;
   app().innerHTML = `
-    <h1>Facturar</h1>
-    ${htmlFacturarPasos(2)}
-    <div class="card fac-panel">
-      <h2 style="margin-top:0">2 · Condición de pago y comprobante</h2>
-      <div class="fac-cli-card" style="margin-bottom:12px">
-        <strong>${f.cliente?.codigo ? esc(f.cliente.codigo) + " · " : ""}${esc(f.cliente?.nombre || "")}</strong>
-        <p>CUIT ${esc(f.cliente?.cuit || "—")} · ${esc(f.cliente?.direccion || "")}</p>
-        <p>Tipo en ficha: <b>${esc(etiquetaFacturaTipo(f.cliente?.factura_tipo) || "—")}</b></p>
-      </div>
-      <div class="grid form">
-        <div class="field full"><label>Condición de pago (cuenta / contado / recargo / descuento)</label>
-          <select id="fac-cond" class="fac-focus">
-            <option value="">Sin condición (elegís cuenta o contado a mano)</option>
-            ${conds.map((c) => `<option value="${c.id}" ${String(f.condicion_pago_id) === String(c.id) ? "selected" : ""}>${esc(c.nombre)}${Number(c.genera_deuda) ? " · cta.cte." : " · contado"}${Number(c.recargo_pct) ? " · +" + c.recargo_pct + "%" : ""}${Number(c.descuento_pct) ? " · −" + c.descuento_pct + "%" : ""}</option>`).join("")}
-          </select>
-          <small class="lead">Las condiciones se crean en <a href="#/caja/config">Configuración de caja</a>.</small>
-        </div>
-        <div class="field"><label>Comprobante</label>
-          <select id="fac-tipo">
-            <option value="factura_a" ${f.tipo === "factura_a" ? "selected" : ""}>Factura A</option>
-            <option value="factura_b" ${f.tipo === "factura_b" ? "selected" : ""}>Factura B</option>
-            <option value="factura_c" ${f.tipo === "factura_c" ? "selected" : ""}>Factura C</option>
-            <option value="factura_x" ${f.tipo === "factura_x" ? "selected" : ""}>Factura X (negro)</option>
-            <option value="recibo" ${f.tipo === "recibo" ? "selected" : ""}>Recibo</option>
-            <option value="remito_interno" ${f.tipo === "remito_interno" ? "selected" : ""}>Remito interno</option>
-          </select>
-        </div>
-        <div class="field"><label>Fiscal</label>
-          <select id="fac-fiscal">
-            <option value="blanco" ${f.fiscal === "blanco" ? "selected" : ""}>En blanco (pide CAE AFIP)</option>
-            <option value="negro" ${f.fiscal !== "blanco" ? "selected" : ""}>En negro (sin AFIP)</option>
-          </select>
-        </div>
-      </div>
-      ${cond ? `<p class="lead" style="margin-top:10px"><b>${esc(cond.nombre)}</b>${Number(cond.genera_deuda) ? " · genera deuda" : " · contado"}${Number(cond.plazo_dias) ? " · " + cond.plazo_dias + " días" : ""}${Number(cond.recargo_pct) ? " · recargo " + cond.recargo_pct + "%" : ""}${Number(cond.descuento_pct) ? " · desc. " + cond.descuento_pct + "%" : ""}</p>` : ""}
-      <div class="toolbar ace-acciones" style="margin-top:14px">
+    <div class="fac-solo">
+      ${htmlFacturarPasos(2)}
+      <div class="fac-nav-row">
         <button type="button" class="btn ghost" data-fac="back">← Atrás (Esc)</button>
-        <button type="button" class="btn copper" data-fac="next">Siguiente · ítems (F2)</button>
       </div>
+      <h1>Condición de pago</h1>
+      <p class="fac-cli-mini">${esc(f.cliente?.codigo ? f.cliente.codigo + " · " : "")}${esc(f.cliente?.nombre || "")}
+        · CUIT ${esc(f.cliente?.cuit || "—")} · ${esc(tipoLabel)} (ficha)</p>
+      <p class="lead">↑↓ elegí · <b>Enter</b> confirma y sigue</p>
+      <ul id="fac-hits" class="fac-hits fac-hits-cond">
+        ${conds.map((c, i) => `
+          <li class="${i === f.hitIdx ? "on" : ""}" data-fac="pick-cond" data-id="${esc(String(c.id))}" data-i="${i}">
+            <strong>${esc(c.nombre)}</strong>
+            <small>${Number(c.genera_deuda) ? "Cuenta corriente" : "Contado"}${Number(c.plazo_dias) ? " · " + c.plazo_dias + " días" : ""}${Number(c.recargo_pct) ? " · recargo " + c.recargo_pct + "%" : ""}${Number(c.descuento_pct) ? " · desc. " + c.descuento_pct + "%" : ""}</small>
+          </li>`).join("")}
+      </ul>
+      <p class="lead fac-hint-cfg">Nuevas condiciones: Configuración de caja</p>
     </div>`;
   app().onclick = onFacturarClick;
-  $("#fac-cond").onchange = () => {
-    state.facturar.condicion_pago_id = $("#fac-cond").value || "";
-    aplicarCondicionFacturar(state.facturar);
-    pintarFacturar();
-  };
-  $("#fac-tipo").onchange = () => {
-    state.facturar.tipo = $("#fac-tipo").value;
-    if (["factura_a", "factura_b", "factura_c"].includes(state.facturar.tipo)) state.facturar.fiscal = "blanco";
-    if (state.facturar.tipo === "factura_x") state.facturar.fiscal = "negro";
-    if (state.facturar.tipo === "recibo") state.facturar.modoPago = "contado";
-    pintarFacturar();
-  };
-  $("#fac-fiscal").onchange = () => {
-    state.facturar.fiscal = $("#fac-fiscal").value === "blanco" ? "blanco" : "negro";
-    if (state.facturar.fiscal === "blanco" && !["factura_a", "factura_b", "factura_c"].includes(state.facturar.tipo)) {
-      state.facturar.tipo = "factura_b";
-    }
-    pintarFacturar();
-  };
-  $("#fac-cond")?.focus();
+  document.querySelector("#fac-hits li.on")?.scrollIntoView({ block: "nearest" });
 }
 
 function htmlItemsFacturar(f) {
@@ -7392,20 +7431,18 @@ function pintarFacturarPasoItems() {
   const hits = f.hits || [];
   const tot = totalesFacturar(f);
   app().innerHTML = `
-    <h1>Facturar</h1>
-    ${htmlFacturarPasos(3)}
-    <div class="card fac-panel">
-      <h2 style="margin-top:0">3 · Ítems y tubos</h2>
-      <p class="lead">Código de artículo o nº de tubo. Tubos (trazabilidad): <b>Enter</b> = lleno (cobra gas × m³) · <b>Shift+Enter</b> = vacío (solo deja). Artículos consumibles se suman al precio de lista.</p>
-      <div class="toolbar fac-scan-bar">
-        <div class="field" style="flex:1.4">
-          <label>Código / nº tubo</label>
-          <input id="fac-scan" class="fac-focus" autocomplete="off" placeholder="Escanear o escribir…" value="${esc(f.artQ || "")}">
-        </div>
-        <div class="field"><label>Vacío a mano</label><input id="fac-vacio-m" placeholder="Nº vacío"></div>
-        <div class="field"><label>Lleno a mano</label><input id="fac-lleno-m" placeholder="Nº lleno"></div>
-        <button type="button" class="btn secondary" data-fac="add-vacio-m">+ Vacío</button>
-        <button type="button" class="btn secondary" data-fac="add-lleno-m">+ Lleno</button>
+    <div class="fac-solo fac-solo-items">
+      ${htmlFacturarPasos(3)}
+      <div class="fac-nav-row">
+        <button type="button" class="btn ghost" data-fac="back">← Atrás (Esc)</button>
+        <button type="button" class="btn copper" data-fac="next">Siguiente · resumen (F2)</button>
+      </div>
+      <h1>Ítems de la factura</h1>
+      <p class="lead"><b>Enter</b> = lleno (gas × m³) · <b>Shift+Enter</b> = vacío · código de gas (OXIG, ACET…) · <b>F2</b> resumen</p>
+      <input id="fac-scan" class="fac-focus fac-big-input" autocomplete="off" placeholder="Código artículo, gas o nº de tubo…" value="${esc(f.artQ || "")}">
+      <div class="fac-mano-row">
+        <input id="fac-vacio-m" placeholder="Vacío a mano + Enter">
+        <input id="fac-lleno-m" placeholder="Lleno a mano + Enter">
       </div>
       <ul id="fac-hits" class="fac-hits" ${hits.length ? "" : "hidden"}>
         ${hits.map((h, i) => `
@@ -7414,18 +7451,8 @@ function pintarFacturarPasoItems() {
             <small>${esc(h.sub || "")}</small>
           </li>`).join("")}
       </ul>
-      <div class="toolbar" style="margin-top:8px">
-        <div class="field" style="flex:1"><label>Línea libre</label><input id="fac-desc" placeholder="Descripción"></div>
-        <div class="field"><label>Cant.</label><input id="fac-cant" inputmode="decimal" value="1" style="width:72px"></div>
-        <div class="field"><label>P. unit.</label><input id="fac-pu" inputmode="decimal" value="0" style="width:100px"></div>
-        <button type="button" class="btn secondary" data-fac="add-linea">Sumar (Alt+Enter)</button>
-      </div>
       ${htmlItemsFacturar(f)}
-      <p style="text-align:right;margin:8px 0 0"><strong>Subtotal ${money(tot.sub)}</strong>${tot.rec ? ` · Recargo ${money(tot.rec)}` : ""}${tot.des ? ` · Desc. −${money(tot.des)}` : ""} · <span style="font-size:1.15rem">Total ${money(tot.total)}</span></p>
-      <div class="toolbar ace-acciones" style="margin-top:12px">
-        <button type="button" class="btn ghost" data-fac="back">← Atrás (Esc)</button>
-        <button type="button" class="btn copper" data-fac="next">Siguiente · resumen (F2)</button>
-      </div>
+      <p class="fac-total-line">Total parcial <strong>${money(tot.total)}</strong> · F2 resumen</p>
     </div>`;
   app().onclick = onFacturarClick;
   app().onchange = onFacturarEdit;
@@ -7472,6 +7499,20 @@ function onFacturarEdit(ev) {
   if (ev.type === "change") pintarFacturar();
 }
 
+function gasesFacturarMatch(term, precios) {
+  const q = String(term || "").trim().toLowerCase();
+  if (!q) return [];
+  return (precios || [])
+    .filter((p) => p.tipo === "gas")
+    .filter((p) => {
+      const cod = String(p.codigo || "").toLowerCase();
+      const nom = String(p.nombre || "").toLowerCase();
+      const gas = String(p.gas || "").toLowerCase();
+      return cod === q || cod.startsWith(q) || nom.includes(q) || gas === q || ("gas:" + gas) === q;
+    })
+    .slice(0, 6);
+}
+
 async function buscarHitsFacturar(term) {
   const q = String(term || "").trim();
   const f = state.facturar;
@@ -7487,14 +7528,25 @@ async function buscarHitsFacturar(term) {
     api("/api/articulos?q=" + encodeURIComponent(q)).catch(() => ({ articulos: [] })),
   ]);
   const hits = [];
+  for (const g of gasesFacturarMatch(q, f.precios)) {
+    const u = String(g.unidad || "m3").toLowerCase() === "kg" ? "kg" : "m³";
+    hits.push({
+      kind: "gas",
+      id: g.clave,
+      label: `${g.codigo || g.gas} · ${g.nombre}`,
+      sub: `Gas de caja · ${money(g.precio)} / ${u} · podés cambiar cant. en la línea`,
+      raw: g,
+    });
+  }
   for (const t of (tub.tubos || []).slice(0, 8)) {
     const prec = precioLineaDesdeTubo(t, f.precios);
+    const cap = capacidadEfectivaTubo(t);
     hits.push({
       kind: "tubo",
       id: t.id,
       numero: t.numero,
       label: `Tubo ${t.numero}`,
-      sub: `${t.articulo_descripcion || t.grupo || ""} · ${t.capacidad || "?"} · ${t.estado || ""}${prec.auto ? " · " + money(prec.cantidad * prec.precio_unitario) : ""}`,
+      sub: `${t.articulo_descripcion || t.grupo || ""} · ${cap != null ? cap + " m³" : (t.capacidad || "?")} · ${t.estado || ""}${prec.auto ? " · " + money(prec.cantidad * prec.precio_unitario) : ""}`,
       raw: t,
     });
   }
@@ -7533,6 +7585,11 @@ async function confirmarHitOScanFacturar(rol) {
   }
   const q = ($("#fac-scan")?.value || f.artQ || "").trim();
   if (!q) return;
+  const gases = gasesFacturarMatch(q, f.precios);
+  if (gases.length) {
+    await aplicarHitFacturar({ kind: "gas", raw: gases[0], id: gases[0].clave }, "lleno");
+    return;
+  }
   const data = await api("/api/caja/buscar-tubo?q=" + encodeURIComponent(q));
   const t = (data.tubos || [])[0];
   if (t) {
@@ -7545,7 +7602,7 @@ async function confirmarHitOScanFacturar(rol) {
     await aplicarHitFacturar({ kind: "articulo", raw: a, id: a.id }, "lleno");
     return;
   }
-  toast("No se encontró tubo ni artículo con ese código", true);
+  toast("No se encontró tubo, gas ni artículo con ese código", true);
 }
 
 async function aplicarHitFacturar(hit, rol) {
@@ -7553,6 +7610,19 @@ async function aplicarHitFacturar(hit, rol) {
   if (!hit) return;
   if (hit.kind === "tubo") {
     pushTuboFacturar(hit.raw, rol || "lleno");
+  } else if (hit.kind === "gas") {
+    const g = hit.raw;
+    const u = String(g.unidad || "m3").toLowerCase() === "kg" ? "kg" : "m³";
+    f.items.push({
+      descripcion: `${g.codigo ? g.codigo + " · " : ""}${g.nombre || g.gas}`.trim(),
+      cantidad: 1,
+      precio_unitario: Number(g.precio) || 0,
+      precio_caja_clave: g.clave,
+      gas_slug: g.gas,
+      es_tubo: false,
+      nota_precio: `Precio de caja · editá cantidad (${u})`,
+    });
+    toast(`Gas ${g.nombre} sumado — ajustá m³/kg si hace falta`);
   } else if (hit.kind === "articulo") {
     const a = hit.raw;
     f.items.push({
@@ -7674,53 +7744,52 @@ function pintarFacturarPasoResumen() {
   const f = state.facturar;
   const tot = totalesFacturar(f);
   const cond = tot.cond;
+  const tipoNom = ({ factura_a: "Factura A", factura_b: "Factura B", factura_c: "Factura C", factura_x: "Factura X", recibo: "Recibo", remito_interno: "Remito" })[f.tipo] || f.tipo;
   app().innerHTML = `
-    <h1>Facturar</h1>
-    ${htmlFacturarPasos(4)}
-    <div class="card fac-panel">
-      <h2 style="margin-top:0">4 · Resumen y CAE</h2>
-      <div class="fac-resumen-grid">
-        <div>
-          <p class="caja-label">Cliente</p>
-          <p><strong>${f.cliente?.codigo ? esc(f.cliente.codigo) + " · " : ""}${esc(f.cliente?.nombre || "")}</strong><br>
-          CUIT ${esc(f.cliente?.cuit || "—")}<br>${esc(f.cliente?.direccion || "")}</p>
-        </div>
-        <div>
-          <p class="caja-label">Comprobante</p>
-          <p><strong>${esc(({ factura_a: "Factura A", factura_b: "Factura B", factura_c: "Factura C", factura_x: "Factura X", recibo: "Recibo", remito_interno: "Remito" })[f.tipo] || f.tipo)}</strong><br>
-          ${f.fiscal === "blanco" ? "En blanco · se pedirá CAE a AFIP" : "En negro · sin AFIP"}<br>
-          ${cond ? esc(cond.nombre) : "Sin condición"} · ${f.modoPago === "cuenta" ? "Cuenta corriente" : "Contado"}</p>
-        </div>
-      </div>
-      ${htmlItemsFacturar(f)}
-      <div class="card" style="margin-top:10px">
-        <div class="toolbar">
-          <button type="button" class="btn big-soft ${f.modoPago === "cuenta" ? "on" : ""}" data-fac="modo" data-m="cuenta">Cuenta corriente</button>
-          <button type="button" class="btn big-soft ${f.modoPago === "contado" ? "on" : ""}" data-fac="modo" data-m="contado">Contado</button>
-        </div>
-        ${f.modoPago === "contado" ? `
-          <div class="caja-medios-inline" style="margin:10px 0">
-            ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
-              `<button type="button" class="btn big-soft ${f.medioPago === id ? "on" : ""}" data-fac="medio" data-m="${id}">${n}</button>`
-            ).join("")}
-          </div>
-          ${f.medioPago === "cheque" || f.medioPago === "echeq" ? htmlChequeForm("fac", { ...f.cheque, tipo: f.medioPago }, tot.total) : ""}
-        ` : `<p class="lead">Queda como deuda según la condición de pago.</p>`}
-        <div class="field full"><label>Observaciones</label><input id="fac-obs" class="fac-focus" value="${esc(f.obs || "")}"></div>
-        <p style="text-align:right;font-size:1.35rem;margin:12px 0"><strong>Total ${money(tot.total)}</strong></p>
-        ${tot.rec || tot.des ? `<p class="lead" style="text-align:right">Subtotal ${money(tot.sub)}${tot.rec ? ` · Recargo ${money(tot.rec)}` : ""}${tot.des ? ` · Desc. −${money(tot.des)}` : ""}</p>` : ""}
-      </div>
-      <div class="toolbar ace-acciones" style="margin-top:12px">
+    <div class="fac-solo fac-solo-resumen">
+      ${htmlFacturarPasos(4)}
+      <div class="fac-nav-row">
         <button type="button" class="btn ghost" data-fac="back">← Atrás (Esc)</button>
-        <button type="button" class="btn btn-grabar" data-fac="grabar">
-          ${f.fiscal === "blanco" ? "Cerrar y pedir CAE (F9)" : "Grabar comprobante (F9)"}
+      </div>
+      <h1>Resumen</h1>
+      <p class="fac-cli-mini">${esc(f.cliente?.codigo ? f.cliente.codigo + " · " : "")}${esc(f.cliente?.nombre || "")}
+        · CUIT ${esc(f.cliente?.cuit || "—")} · ${esc(tipoNom)}
+        · ${cond ? esc(cond.nombre) : "Sin condición"} · ${f.modoPago === "cuenta" ? "Cta. cte." : "Contado"}</p>
+      ${htmlItemsFacturar(f)}
+      <div class="fac-iva-box">
+        ${tot.rec || tot.des ? `<p>Subtotal ítems ${money(tot.sub)}${tot.rec ? ` · Recargo ${money(tot.rec)}` : ""}${tot.des ? ` · Desc. −${money(tot.des)}` : ""}</p>` : ""}
+        <p>Neto gravado <strong>${money(tot.neto)}</strong></p>
+        <p>IVA ${tot.alicuota ? tot.alicuota + "%" : "—"} <strong>${money(tot.iva)}</strong>
+          <small class="lead">${tot.preciosConIva ? "precios con IVA incluido" : "IVA agregado al neto"}</small></p>
+        <p class="fac-total-line" style="margin:6px 0 0">Total factura <strong>${money(tot.total)}</strong></p>
+      </div>
+      ${f.modoPago === "contado" ? `
+        <div class="caja-medios-inline fac-medios">
+          ${[["efectivo","Efectivo"],["transferencia","Transfer."],["tarjeta","Tarjeta"],["cheque","Cheque"],["echeq","ECHEQ"]].map(([id,n]) =>
+            `<button type="button" class="btn big-soft ${f.medioPago === id ? "on" : ""}" data-fac="medio" data-m="${id}">${n}</button>`
+          ).join("")}
+        </div>
+        ${f.medioPago === "cheque" || f.medioPago === "echeq" ? htmlChequeForm("fac", { ...f.cheque, tipo: f.medioPago }, tot.total) : ""}
+      ` : ""}
+      <input id="fac-obs" class="fac-focus fac-obs" placeholder="Observaciones (opcional)" value="${esc(f.obs || "")}">
+      <p class="lead">${f.fiscal === "blanco" ? "Enter / F9 pide CAE a AFIP" : "Enter / F9 graba el comprobante"} · Esc atrás</p>
+      <div class="fac-resumen-cta">
+        <button type="button" class="btn btn-grabar fac-focus-btn" data-fac="grabar">
+          ${f.fiscal === "blanco" ? "Cerrar y pedir CAE" : "Grabar comprobante"}
         </button>
       </div>
     </div>`;
   app().onclick = onFacturarClick;
   app().onchange = onFacturarEdit;
   app().oninput = onFacturarEdit;
-  $("#fac-obs")?.focus();
+  const obs = $("#fac-obs");
+  obs?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      grabarFacturar().catch((e) => toast(e.message, true));
+    }
+  });
+  obs?.focus();
 }
 
 function bindFacturarTeclado() {
@@ -7758,21 +7827,38 @@ function onFacturarKeyGlobal(ev) {
     const hits = f.hits || [];
     if (!hits.length) return;
     if (tag === "textarea") return;
+    if (f.paso === 3 && (tag === "input" || tag === "select") && ev.target?.id !== "fac-scan") return;
     ev.preventDefault();
     f.hitIdx = ev.key === "ArrowDown"
       ? Math.min(hits.length - 1, (f.hitIdx || 0) + 1)
       : Math.max(0, (f.hitIdx || 0) - 1);
-    document.querySelectorAll("#fac-hits li").forEach((li, i) => li.classList.toggle("on", i === f.hitIdx));
+    const rows = document.querySelectorAll("#fac-hits li, #fac-hits .fac-cli-row");
+    rows.forEach((li, i) => {
+      li.classList.toggle("on", i === f.hitIdx);
+      if (i === f.hitIdx) li.scrollIntoView({ block: "nearest" });
+    });
     return;
   }
-  if (ev.key === "Enter" && f.paso === 1 && !ev.shiftKey) {
-    const hits = f.hits || [];
-    if (hits.length) {
-      ev.preventDefault();
-      elegirClienteFacturar(hits[f.hitIdx || 0].id).catch((e) => toast(e.message, true));
-    } else if (f.cliente) {
+  if (ev.key === "Enter" && !ev.shiftKey) {
+    if (f.paso === 1) {
+      const hits = f.hits || [];
+      if (hits.length) {
+        ev.preventDefault();
+        elegirClienteFacturar(hits[f.hitIdx || 0].id).catch((e) => toast(e.message, true));
+      } else if (f.cliente) {
+        ev.preventDefault();
+        facSiguiente();
+      }
+      return;
+    }
+    if (f.paso === 2) {
       ev.preventDefault();
       facSiguiente();
+      return;
+    }
+    if (f.paso === 4 && tag !== "textarea" && !ev.target?.closest?.(".cheque-form") && ev.target?.id !== "fac-obs" && tag !== "input") {
+      ev.preventDefault();
+      grabarFacturar().catch((e) => toast(e.message, true));
     }
   }
 }
@@ -7786,6 +7872,12 @@ function onFacturarClick(ev) {
   else if (act === "back") facAtras();
   else if (act === "pick-cli") {
     elegirClienteFacturar(btn.dataset.id).catch((e) => toast(e.message, true));
+  } else if (act === "pick-cond") {
+    f.hitIdx = Number(btn.dataset.i) || 0;
+    f.condicion_pago_id = btn.dataset.id || "";
+    if (f.condicion_pago_id) aplicarCondicionFacturar(f);
+    else f.modoPago = f.modoPago || "cuenta";
+    facSiguiente();
   } else if (act === "pick-hit") {
     const hit = (f.hits || [])[Number(btn.dataset.i)];
     aplicarHitFacturar(hit, "lleno").catch((e) => toast(e.message, true));
@@ -9306,15 +9398,16 @@ async function vistaConfigCaja() {
     <p><a href="#/ventas">← Ventas</a> · <a href="#/cobrar">Cobrar</a></p>
 
     <div class="card">
-      <h3 style="margin-top:0">💨 Gases y precios (Cobrar)</h3>
-      <p class="lead">Agregá o quitá gases (ej. Acetileno). Precio del gas y del regulador. Unidad por m³ o kg.</p>
+      <h3 style="margin-top:0">Gases y precios (Cobrar / Facturar)</h3>
+      <p class="lead">Código corto para tipiarlo en Facturar (ej. OXIG, ACET). Precio del gas y del regulador. Unidad por m³ o kg.</p>
       <form id="form-precios-caja">
-        <div class="precio-grid precio-grid-5" style="margin-bottom:8px"><strong>Gas</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong><strong></strong></div>
+        <div class="precio-grid precio-grid-6" style="margin-bottom:8px"><strong>Gas</strong><strong>Código</strong><strong>Unidad</strong><strong>Precio</strong><strong>Regulador</strong><strong></strong></div>
         ${gases.map((g) => {
           const reg = precios.find((p) => p.clave === "reg:" + g.gas) || { precio: 0 };
           const u = unidadGasCaja(g) === "kg" ? "kg" : "m3";
-          return `<div class="precio-grid precio-grid-5">
+          return `<div class="precio-grid precio-grid-6">
             <div><strong>${esc(g.nombre)}</strong><br><small class="mono">${esc(g.gas)}</small></div>
+            <div class="field"><input name="codigo:${esc(g.clave)}" value="${esc(g.codigo || "")}" placeholder="Ej. OXIG" autocomplete="off"></div>
             <div class="field">
               <select name="unidad:${esc(g.clave)}">
                 <option value="m3" ${u === "m3" ? "selected" : ""}>por m³</option>
@@ -9342,8 +9435,11 @@ async function vistaConfigCaja() {
         <div class="toolbar" style="margin-top:12px"><button class="btn copper" type="submit">Guardar precios</button></div>
       </form>
       <form id="form-gas-nuevo" class="grid form" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
-        <div class="field full"><label>Agregar gas nuevo</label>
+        <div class="field"><label>Agregar gas nuevo</label>
           <input name="nombre" required placeholder="Ej. Acetileno" autocomplete="off">
+        </div>
+        <div class="field"><label>Código Facturar</label>
+          <input name="codigo" placeholder="Ej. ACET" autocomplete="off">
         </div>
         <div class="field"><label>Unidad</label>
           <select name="unidad">
@@ -9353,7 +9449,7 @@ async function vistaConfigCaja() {
         </div>
         <div class="field"><label>Precio gas</label><input name="precio" inputmode="decimal" value="0"></div>
         <div class="field"><label>Precio regulador</label><input name="precio_regulador" inputmode="decimal" value="0"></div>
-        <div class="field full"><button class="btn copper" type="submit">＋ Agregar gas</button></div>
+        <div class="field full"><button class="btn copper" type="submit">Agregar gas</button></div>
       </form>
     </div>
 
@@ -9393,13 +9489,15 @@ async function vistaConfigCaja() {
     const raw = Object.fromEntries(new FormData(e.target).entries());
     const preciosBody = {};
     const unidades = {};
+    const codigos = {};
     Object.entries(raw).forEach(([k, v]) => {
       if (k.startsWith("unidad:")) unidades[k.slice(7)] = v;
+      else if (k.startsWith("codigo:")) codigos[k.slice(7)] = v;
       else preciosBody[k] = v;
     });
     try {
-      await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades } });
-      toast("Precios guardados");
+      await api("/api/caja/precios", { method: "PUT", body: { precios: preciosBody, unidades, codigos } });
+      toast("Precios y códigos guardados");
       route();
     } catch (err) { toast(err.message, true); }
   };

@@ -146,6 +146,98 @@ export async function ensureCaja() {
   )`);
   try { await run("CREATE INDEX IF NOT EXISTS idx_os_fecha ON ordenes_servicio(fecha)"); } catch { /* ok */ }
   try { await run("CREATE INDEX IF NOT EXISTS idx_os_estado ON ordenes_servicio(estado)"); } catch { /* ok */ }
+  try { await run("ALTER TABLE precios_caja ADD COLUMN codigo TEXT"); } catch { /* ok */ }
+  const codigosGas: Record<string, string> = {
+    oxigeno: "OXIG",
+    oxigeno_medicinal: "OXIMED",
+    co2: "CO2",
+    nitrogeno: "NITRO",
+    argon: "ARGON",
+    athal: "ATHAL",
+    helio: "HELIO",
+    acetileno: "ACET",
+  };
+  for (const [gas, codigo] of Object.entries(codigosGas)) {
+    await run(
+      "UPDATE precios_caja SET codigo=? WHERE clave=? AND IFNULL(TRIM(codigo),'')=''",
+      [codigo, `gas:${gas}`],
+    );
+  }
+  await run(`CREATE TABLE IF NOT EXISTS comprobantes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL,
+    numero INTEGER NOT NULL,
+    numero_txt TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    cliente_id INTEGER,
+    cliente_nombre TEXT,
+    cliente_cuit TEXT,
+    estado TEXT NOT NULL DEFAULT 'abierto',
+    total REAL NOT NULL DEFAULT 0,
+    saldo REAL NOT NULL DEFAULT 0,
+    observaciones TEXT,
+    venta_caja_id INTEGER,
+    cae TEXT,
+    cae_vto TEXT,
+    punto_venta_afip TEXT,
+    tipo_afip TEXT,
+    usuario_id INTEGER,
+    creado_en TEXT NOT NULL,
+    actualizado_en TEXT NOT NULL,
+    fecha_vencimiento TEXT,
+    condicion_pago_id INTEGER,
+    recargo REAL NOT NULL DEFAULT 0,
+    descuento REAL NOT NULL DEFAULT 0,
+    subtotal REAL,
+    neto REAL,
+    iva REAL,
+    iva_alicuota REAL
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS comprobante_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comprobante_id INTEGER NOT NULL,
+    descripcion TEXT NOT NULL,
+    cantidad REAL NOT NULL DEFAULT 1,
+    precio_unitario REAL NOT NULL DEFAULT 0,
+    subtotal REAL NOT NULL DEFAULT 0,
+    tubo_id INTEGER,
+    articulo_id INTEGER,
+    precio_caja_clave TEXT,
+    FOREIGN KEY (comprobante_id) REFERENCES comprobantes(id) ON DELETE CASCADE
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS comprobante_series (
+    tipo TEXT PRIMARY KEY,
+    siguiente INTEGER NOT NULL DEFAULT 1
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS condiciones_pago (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    genera_deuda INTEGER NOT NULL DEFAULT 1,
+    plazo_dias INTEGER NOT NULL DEFAULT 0,
+    recargo_pct REAL NOT NULL DEFAULT 0,
+    descuento_pct REAL NOT NULL DEFAULT 0,
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT
+  )`);
+  const nCond = await one("SELECT COUNT(*) AS n FROM condiciones_pago");
+  if (!Number(nCond?.n || 0)) {
+    const t = ahora();
+    for (const row of [
+      ["Contado", 0, 0, 0, 0],
+      ["Cuenta corriente 30 días", 1, 30, 0, 0],
+      ["Cuenta corriente con recargo 5%", 1, 30, 5, 0],
+    ] as const) {
+      await run(
+        "INSERT INTO condiciones_pago (nombre, genera_deuda, plazo_dias, recargo_pct, descuento_pct, activo, creado_en) VALUES (?,?,?,?,?,1,?)",
+        [...row, t],
+      );
+    }
+  }
+  for (const tipo of ["factura_a", "factura_b", "factura_c", "factura_x", "recibo", "remito_interno"]) {
+    await run("INSERT OR IGNORE INTO comprobante_series (tipo, siguiente) VALUES (?, 1)", [tipo]);
+  }
+  await run("INSERT OR IGNORE INTO config (clave, valor) VALUES ('iva_alicuota', '21')");
+  await run("INSERT OR IGNORE INTO config (clave, valor) VALUES ('precios_con_iva', '1')");
   for (const col of ["afip_cae", "afip_numero"] as const) {
     try {
       await run(`ALTER TABLE ventas_caja ADD COLUMN ${col} TEXT`);
@@ -1160,18 +1252,208 @@ export async function handleCaja(
 
   if (key === "GET /api/caja/comprobantes") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
-    return json({ ok: true, comprobantes: [] });
+    const desde = String(ctx.url.searchParams.get("desde") || "2020-01-01");
+    const hasta = String(ctx.url.searchParams.get("hasta") || hoy());
+    const rows = await all(
+      "SELECT * FROM comprobantes WHERE fecha>=? AND fecha<=? ORDER BY id DESC LIMIT 300",
+      [desde, hasta],
+    );
+    return json({ ok: true, comprobantes: rows, desde, hasta });
+  }
+
+  if (key === "POST /api/caja/comprobantes") {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const data = (await ctx.request.json().catch(() => ({}))) as Record<string, unknown>;
+    const tipo = String(data.tipo || "factura_x").trim().toLowerCase();
+    const tiposOk = ["factura_a", "factura_b", "factura_c", "factura_x", "recibo", "remito_interno"];
+    if (!tiposOk.includes(tipo)) return err("Tipo de comprobante inválido.");
+    const clienteId = Number(data.cliente_id);
+    if (!clienteId) return err("Debe elegir un cliente.");
+    const cli = await one("SELECT * FROM clientes WHERE id=? AND activo=1", [clienteId]);
+    if (!cli) return err("Cliente inválido.");
+    const fecha = parseFecha(String(data.fecha || ""));
+    const itemsIn = Array.isArray(data.items) ? data.items : [];
+    if (!itemsIn.length) return err("Agregá al menos una línea.");
+    let modoPago = String(data.modo_pago || "cuenta").trim().toLowerCase();
+    const medio = String(data.medio_pago || "efectivo").trim().toLowerCase() || "efectivo";
+    const obs = String(data.observaciones || "").trim();
+    let condId = data.condicion_pago_id != null ? Number(data.condicion_pago_id) : Number(cli.condicion_pago_id || 0) || null;
+    if (!condId) condId = null;
+    const cond = condId ? await one("SELECT * FROM condiciones_pago WHERE id=?", [condId]) : null;
+    if (cond) modoPago = Number(cond.genera_deuda) ? "cuenta" : "contado";
+    else if (modoPago !== "cuenta" && modoPago !== "contado") modoPago = "cuenta";
+    if (tipo === "recibo") modoPago = "contado";
+
+    const items: Array<Record<string, unknown>> = [];
+    let subtotal = 0;
+    for (const raw of itemsIn as Array<Record<string, unknown>>) {
+      const desc = String(raw.descripcion || "").trim();
+      const cant = Number(raw.cantidad || 1);
+      const pu = Number(String(raw.precio_unitario ?? raw.precio ?? 0).toString().replace(",", "."));
+      if (!desc) return err("Cada línea necesita descripción.");
+      if (!(cant > 0) || !Number.isFinite(pu)) return err("Cantidad o precio inválido en una línea.");
+      const sub = Math.round(cant * pu * 100) / 100;
+      subtotal += sub;
+      items.push({
+        descripcion: desc,
+        cantidad: cant,
+        precio_unitario: pu,
+        subtotal: sub,
+        tubo_id: raw.tubo_id ? Number(raw.tubo_id) : null,
+        articulo_id: raw.articulo_id ? Number(raw.articulo_id) : null,
+        precio_caja_clave: raw.precio_caja_clave ? String(raw.precio_caja_clave) : null,
+      });
+    }
+    subtotal = Math.round(subtotal * 100) / 100;
+    let recargo = 0;
+    let descuento = 0;
+    if (cond) {
+      const rp = Number(cond.recargo_pct || 0);
+      const dp = Number(cond.descuento_pct || 0);
+      if (rp) recargo = Math.round(subtotal * rp) / 100;
+      if (dp) descuento = Math.round(subtotal * dp) / 100;
+    }
+    let total = Math.round((subtotal + recargo - descuento) * 100) / 100;
+    if (total <= 0) return err("El total debe ser mayor a 0.");
+
+    const cfgRows = await all("SELECT clave, valor FROM config");
+    const cfgMap: Record<string, string> = {};
+    for (const r of cfgRows) cfgMap[String(r.clave)] = String(r.valor ?? "");
+    let ivaAlic = parseFloat(String(cfgMap.iva_alicuota || "21").replace(",", "."));
+    if (!Number.isFinite(ivaAlic) || ivaAlic < 0) ivaAlic = 21;
+    const preciosConIva = String(cfgMap.precios_con_iva || "1") !== "0";
+    let neto = total;
+    let iva = 0;
+    let ivaUsed = ivaAlic;
+    if (tipo === "factura_c" || String(cfgMap.afip_condicion || "").includes("mono")) {
+      ivaUsed = 0;
+    } else if (preciosConIva && ivaAlic > 0) {
+      neto = Math.round((total / (1 + ivaAlic / 100)) * 100) / 100;
+      iva = Math.round((total - neto) * 100) / 100;
+    } else if (ivaAlic > 0) {
+      iva = Math.round((total * ivaAlic) / 100 * 100) / 100;
+      neto = total;
+      total = Math.round((neto + iva) * 100) / 100;
+    }
+
+    const fiscal = String(data.fiscal || "").trim().toLowerCase();
+    const quiereAfip = ["afip", "blanco", "blanca"].includes(fiscal);
+    let cae: string | null = null;
+    let caeVto: string | null = null;
+    let puntoVentaAfip: string | null = null;
+    let tipoAfip: string | null = null;
+    let numero = 0;
+    let numeroTxt = "";
+
+    if (quiereAfip) {
+      if (!["factura_a", "factura_b", "factura_c"].includes(tipo)) {
+        return err("Para facturar en blanco elegí factura A, B o C.");
+      }
+      try {
+        const { emitirAfip, AfipError } = await import("./afip");
+        const af = await emitirAfip({
+          tipo,
+          cliente: { cuit: String(cli.cuit || ""), nombre: String(cli.nombre || "") },
+          fecha,
+          total,
+        });
+        numero = af.numero;
+        numeroTxt = af.numero_txt;
+        cae = af.cae;
+        caeVto = af.cae_vto;
+        puntoVentaAfip = af.punto_venta;
+        tipoAfip = af.tipo_afip;
+        if (af.neto != null) neto = af.neto;
+        if (af.iva != null) iva = af.iva;
+        if (af.alicuota != null) ivaUsed = af.alicuota;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Error AFIP";
+        return err(msg);
+      }
+    } else {
+      const ser = await one("SELECT siguiente FROM comprobante_series WHERE tipo=?", [tipo]);
+      numero = Number(ser?.siguiente || 1);
+      await run("UPDATE comprobante_series SET siguiente=? WHERE tipo=?", [numero + 1, tipo]);
+      numeroTxt = `00001-${String(numero).padStart(8, "0")}`;
+    }
+
+    const tnow = ahora();
+    const saldo = modoPago === "contado" ? 0 : total;
+    const estado = modoPago === "contado" ? "pagado" : "abierto";
+    const plazo = cond ? Number(cond.plazo_dias || 0) : 0;
+    let fechaVto = fecha;
+    if (modoPago === "cuenta") {
+      const d = new Date(fecha + "T12:00:00");
+      d.setDate(d.getDate() + (plazo > 0 ? plazo : 30));
+      const p = (n: number) => String(n).padStart(2, "0");
+      fechaVto = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    const ins = await run(
+      `INSERT INTO comprobantes (
+        tipo, numero, numero_txt, fecha, cliente_id, cliente_nombre, cliente_cuit,
+        estado, total, saldo, observaciones, venta_caja_id,
+        cae, cae_vto, punto_venta_afip, tipo_afip,
+        usuario_id, creado_en, actualizado_en,
+        fecha_vencimiento, condicion_pago_id, recargo, descuento, subtotal,
+        neto, iva, iva_alicuota
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        tipo, numero, numeroTxt, fecha, clienteId, String(cli.nombre || ""), cli.cuit ? String(cli.cuit) : null,
+        estado, total, saldo, obs, null,
+        cae, caeVto, puntoVentaAfip, tipoAfip,
+        u.id, tnow, tnow,
+        fechaVto, condId, recargo, descuento, subtotal,
+        neto, iva, ivaUsed,
+      ],
+    );
+    const cid = Number((ins as { lastInsertRowid?: number | bigint }).lastInsertRowid || 0);
+    if (!cid) return err("No se pudo crear el comprobante.");
+    for (const it of items) {
+      await run(
+        `INSERT INTO comprobante_items (
+          comprobante_id, descripcion, cantidad, precio_unitario, subtotal,
+          tubo_id, articulo_id, precio_caja_clave
+        ) VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          cid, it.descripcion, it.cantidad, it.precio_unitario, it.subtotal,
+          it.tubo_id, it.articulo_id, it.precio_caja_clave,
+        ],
+      );
+    }
+    const comp = await one("SELECT * FROM comprobantes WHERE id=?", [cid]);
+    return json({ ok: true, comprobante: comp, tubos_despachados: [] });
+  }
+
+  const compMatch = path.match(/^\/api\/caja\/comprobantes\/(\d+)$/);
+  if (method === "GET" && compMatch) {
+    if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
+    const cid = Number(compMatch[1]);
+    const comp = await one("SELECT * FROM comprobantes WHERE id=?", [cid]);
+    if (!comp) return err("Comprobante no encontrado.", 404);
+    const items = await all("SELECT * FROM comprobante_items WHERE comprobante_id=? ORDER BY id", [cid]);
+    return json({ ok: true, comprobante: comp, items });
   }
 
   if (key === "GET /api/caja/condiciones") {
     if (!puede(u, "admin", "cobrador")) return err("No tiene permiso para esta acción.", 403);
-    return json({
-      ok: true,
-      condiciones: [
-        { id: 1, nombre: "Contado", genera_deuda: 0, plazo_dias: 0, recargo_pct: 0, descuento_pct: 0, activo: 1 },
-        { id: 2, nombre: "Cuenta corriente 30 días", genera_deuda: 1, plazo_dias: 30, recargo_pct: 0, descuento_pct: 0, activo: 1 },
-      ],
-    });
+    const todos = ctx.url.searchParams.get("todos") === "1";
+    const rows = await all(
+      todos
+        ? "SELECT * FROM condiciones_pago ORDER BY id"
+        : "SELECT * FROM condiciones_pago WHERE activo=1 ORDER BY id",
+    );
+    return json({ ok: true, condiciones: rows });
+  }
+
+  if (key === "POST /api/afip/probar") {
+    if (!puede(u, "admin")) return err("No tiene permiso para esta acción.", 403);
+    try {
+      const { probarAfip } = await import("./afip");
+      return json(await probarAfip());
+    } catch (e) {
+      return err(e instanceof Error ? e.message : "Error AFIP");
+    }
   }
 
   const ccMatch = path.match(/^\/api\/caja\/cuenta-corriente\/(\d+)$/);
